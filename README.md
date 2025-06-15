@@ -174,5 +174,16 @@ npm run dist
 
 MIT License - see [LICENSE](LICENSE) file for details.
 
+<<<<<<< HEAD
 =
+=======
+## 🆘 Support
+
+- **Issues**: [GitHub Issues](https://github.com/yourusername/restaurant-management-system/issues)
+- **Discussions**: [GitHub Discussions](https://github.com/yourusername/restaurant-management-system/discussions)
+- **Email**: support@restaurant-management.com
+
+---
+
+>>>>>>> 87e58cf (first blood)
 **Built with ❤️ using Electron and Next.js**
