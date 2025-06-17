@@ -9,7 +9,7 @@ const nextConfig = {
     ignoreBuildErrors: true,
   },
   images: {
-    unoptimized: true
+    unoptimized: true,
   },
   assetPrefix: process.env.NODE_ENV === 'production' ? './' : '',
   webpack: (config, { isServer }) => {

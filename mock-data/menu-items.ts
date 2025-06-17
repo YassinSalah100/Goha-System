@@ -20,7 +20,7 @@ export const menuItems: MenuItem[] = [
       medium: 65,
       large: 85,
     },
-    image: "/placeholder.svg?height=200&width=200",
+    image: "/images/menu/margherita-pizza.jpg",
     available: true,
   },
   {
@@ -33,7 +33,7 @@ export const menuItems: MenuItem[] = [
       medium: 75,
       large: 95,
     },
-    image: "/placeholder.svg?height=200&width=200",
+    image: "/images/menu/pepperoni-pizza.jpg",
     available: true,
   },
   {
@@ -46,7 +46,7 @@ export const menuItems: MenuItem[] = [
       medium: 70,
       large: 90,
     },
-    image: "/placeholder.svg?height=200&width=200",
+    image: "/images/menu/vegetable-pizza.jpg",
     available: true,
   },
   {
@@ -59,7 +59,7 @@ export const menuItems: MenuItem[] = [
       medium: 80,
       large: 100,
     },
-    image: "/placeholder.svg?height=200&width=200",
+    image: "/images/menu/chicken-pizza.jpg",
     available: true,
   },
   {
@@ -72,7 +72,7 @@ export const menuItems: MenuItem[] = [
       medium: 95,
       large: 120,
     },
-    image: "/placeholder.svg?height=200&width=200",
+    image: "/images/menu/supreme-pizza.jpg",
     available: true,
   },
 
@@ -86,7 +86,7 @@ export const menuItems: MenuItem[] = [
       medium: 35,
       large: 50,
     },
-    image: "/placeholder.svg?height=200&width=200",
+    image: "/images/menu/sweet-feteer.jpg",
     available: true,
   },
   {
@@ -98,7 +98,7 @@ export const menuItems: MenuItem[] = [
       medium: 40,
       large: 55,
     },
-    image: "/placeholder.svg?height=200&width=200",
+    image: "/images/menu/cheese-feteer.jpg",
     available: true,
   },
   {
@@ -110,7 +110,7 @@ export const menuItems: MenuItem[] = [
       medium: 50,
       large: 70,
     },
-    image: "/placeholder.svg?height=200&width=200",
+    image: "/images/menu/meat-feteer.jpg",
     available: true,
   },
   {
@@ -122,7 +122,7 @@ export const menuItems: MenuItem[] = [
       medium: 45,
       large: 65,
     },
-    image: "/placeholder.svg?height=200&width=200",
+    image: "/images/menu/chicken-feteer.jpg",
     available: true,
   },
 
@@ -135,7 +135,7 @@ export const menuItems: MenuItem[] = [
     prices: {
       regular: 25,
     },
-    image: "/placeholder.svg?height=200&width=200",
+    image: "/images/menu/grilled-chicken-sandwich.jpg",
     available: true,
   },
   {
@@ -146,7 +146,7 @@ export const menuItems: MenuItem[] = [
     prices: {
       regular: 30,
     },
-    image: "/placeholder.svg?height=200&width=200",
+    image: "/images/menu/beef-shawarma.jpg",
     available: true,
   },
   {
@@ -157,7 +157,7 @@ export const menuItems: MenuItem[] = [
     prices: {
       regular: 28,
     },
-    image: "/placeholder.svg?height=200&width=200",
+    image: "/images/menu/kofta-sandwich.jpg",
     available: true,
   },
   {
@@ -168,7 +168,7 @@ export const menuItems: MenuItem[] = [
     prices: {
       regular: 15,
     },
-    image: "/placeholder.svg?height=200&width=200",
+    image: "/images/menu/falafel-sandwich.jpg",
     available: true,
   },
   {
@@ -179,7 +179,7 @@ export const menuItems: MenuItem[] = [
     prices: {
       regular: 35,
     },
-    image: "/placeholder.svg?height=200&width=200",
+    image: "/images/menu/beef-burger.jpg",
     available: true,
   },
 
@@ -192,7 +192,7 @@ export const menuItems: MenuItem[] = [
     prices: {
       regular: 20,
     },
-    image: "/placeholder.svg?height=200&width=200",
+    image: "/images/menu/nutella-crepe.jpg",
     available: true,
   },
   {
@@ -203,7 +203,7 @@ export const menuItems: MenuItem[] = [
     prices: {
       regular: 25,
     },
-    image: "/placeholder.svg?height=200&width=200",
+    image: "/images/menu/chicken-crepe.jpg",
     available: true,
   },
   {
@@ -214,7 +214,7 @@ export const menuItems: MenuItem[] = [
     prices: {
       regular: 22,
     },
-    image: "/placeholder.svg?height=200&width=200",
+    image: "/images/menu/tuna-crepe.jpg",
     available: true,
   },
   {
@@ -225,7 +225,7 @@ export const menuItems: MenuItem[] = [
     prices: {
       regular: 18,
     },
-    image: "/placeholder.svg?height=200&width=200",
+    image: "/images/menu/cheese-honey-crepe.jpg",
     available: true,
   },
 
@@ -239,7 +239,7 @@ export const menuItems: MenuItem[] = [
       half: 45,
       full: 80,
     },
-    image: "/placeholder.svg?height=200&width=200",
+    image: "/images/menu/whole-grilled-chicken.jpg",
     available: true,
   },
   {
@@ -250,7 +250,7 @@ export const menuItems: MenuItem[] = [
     prices: {
       regular: 40,
     },
-    image: "/placeholder.svg?height=200&width=200",
+    image: "/images/menu/chicken-fillet.jpg",
     available: true,
   },
   {
@@ -261,7 +261,7 @@ export const menuItems: MenuItem[] = [
     prices: {
       regular: 45,
     },
-    image: "/placeholder.svg?height=200&width=200",
+    image: "/images/menu/kfc-chicken.jpg",
     available: true,
   },
 
@@ -276,7 +276,7 @@ export const menuItems: MenuItem[] = [
       medium: 12,
       large: 15,
     },
-    image: "/placeholder.svg?height=200&width=200",
+    image: "/images/menu/coca-cola.jpg",
     available: true,
   },
   {
@@ -289,7 +289,7 @@ export const menuItems: MenuItem[] = [
       medium: 20,
       large: 25,
     },
-    image: "/placeholder.svg?height=200&width=200",
+    image: "/images/menu/orange-juice.jpg",
     available: true,
   },
   {
@@ -302,7 +302,7 @@ export const menuItems: MenuItem[] = [
       medium: 23,
       large: 28,
     },
-    image: "/placeholder.svg?height=200&width=200",
+    image: "/images/menu/mango-juice.jpg",
     available: true,
   },
   {
@@ -313,7 +313,7 @@ export const menuItems: MenuItem[] = [
     prices: {
       regular: 5,
     },
-    image: "/placeholder.svg?height=200&width=200",
+    image: "/images/menu/black-tea.jpg",
     available: true,
   },
   {
@@ -324,7 +324,7 @@ export const menuItems: MenuItem[] = [
     prices: {
       regular: 8,
     },
-    image: "/placeholder.svg?height=200&width=200",
+    image: "/images/menu/turkish-coffee.jpg",
     available: true,
   },
   {
@@ -335,11 +335,11 @@ export const menuItems: MenuItem[] = [
     prices: {
       regular: 12,
     },
-    image: "/placeholder.svg?height=200&width=200",
+    image: "/images/menu/nescafe.jpg",
     available: true,
   },
 
-  // Pasta (New Category)
+  // Pasta
   {
     id: "pasta-1",
     name: "مكرونة بالصلصة الحمراء",
@@ -348,7 +348,7 @@ export const menuItems: MenuItem[] = [
     prices: {
       regular: 30,
     },
-    image: "/placeholder.svg?height=200&width=200",
+    image: "/images/menu/red-sauce-pasta.jpg",
     available: true,
   },
   {
@@ -359,7 +359,7 @@ export const menuItems: MenuItem[] = [
     prices: {
       regular: 40,
     },
-    image: "/placeholder.svg?height=200&width=200",
+    image: "/images/menu/chicken-pasta.jpg",
     available: true,
   },
   {
@@ -370,11 +370,11 @@ export const menuItems: MenuItem[] = [
     prices: {
       regular: 55,
     },
-    image: "/placeholder.svg?height=200&width=200",
+    image: "/images/menu/shrimp-pasta.jpg",
     available: true,
   },
 
-  // Rice (New Category)
+  // Rice
   {
     id: "rice-1",
     name: "أرز بالفراخ",
@@ -383,7 +383,7 @@ export const menuItems: MenuItem[] = [
     prices: {
       regular: 35,
     },
-    image: "/placeholder.svg?height=200&width=200",
+    image: "/images/menu/chicken-rice.jpg",
     available: true,
   },
   {
@@ -394,7 +394,7 @@ export const menuItems: MenuItem[] = [
     prices: {
       regular: 25,
     },
-    image: "/placeholder.svg?height=200&width=200",
+    image: "/images/menu/vegetable-rice.jpg",
     available: true,
   },
   {
@@ -405,11 +405,11 @@ export const menuItems: MenuItem[] = [
     prices: {
       regular: 20,
     },
-    image: "/placeholder.svg?height=200&width=200",
+    image: "/images/menu/koshari.jpg",
     available: true,
   },
 
-  // Desserts (New Category)
+  // Desserts
   {
     id: "desserts-1",
     name: "أم علي",
@@ -418,7 +418,7 @@ export const menuItems: MenuItem[] = [
     prices: {
       regular: 25,
     },
-    image: "/placeholder.svg?height=200&width=200",
+    image: "/images/menu/om-ali.jpg",
     available: true,
   },
   {
@@ -429,7 +429,7 @@ export const menuItems: MenuItem[] = [
     prices: {
       regular: 15,
     },
-    image: "/placeholder.svg?height=200&width=200",
+    image: "/images/menu/muhalabia.jpg",
     available: true,
   },
   {
@@ -440,7 +440,7 @@ export const menuItems: MenuItem[] = [
     prices: {
       regular: 30,
     },
-    image: "/placeholder.svg?height=200&width=200",
+    image: "/images/menu/kunafa.jpg",
     available: true,
   },
 ]

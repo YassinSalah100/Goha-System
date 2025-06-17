@@ -150,8 +150,9 @@ export default function SalesPage() {
                             <Image
                               src={item.image || "/placeholder.svg?height=200&width=200"}
                               alt={item.name}
-                              fill
-                              className="object-cover"
+                              width={200}
+                              height={200}
+                              className="object-cover w-full h-full"
                             />
                           </div>
                           <CardContent className="p-3">
@@ -171,127 +172,64 @@ export default function SalesPage() {
         </Card>
       </div>
 
-      <div className="w-full lg:w-1/3 space-y-6">
-        <Card className="sticky top-6">
-          <CardHeader className="pb-3">
-            <CardTitle>Current Order</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="grid grid-cols-2 gap-4 mb-4">
-              <div className="col-span-2">
-                <label className="text-sm font-medium mb-1 block">Customer Name</label>
-                <Input
-                  placeholder="Customer name"
-                  value={customerName}
-                  onChange={(e) => setCustomerName(e.target.value)}
-                />
-              </div>
-              <div>
-                <label className="text-sm font-medium mb-1 block">Phone</label>
-                <Input
-                  placeholder="Phone number"
-                  value={customerPhone}
-                  onChange={(e) => setCustomerPhone(e.target.value)}
-                />
-              </div>
-              <div>
-                <label className="text-sm font-medium mb-1 block">Order Type</label>
-                <select
-                  className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background"
-                  value={orderType}
-                  onChange={(e) => setOrderType(e.target.value)}
-                >
-                  <option value="dine-in">Dine In</option>
-                  <option value="takeaway">Takeaway</option>
-                  <option value="delivery">Delivery</option>
-                </select>
-              </div>
+      <div className="w-full lg:w-1/3 flex flex-col items-center">
+        {/* Receipt (Invoice) - always visible, styled as in screenshot */}
+        <div className="bg-white rounded-xl shadow-lg p-6 w-full max-w-xs flex flex-col items-center mt-4">
+          <div className="flex flex-col items-center mb-4">
+            <img src="/images/logo.png" alt="Logo" className="rounded-full mb-2" style={{ width: 80, height: 80 }} />
+            <h1 className="text-2xl font-bold">Dawar Juha</h1>
+            <p className="text-sm text-gray-600">Restaurant & Café</p>
+            <p className="text-sm text-gray-600">123 Main Street, City</p>
+            <p className="text-sm text-gray-600">Tel: +123 456 7890</p>
+          </div>
+          <div className="w-full mb-2">
+            <div className="flex justify-between mb-1 text-sm"><span className="font-medium">Order #:</span><span>{orderId}</span></div>
+            <div className="flex justify-between mb-1 text-sm"><span className="font-medium">Date:</span><span>{new Date().toLocaleDateString()}</span></div>
+            <div className="flex justify-between mb-1 text-sm"><span className="font-medium">Time:</span><span>{new Date().toLocaleTimeString()}</span></div>
+            <div className="flex justify-between mb-1 text-sm"><span className="font-medium">Customer:</span><span>{customerName || "Walk-in Customer"}</span></div>
+            <div className="flex justify-between mb-1 text-sm"><span className="font-medium">Type:</span><span className="capitalize">{orderType.replace('-', ' ')}</span></div>
+          </div>
+          <div className="w-full mt-2 mb-2">
+            <div className="flex font-semibold border-b pb-1 text-sm">
+              <div className="w-1/3">Item</div>
+              <div className="w-1/6 text-center">Qty</div>
+              <div className="w-1/4 text-right">Price</div>
+              <div className="w-1/4 text-right">Total</div>
             </div>
-
-            <Separator className="my-4" />
-
-            <ScrollArea className="h-[300px] pr-4">
-              {cart.length === 0 ? (
-                <div className="text-center py-8 text-muted-foreground">No items added yet</div>
-              ) : (
-                <div className="space-y-4">
-                  {cart.map((item) => (
-                    <div key={item.id} className="flex justify-between">
-                      <div className="space-y-1">
-                        <div className="font-medium">{item.name}</div>
-                        <div className="text-sm text-muted-foreground">
-                          {item.size} • ج.م{item.price}
-                        </div>
-                        {item.notes && <div className="text-xs italic text-muted-foreground">Note: {item.notes}</div>}
-                      </div>
-                      <div className="flex items-center gap-2">
-                        <div className="flex items-center">
-                          <Button
-                            variant="outline"
-                            size="icon"
-                            className="h-6 w-6 rounded-full"
-                            onClick={() => handleUpdateQuantity(item.id, item.quantity - 1)}
-                          >
-                            <Minus className="h-3 w-3" />
-                          </Button>
-                          <span className="w-8 text-center">{item.quantity}</span>
-                          <Button
-                            variant="outline"
-                            size="icon"
-                            className="h-6 w-6 rounded-full"
-                            onClick={() => handleUpdateQuantity(item.id, item.quantity + 1)}
-                          >
-                            <Plus className="h-3 w-3" />
-                          </Button>
-                        </div>
-                        <Button
-                          variant="ghost"
-                          size="icon"
-                          className="h-8 w-8 text-red-500"
-                          onClick={() => handleRemoveFromCart(item.id)}
-                        >
-                          <Trash2 className="h-4 w-4" />
-                        </Button>
-                      </div>
-                    </div>
-                  ))}
+            {cart.length === 0 ? (
+              <div className="text-center text-gray-400 py-4 text-xs">---</div>
+            ) : (
+              cart.map((item) => (
+                <div key={item.id} className="flex flex-col border-b last:border-0 py-1 text-xs">
+                  <div className="flex">
+                    <div className="w-1/3 truncate">{item.name}</div>
+                    <div className="w-1/6 text-center">{item.quantity}</div>
+                    <div className="w-1/4 text-right">ج.م{item.price.toFixed(2)}</div>
+                    <div className="w-1/4 text-right">ج.م{(item.price * item.quantity).toFixed(2)}</div>
+                  </div>
+                  {item.notes && (
+                    <div className="w-full text-[10px] italic text-gray-500 pl-1 pt-0.5">Note: {item.notes}</div>
+                  )}
                 </div>
-              )}
-            </ScrollArea>
-
-            <Separator className="my-4" />
-
-            <div className="space-y-2">
-              <div className="flex justify-between text-sm">
-                <span>Subtotal</span>
-                <span>ج.م{calculateTotal()}</span>
-              </div>
-              <div className="flex justify-between text-sm">
-                <span>Tax (10%)</span>
-                <span>ج.م{calculateTotal() * 0.1}</span>
-              </div>
-              <Separator className="my-2" />
-              <div className="flex justify-between font-medium text-lg">
-                <span>Total</span>
-                <span>ج.م{calculateTotal() * 1.1}</span>
+              ))
+            )}
+          </div>
+          <div className="w-full border-t pt-2 mt-2">
+            <div className="flex justify-between text-sm mb-1"><span>Subtotal</span><span>ج.م{calculateTotal().toFixed(2)}</span></div>
+            <div className="flex justify-between text-lg font-bold border-t pt-2"><span>Total</span><span>ج.م{calculateTotal().toFixed(2)}</span></div>
+          </div>
+          <div className="text-center text-xs text-gray-600 mt-4">
+            <p>Thank you for your order!</p>
+            <p>Please come again</p>
+            <div className="flex flex-col items-center mt-3">
+              <div className="w-12 h-1 rounded-full bg-gradient-to-r from-blue-400 to-blue-700 mb-1" />
+              <div className="flex items-center gap-2 mt-1">
+                <img src="/images/eathrel.png" alt="Eathrel Logo" className="w-5 h-5 object-contain" />
+                <span className="text-[11px] text-blue-700 font-semibold tracking-wide uppercase">Powered by Ethreal</span>
               </div>
             </div>
-          </CardContent>
-          <CardFooter className="flex justify-between">
-            <Button variant="outline" className="w-1/2" onClick={handlePrintInvoice} disabled={cart.length === 0}>
-              <Printer className="mr-2 h-4 w-4" />
-              Print
-            </Button>
-            <Button
-              className="w-1/2 bg-orange-600 hover:bg-orange-700"
-              onClick={handleSaveOrder}
-              disabled={cart.length === 0}
-            >
-              <Save className="mr-2 h-4 w-4" />
-              Save Order
-            </Button>
-          </CardFooter>
-        </Card>
+          </div>
+        </div>
       </div>
 
       <AnimatePresence>
@@ -360,89 +298,6 @@ export default function SalesPage() {
           </div>
         )}
       </AnimatePresence>
-
-      {/* Print-only invoice */}
-      <div className="print-only">
-        <div className="p-8 max-w-md mx-auto">
-          <div className="text-center mb-6">
-            <div className="flex justify-center mb-2">
-              <Image src="/images/logo.png" alt="Dawar Juha Logo" width={80} height={80} className="rounded-full" />
-            </div>
-            <h1 className="text-2xl font-bold">Dawar Juha</h1>
-            <p className="text-sm text-gray-600">Restaurant & Café</p>
-            <p className="text-sm text-gray-600">123 Main Street, City</p>
-            <p className="text-sm text-gray-600">Tel: +123 456 7890</p>
-          </div>
-
-          <div className="mb-6">
-            <div className="flex justify-between mb-2">
-              <span className="font-medium">Order #:</span>
-              <span>{orderId}</span>
-            </div>
-            <div className="flex justify-between mb-2">
-              <span className="font-medium">Date:</span>
-              <span>{new Date().toLocaleDateString()}</span>
-            </div>
-            <div className="flex justify-between mb-2">
-              <span className="font-medium">Time:</span>
-              <span>{new Date().toLocaleTimeString()}</span>
-            </div>
-            <div className="flex justify-between mb-2">
-              <span className="font-medium">Customer:</span>
-              <span>{customerName || "Walk-in Customer"}</span>
-            </div>
-            <div className="flex justify-between mb-2">
-              <span className="font-medium">Type:</span>
-              <span className="capitalize">{orderType}</span>
-            </div>
-          </div>
-
-          <table className="w-full mb-6">
-            <thead>
-              <tr className="border-b">
-                <th className="text-left py-2">Item</th>
-                <th className="text-center py-2">Qty</th>
-                <th className="text-right py-2">Price</th>
-                <th className="text-right py-2">Total</th>
-              </tr>
-            </thead>
-            <tbody>
-              {cart.map((item) => (
-                <tr key={item.id} className="border-b">
-                  <td className="py-2">
-                    <div>{item.name}</div>
-                    <div className="text-xs text-gray-600">{item.size}</div>
-                    {item.notes && <div className="text-xs italic text-gray-600">Note: {item.notes}</div>}
-                  </td>
-                  <td className="text-center py-2">{item.quantity}</td>
-                  <td className="text-right py-2">ج.م{item.price}</td>
-                  <td className="text-right py-2">ج.م{item.price * item.quantity}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-
-          <div className="mb-6">
-            <div className="flex justify-between mb-2">
-              <span>Subtotal</span>
-              <span>ج.م{calculateTotal()}</span>
-            </div>
-            <div className="flex justify-between mb-2">
-              <span>Tax (10%)</span>
-              <span>ج.م{calculateTotal() * 0.1}</span>
-            </div>
-            <div className="flex justify-between font-bold text-lg border-t pt-2">
-              <span>Total</span>
-              <span>ج.م{calculateTotal() * 1.1}</span>
-            </div>
-          </div>
-
-          <div className="text-center text-sm text-gray-600">
-            <p>Thank you for your order!</p>
-            <p>Please come again</p>
-          </div>
-        </div>
-      </div>
     </div>
   )
 }
