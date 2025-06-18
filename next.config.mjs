@@ -11,7 +11,10 @@ const nextConfig = {
   images: {
     unoptimized: true,
   },
-  assetPrefix: process.env.NODE_ENV === 'production' ? './' : '',
+  experimental: {
+    optimizeFonts: false
+  },
+  basePath: '',
   webpack: (config, { isServer }) => {
     if (!isServer) {
       config.resolve.fallback = {
