@@ -13,6 +13,10 @@ export type Order = {
     size: string
     notes: string
     category: string
+    extras: {
+      name: string
+      price: number
+    }[]
   }[]
   total: number
   status: "completed" | "pending" | "canceled"
@@ -39,6 +43,7 @@ export const orders: Order[] = [
         size: "medium",
         notes: "Extra cheese",
         category: "pizza",
+        extras: [],
       },
       {
         id: "drinks-1-1686579000001",
@@ -48,6 +53,7 @@ export const orders: Order[] = [
         size: "medium",
         notes: "With ice",
         category: "drinks",
+        extras: [],
       },
     ],
     total: 21.96,
@@ -70,6 +76,7 @@ export const orders: Order[] = [
         size: "large",
         notes: "Extra honey",
         category: "feteer",
+        extras: [],
       },
     ],
     total: 12.99,
@@ -92,6 +99,7 @@ export const orders: Order[] = [
         size: "full",
         notes: "Spicy",
         category: "grilled",
+        extras: [],
       },
       {
         id: "sandwiches-1-1686587100001",
@@ -101,6 +109,7 @@ export const orders: Order[] = [
         size: "regular",
         notes: "",
         category: "sandwiches",
+        extras: [],
       },
     ],
     total: 29.97,

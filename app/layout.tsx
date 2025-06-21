@@ -21,16 +21,10 @@ export default function RootLayout({
           href="https://fonts.googleapis.com/css2?family=Inter:wght@100;200;300;400;500;600;700;800;900&display=swap"
           rel="stylesheet"
         />
-        <style>{`
-          body {
-            font-family: 'Inter', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
-          }
-        `}</style>
       </head>
       <body>
         <ElectronMenuHandler />
         {children}
-        <script src="/electron/renderer.js" defer />
       </body>
     </html>
   )
