@@ -10,7 +10,7 @@ interface ElectronAPI {
   removeAllListeners: (channel: string) => void
   platform: string
   showNotification: (title: string, body: string) => void
-}
+} 
 
 declare global {
   interface Window {

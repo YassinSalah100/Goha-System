@@ -176,6 +176,7 @@ export default function LoginPage() {
                   alt="شعار مطعم دوار جحا"
                   width={100}
                   height={100}
+                  priority
                   className="rounded-full relative z-10 border-4 border-white shadow-xl"
                 />
               </div>

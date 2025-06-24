@@ -9,8 +9,8 @@ import { CheckCircle, XCircle } from "lucide-react"
 import { orders } from "@/mock-data/orders"
 import { motion } from "framer-motion"
 
-// Mock cancel requests
-const cancelRequests = [
+// Mock cancel requests - will be replaced by localStorage data
+const initialCancelRequests = [
   {
     id: "req-001",
     orderId: "0003",
@@ -30,40 +30,73 @@ const cancelRequests = [
 ]
 
 export default function CancelRequestsPage() {
-  const [requests, setRequests] = useState(cancelRequests)
+  const [requests, setRequests] = useState(initialCancelRequests)
   const [currentUser, setCurrentUser] = useState<any>(null)
 
   useEffect(() => {
     if (typeof window !== "undefined") {
       const user = JSON.parse(localStorage.getItem("currentUser") || "{}")
       setCurrentUser(user)
+      
+      // Load cancel requests from localStorage
+      const storedRequests = JSON.parse(localStorage.getItem("cancelRequests") || "[]")
+      if (storedRequests.length > 0) {
+        setRequests(storedRequests)
+      }
     }
   }, [])
 
   const handleApprove = (requestId: string) => {
-    setRequests(
-      requests.map((req) =>
-        req.id === requestId
-          ? {
-              ...req,
-              status: "approved",
-            }
-          : req,
-      ),
+    const updatedRequests = requests.map((req) =>
+      req.id === requestId
+        ? {
+            ...req,
+            status: "approved",
+          }
+        : req,
     )
+    
+    setRequests(updatedRequests)
+    
+    // Update localStorage
+    localStorage.setItem("cancelRequests", JSON.stringify(updatedRequests))
+    
+    // Update order status
+    const request = requests.find(req => req.id === requestId)
+    if (request) {
+      const orderIndex = orders.findIndex(o => o.id === request.orderId)
+      if (orderIndex !== -1) {
+        orders[orderIndex].status = "canceled"
+        orders[orderIndex].cancelApprovedBy = currentUser?.name || "Admin"
+      }
+    }
   }
 
   const handleReject = (requestId: string) => {
-    setRequests(
-      requests.map((req) =>
-        req.id === requestId
-          ? {
-              ...req,
-              status: "rejected",
-            }
-          : req,
-      ),
+    const updatedRequests = requests.map((req) =>
+      req.id === requestId
+        ? {
+            ...req,
+            status: "rejected",
+          }
+        : req,
     )
+    
+    setRequests(updatedRequests)
+    
+    // Update localStorage
+    localStorage.setItem("cancelRequests", JSON.stringify(updatedRequests))
+    
+    // Update order status back to completed
+    const request = requests.find(req => req.id === requestId)
+    if (request) {
+      const orderIndex = orders.findIndex(o => o.id === request.orderId)
+      if (orderIndex !== -1) {
+        orders[orderIndex].status = "completed"
+        orders[orderIndex].cancelReason = undefined
+        orders[orderIndex].cancelRequestedBy = undefined
+      }
+    }
   }
 
   const getOrderDetails = (orderId: string) => {

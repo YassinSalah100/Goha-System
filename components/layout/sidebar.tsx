@@ -14,6 +14,7 @@ import {
   ChevronLeft,
   ChevronRight,
   Menu,
+  AlertTriangle,
 } from "lucide-react"
 import Image from "next/image"
 import { cn } from "@/lib/utils"
@@ -52,6 +53,8 @@ export function Sidebar({ role }: SidebarProps) {
     cashier: [
       { name: "لوحة التحكم", icon: Home, path: "/cashier" },
       { name: "المبيعات والطلبات", icon: ShoppingCart, path: "/cashier/sales" },
+      { name: "الطلبات المحفوظة", icon: Package, path: "/cashier/orders" },
+      { name: "طلبات الإلغاء", icon: AlertTriangle, path: "/cashier/cancel-requests" },
       { name: "إنهاء الوردية", icon: LogOut, path: "/cashier/end-shift" },
     ],
     admin: [
@@ -90,12 +93,12 @@ export function Sidebar({ role }: SidebarProps) {
       <div className={cn("flex items-center", collapsed ? "justify-center" : "justify-between", "p-4 border-b")}>
         {!collapsed && (
           <div className="flex items-center gap-2">
-            <Image src="/images/logo.png" alt="شعار مطعم دوار جحا" width={40} height={40} className="rounded-full" />
+            <Image src="/images/logo.png" alt="شعار مطعم دوار جحا" width={40} height={40} priority className="rounded-full" />
             <span className="font-bold text-lg text-orange-700">مطعم دوار جحا</span>
           </div>
         )}
         {collapsed && (
-          <Image src="/images/logo.png" alt="شعار مطعم دوار جحا" width={40} height={40} className="rounded-full" />
+          <Image src="/images/logo.png" alt="شعار مطعم دوار جحا" width={40} height={40} priority className="rounded-full" />
         )}
         {!isMobile && (
           <Button variant="ghost" size="icon" onClick={toggleSidebar} className="h-8 w-8">
