@@ -465,15 +465,15 @@ export default function OrdersPage() {
 
           <div className="summary-stats">
             <div className="stat-box">
-              <div className="stat-value">{realOrders.filter((o) => o.orderType === "dine-in").length}</div>
+              <div className="stat-value">{realOrders.filter((o: any) => o.orderType === "dine-in").length}</div>
               <div className="stat-label">تناول في المطعم</div>
             </div>
             <div className="stat-box">
-              <div className="stat-value">{realOrders.filter((o) => o.orderType === "takeaway").length}</div>
+              <div className="stat-value">{realOrders.filter((o: any) => o.orderType === "takeaway").length}</div>
               <div className="stat-label">استلام</div>
             </div>
             <div className="stat-box">
-              <div className="stat-value">{realOrders.filter((o) => o.orderType === "delivery").length}</div>
+              <div className="stat-value">{realOrders.filter((o: any) => o.orderType === "delivery").length}</div>
               <div className="stat-label">توصيل</div>
             </div>
           </div>
