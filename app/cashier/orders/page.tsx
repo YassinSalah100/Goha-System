@@ -5,8 +5,10 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { ScrollArea } from "@/components/ui/scroll-area"
-import { FileText, Phone, User } from "lucide-react"
+import { FileText, Phone, User, Trash2 } from "lucide-react"
 import { useReactToPrint } from "react-to-print"
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog"
+import { Textarea } from "@/components/ui/textarea"
 
 interface CartItem {
   id: string
@@ -206,6 +208,11 @@ if (typeof document !== "undefined") {
 
 export default function OrdersPage() {
   const [orders, setOrders] = useState<Order[]>([])
+  const [cancelRequests, setCancelRequests] = useState<any[]>([])
+  const [showDialog, setShowDialog] = useState(false)
+  const [deleteOrderId, setDeleteOrderId] = useState<number | null>(null)
+  const [deleteReason, setDeleteReason] = useState("")
+  const [currentCashier, setCurrentCashier] = useState("")
   const printAllRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
@@ -226,6 +233,26 @@ export default function OrdersPage() {
 
       setOrders(realOrders)
     }
+    // Load cancel requests
+    const storedRequests = JSON.parse(localStorage.getItem("cancelRequests") || "[]")
+    setCancelRequests(storedRequests)
+    // Load current cashier
+    const user = JSON.parse(localStorage.getItem("currentUser") || "{}")
+    setCurrentCashier(user?.name || "")
+  }, [])
+
+  // Add this useEffect after the existing one
+  useEffect(() => {
+    // Listen for cancel request updates
+    const handleStorageChange = (e: StorageEvent) => {
+      if (e.key === "cancelRequests") {
+        const updatedRequests = JSON.parse(e.newValue || "[]")
+        setCancelRequests(updatedRequests)
+      }
+    }
+
+    window.addEventListener("storage", handleStorageChange)
+    return () => window.removeEventListener("storage", handleStorageChange)
   }, [])
 
   // Get only real orders (filter out mock data)
@@ -329,6 +356,48 @@ export default function OrdersPage() {
     }
   }
 
+  // Check if an order has a pending delete request
+  const isOrderPendingDelete = (orderId: number) => {
+    const hasPendingRequest = cancelRequests.some((req) => {
+      const match = Number(req.orderId) === Number(orderId) && req.status === "pending"
+      return match
+    })
+    return hasPendingRequest
+  }
+
+  // Handle delete button click
+  const handleDeleteClick = (orderId: number) => {
+    setDeleteOrderId(orderId)
+    setDeleteReason("")
+    setShowDialog(true)
+  }
+
+  // Handle dialog submit
+  const handleDialogSubmit = () => {
+    if (!deleteOrderId || !deleteReason.trim()) return
+
+    // Add cancel request to localStorage
+    const newRequest = {
+      id: `req-${Date.now()}`,
+      orderId: Number(deleteOrderId), // Ensure it's stored as number
+      cashier: currentCashier,
+      reason: deleteReason,
+      timestamp: new Date().toISOString(),
+      status: "pending",
+    }
+
+    const updatedRequests = [...cancelRequests, newRequest]
+    setCancelRequests(updatedRequests)
+    localStorage.setItem("cancelRequests", JSON.stringify(updatedRequests))
+
+    // Force re-render to update the specific order
+    setOrders((prevOrders) => [...prevOrders])
+
+    setShowDialog(false)
+    setDeleteOrderId(null)
+    setDeleteReason("")
+  }
+
   return (
     <div className="p-6 space-y-6">
       {/* Header with Print All Button */}
@@ -361,15 +430,28 @@ export default function OrdersPage() {
               <p>لا توجد طلبات محفوظة</p>
             </div>
           ) : (
-            <ScrollArea className="h-[600px]">
-              <div className="space-y-4">
+            <ScrollArea className="h-[600px] w-full" style={{ overflowY: "auto", overflowX: "hidden" }}>
+              <div className="space-y-4 pr-4">
+                {" "}
+                {/* Add right padding for scrollbar space */}
                 {orders.map((order) => (
-                  <Card key={order.id} className="border-l-4 border-l-blue-500">
+                  <Card
+                    key={order.id}
+                    className={`transition-all duration-200 ${
+                      isOrderPendingDelete(order.id)
+                        ? "border-l-4 border-l-yellow-500 bg-yellow-50 shadow-md"
+                        : "border-l-4 border-l-blue-500"
+                    }`}
+                    style={{
+                      minHeight: "auto",
+                      isolation: "isolate", // Prevent CSS bleeding to other elements
+                    }}
+                  >
                     <CardContent className="p-4">
                       <div className="flex justify-between items-start mb-3">
                         <div className="flex items-center gap-3">
                           <h3 className="font-semibold text-lg">طلب #{order.id}</h3>
-                          {getStatusBadge(order.status)}
+                          {order.status !== "pending" && getStatusBadge(order.status)}
                           {getOrderTypeBadge(order.orderType)}
                         </div>
                         <div className="text-right">
@@ -415,10 +497,19 @@ export default function OrdersPage() {
                         ))}
                       </div>
 
-                      {/* Footer */}
+                      {/* Footer + Delete Button */}
                       <div className="flex justify-between items-center mt-3 pt-3 border-t text-sm text-gray-600">
                         <span>الكاشير: {order.cashier}</span>
                         <span>الدفع: {order.paymentMethod === "cash" ? "نقدي" : "كارت"}</span>
+                        <Button
+                          variant="destructive"
+                          size="sm"
+                          className="ml-2"
+                          onClick={() => handleDeleteClick(order.id)}
+                          disabled={isOrderPendingDelete(order.id) || order.status === "cancelled"}
+                        >
+                          <Trash2 className="w-4 h-4 mr-1" /> حذف
+                        </Button>
                       </div>
                     </CardContent>
                   </Card>
@@ -428,6 +519,30 @@ export default function OrdersPage() {
           )}
         </CardContent>
       </Card>
+
+      {/* Delete Reason Dialog */}
+      <Dialog open={showDialog} onOpenChange={setShowDialog}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>سبب حذف الطلب</DialogTitle>
+          </DialogHeader>
+          <Textarea
+            value={deleteReason}
+            onChange={(e) => setDeleteReason(e.target.value)}
+            placeholder="يرجى كتابة سبب حذف الطلب..."
+            rows={4}
+            className="mb-4"
+          />
+          <DialogFooter>
+            <Button onClick={handleDialogSubmit} disabled={!deleteReason.trim()}>
+              إرسال طلب الحذف
+            </Button>
+            <Button variant="outline" onClick={() => setShowDialog(false)}>
+              إلغاء
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       {/* Enhanced Print All Summary - Hidden from normal view */}
       <div ref={printAllRef} className="hidden print:block print-all-summary" style={{ display: "none" }}>

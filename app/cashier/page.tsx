@@ -25,9 +25,10 @@ export default function CashierDashboard() {
       const user = JSON.parse(localStorage.getItem("currentUser") || "{}")
       setCurrentUser(user)
 
-      // Load cancel requests
+      // Load cancel requests - filter by current cashier and add real-time updates
       const storedRequests = JSON.parse(localStorage.getItem("cancelRequests") || "[]")
-      setCancelRequests(storedRequests)
+      const userRequests = storedRequests.filter((req) => req.cashier === user.name)
+      setCancelRequests(userRequests)
 
       // Load only real saved orders (filter out mock data)
       const loadRealOrders = () => {
@@ -72,6 +73,10 @@ export default function CashierDashboard() {
       // Listen for order updates
       const handleOrderUpdate = () => {
         loadRealOrders()
+        // Also reload cancel requests when storage changes
+        const updatedRequests = JSON.parse(localStorage.getItem("cancelRequests") || "[]")
+        const filteredRequests = updatedRequests.filter((req) => req.cashier === user.name)
+        setCancelRequests(filteredRequests)
       }
 
       window.addEventListener("storage", handleOrderUpdate)
@@ -179,12 +184,12 @@ export default function CashierDashboard() {
                           className={`rounded-full px-2 py-1 text-xs font-semibold ${
                             order.status === "completed"
                               ? "bg-green-100 text-green-700"
-                              : order.status === "pending"
-                                ? "bg-yellow-100 text-yellow-700"
-                                : "bg-red-100 text-red-700"
+                              : order.status === "cancelled"
+                                ? "bg-red-100 text-red-700"
+                                : "hidden" // Hide pending status
                           }`}
                         >
-                          {order.status === "completed" ? "مكتمل" : order.status === "pending" ? "معلق" : "ملغي"}
+                          {order.status === "completed" ? "مكتمل" : order.status === "cancelled" ? "ملغي" : ""}
                         </span>
                       </div>
                     </div>
@@ -219,43 +224,62 @@ export default function CashierDashboard() {
             <CardContent className="pt-4">
               <div className="space-y-4 max-h-72 overflow-y-auto pr-2">
                 {cancelRequests.length > 0 ? (
-                  cancelRequests.slice(0, 3).map((request) => (
-                    <div
-                      key={request.id}
-                      className="flex items-center justify-between p-2 rounded hover:bg-red-50 transition"
-                    >
-                      <div className="flex items-center gap-2">
-                        <div className="rounded-full bg-red-100 p-2">
-                          <AlertTriangle className="h-4 w-4 text-red-600" />
+                  cancelRequests.slice(0, 3).map((request) => {
+                    // Get the actual order details
+                    const orderDetails = savedOrders.find((order) => order.id === request.orderId)
+                    return (
+                      <div
+                        key={request.id}
+                        className="flex items-center justify-between p-2 rounded hover:bg-red-50 transition"
+                      >
+                        <div className="flex items-center gap-2">
+                          <div className="rounded-full bg-red-100 p-2">
+                            <AlertTriangle className="h-4 w-4 text-red-600" />
+                          </div>
+                          <div>
+                            <p className="text-sm font-medium">Order #{request.orderId}</p>
+                            <p className="text-xs text-muted-foreground">
+                              {new Date(request.timestamp).toLocaleTimeString([], {
+                                hour: "2-digit",
+                                minute: "2-digit",
+                              })}
+                            </p>
+                            {orderDetails && (
+                              <p className="text-xs text-gray-500">
+                                {orderDetails.customerName || "Walk-in Customer"} - ج.م{orderDetails.total.toFixed(2)}
+                              </p>
+                            )}
+                            <p className="text-xs text-gray-600 truncate max-w-32" title={request.reason}>
+                              {request.reason}
+                            </p>
+                          </div>
                         </div>
-                        <div>
-                          <p className="text-sm font-medium">Order #{request.orderId}</p>
-                          <p className="text-xs text-muted-foreground">
-                            {new Date(request.timestamp).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
-                          </p>
-                        </div>
-                      </div>
-                      <div className="flex items-center gap-2">
-                        <span
-                          className={`rounded-full px-2 py-1 text-xs font-semibold ${
-                            request.status === "approved"
-                              ? "bg-green-100 text-green-700"
+                        <div className="flex items-center gap-2">
+                          <span
+                            className={`rounded-full px-2 py-1 text-xs font-semibold ${
+                              request.status === "approved"
+                                ? "bg-green-100 text-green-700"
+                                : request.status === "rejected"
+                                  ? "bg-red-100 text-red-700"
+                                  : "bg-yellow-100 text-yellow-700"
+                            }`}
+                          >
+                            {request.status === "approved"
+                              ? "تمت الموافقة"
                               : request.status === "rejected"
-                                ? "bg-red-100 text-red-700"
-                                : "bg-yellow-100 text-yellow-700"
-                          }`}
-                        >
-                          {request.status === "approved"
-                            ? "تمت الموافقة"
-                            : request.status === "rejected"
-                              ? "مرفوض"
-                              : "في الانتظار"}
-                        </span>
+                                ? "مرفوض"
+                                : "في الانتظار"}
+                          </span>
+                        </div>
                       </div>
-                    </div>
-                  ))
+                    )
+                  })
                 ) : (
-                  <p className="text-center text-muted-foreground">لا توجد طلبات إلغاء</p>
+                  <div className="text-center text-muted-foreground py-8">
+                    <AlertTriangle className="w-12 h-12 mx-auto mb-4 opacity-50" />
+                    <p>لا توجد طلبات إلغاء</p>
+                    <p className="text-sm">طلبات الإلغاء ستظهر هنا</p>
+                  </div>
                 )}
               </div>
               <Button

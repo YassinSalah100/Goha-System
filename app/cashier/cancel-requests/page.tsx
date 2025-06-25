@@ -16,15 +16,25 @@ export default function CashierCancelRequestsPage() {
     if (typeof window !== "undefined") {
       const user = JSON.parse(localStorage.getItem("currentUser") || "{}")
       setCurrentUser(user)
-      
-      // Load cancel requests from localStorage
+
+      // Load cancel requests from localStorage and filter by current cashier
       const storedRequests = JSON.parse(localStorage.getItem("cancelRequests") || "[]")
-      setRequests(storedRequests)
+      const userRequests = storedRequests.filter((req) => req.cashier === user.name)
+      setRequests(userRequests)
     }
   }, [])
 
-  const getOrderDetails = (orderId: string) => {
-    return orders.find((order) => order.id === orderId)
+  const getOrderDetails = (orderId: string | number) => {
+    // First check saved orders
+    const savedOrdersString = localStorage.getItem("savedOrders")
+    if (savedOrdersString) {
+      const savedOrders = JSON.parse(savedOrdersString)
+      const savedOrder = savedOrders.find((order: any) => order.id == orderId)
+      if (savedOrder) return savedOrder
+    }
+
+    // Then check mock orders
+    return orders.find((order) => order.id == orderId)
   }
 
   const getStatusIcon = (status: string) => {
@@ -71,7 +81,7 @@ export default function CashierCancelRequestsPage() {
   return (
     <div className="space-y-6 p-6">
       <div>
-        <h2 className="text-3xl font-bold tracking-tight">طلبات الإلغاء الخاصة بي</h2>
+        <h2 className="text-3xl font-bold tracking-tight">طلبات الإلغاء</h2>
         <p className="text-muted-foreground">عرض وتتبع طلبات إلغاء الطلبات التي قمت بإرسالها</p>
       </div>
 
@@ -81,9 +91,7 @@ export default function CashierCancelRequestsPage() {
         </CardHeader>
         <CardContent>
           {requests.length === 0 ? (
-            <div className="text-center py-8 text-muted-foreground">
-              لا توجد طلبات إلغاء
-            </div>
+            <div className="text-center py-8 text-muted-foreground">لا توجد طلبات إلغاء</div>
           ) : (
             <div className="space-y-6">
               {requests.map((request) => {
@@ -107,9 +115,7 @@ export default function CashierCancelRequestsPage() {
                           <h3 className="font-medium">
                             طلب إلغاء #{request.id} - طلب #{request.orderId}
                           </h3>
-                          <Badge variant={getStatusBadgeVariant(request.status)}>
-                            {getStatusText(request.status)}
-                          </Badge>
+                          <Badge variant={getStatusBadgeVariant(request.status)}>{getStatusText(request.status)}</Badge>
                         </div>
                         <p className="text-sm text-muted-foreground mb-2">
                           {new Date(request.timestamp).toLocaleString()}
@@ -122,9 +128,7 @@ export default function CashierCancelRequestsPage() {
 
                       <div className="flex items-center gap-2">
                         {getStatusIcon(request.status)}
-                        <span className="text-sm font-medium">
-                          {getStatusText(request.status)}
-                        </span>
+                        <span className="text-sm font-medium">{getStatusText(request.status)}</span>
                       </div>
                     </div>
 
@@ -135,19 +139,42 @@ export default function CashierCancelRequestsPage() {
                       {order ? (
                         <div className="bg-white rounded-xl shadow-lg p-6 w-full max-w-xs mx-auto">
                           <div className="flex flex-col items-center mb-4">
-                            <img src="/images/logo.png" alt="Logo" className="rounded-full mb-2" style={{ width: 80, height: 80 }} />
+                            <img
+                              src="/images/logo.png"
+                              alt="Logo"
+                              className="rounded-full mb-2"
+                              style={{ width: 80, height: 80 }}
+                            />
                             <h1 className="text-2xl font-bold">Dawar Juha</h1>
                             <p className="text-sm text-gray-600">Restaurant & Café</p>
                             <p className="text-sm text-gray-600">123 Main Street, City</p>
                             <p className="text-sm text-gray-600">Tel: +123 456 7890</p>
                           </div>
                           <div className="w-full mb-2">
-                            <div className="flex justify-between mb-1 text-sm"><span className="font-medium">Order #:</span><span>{order.id}</span></div>
-                            <div className="flex justify-between mb-1 text-sm"><span className="font-medium">Date:</span><span>{new Date(order.date).toLocaleDateString()}</span></div>
-                            <div className="flex justify-between mb-1 text-sm"><span className="font-medium">Time:</span><span>{new Date(order.date).toLocaleTimeString()}</span></div>
-                            <div className="flex justify-between mb-1 text-sm"><span className="font-medium">Customer:</span><span>{order.customerName}</span></div>
-                            <div className="flex justify-between mb-1 text-sm"><span className="font-medium">Type:</span><span className="capitalize">{order.orderType.replace('-', ' ')}</span></div>
-                            <div className="flex justify-between mb-1 text-sm"><span className="font-medium">Cashier:</span><span>{order.cashier}</span></div>
+                            <div className="flex justify-between mb-1 text-sm">
+                              <span className="font-medium">Order #:</span>
+                              <span>{order.id}</span>
+                            </div>
+                            <div className="flex justify-between mb-1 text-sm">
+                              <span className="font-medium">Date:</span>
+                              <span>{new Date(order.date).toLocaleDateString()}</span>
+                            </div>
+                            <div className="flex justify-between mb-1 text-sm">
+                              <span className="font-medium">Time:</span>
+                              <span>{new Date(order.date).toLocaleTimeString()}</span>
+                            </div>
+                            <div className="flex justify-between mb-1 text-sm">
+                              <span className="font-medium">Customer:</span>
+                              <span>{order.customerName}</span>
+                            </div>
+                            <div className="flex justify-between mb-1 text-sm">
+                              <span className="font-medium">Type:</span>
+                              <span className="capitalize">{order.orderType.replace("-", " ")}</span>
+                            </div>
+                            <div className="flex justify-between mb-1 text-sm">
+                              <span className="font-medium">Cashier:</span>
+                              <span>{order.cashier}</span>
+                            </div>
                           </div>
                           <div className="w-full mt-2 mb-2">
                             <div className="flex font-semibold border-b pb-1 text-sm">
@@ -163,10 +190,15 @@ export default function CashierCancelRequestsPage() {
                                     {item.name}
                                     {item.size && (
                                       <span className="text-[10px] text-gray-500 block">
-                                        {item.size === 'small' ? 'صغير' : 
-                                         item.size === 'medium' ? 'وسط' : 
-                                         item.size === 'large' ? 'كبير' : 
-                                         item.size === 'regular' ? 'عادي' : item.size}
+                                        {item.size === "small"
+                                          ? "صغير"
+                                          : item.size === "medium"
+                                            ? "وسط"
+                                            : item.size === "large"
+                                              ? "كبير"
+                                              : item.size === "regular"
+                                                ? "عادي"
+                                                : item.size}
                                       </span>
                                     )}
                                   </div>
@@ -185,13 +217,18 @@ export default function CashierCancelRequestsPage() {
                                   </div>
                                 )}
                                 {item.notes && (
-                                  <div className="w-full text-[10px] italic text-gray-500 pl-1 pt-0.5">Note: {item.notes}</div>
+                                  <div className="w-full text-[10px] italic text-gray-500 pl-1 pt-0.5">
+                                    Note: {item.notes}
+                                  </div>
                                 )}
                               </div>
                             ))}
                           </div>
                           <div className="w-full border-t pt-2 mt-2">
-                            <div className="flex justify-between text-lg font-bold"><span>Total</span><span>ج.م{order.total.toFixed(2)}</span></div>
+                            <div className="flex justify-between text-lg font-bold">
+                              <span>Total</span>
+                              <span>ج.م{order.total.toFixed(2)}</span>
+                            </div>
                           </div>
                           <div className="text-center text-xs text-gray-600 mt-4">
                             <p>Thank you for your order!</p>
@@ -200,7 +237,9 @@ export default function CashierCancelRequestsPage() {
                               <div className="w-12 h-1 rounded-full bg-gradient-to-r from-blue-400 to-blue-700 mb-1" />
                               <div className="flex items-center gap-2 mt-1">
                                 <img src="/images/eathrel.png" alt="Eathrel Logo" className="w-5 h-5 object-contain" />
-                                <span className="text-[11px] text-blue-700 font-semibold tracking-wide uppercase">Powered by Ethereal</span>
+                                <span className="text-[11px] text-blue-700 font-semibold tracking-wide uppercase">
+                                  Powered by Ethereal
+                                </span>
                               </div>
                             </div>
                           </div>
@@ -225,19 +264,19 @@ export default function CashierCancelRequestsPage() {
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
             <div className="text-center p-4 bg-blue-50 rounded-lg">
               <div className="text-2xl font-bold text-blue-600">
-                {requests.filter(r => r.status === "pending").length}
+                {requests.filter((r) => r.status === "pending").length}
               </div>
               <div className="text-sm text-blue-600">في الانتظار</div>
             </div>
             <div className="text-center p-4 bg-green-50 rounded-lg">
               <div className="text-2xl font-bold text-green-600">
-                {requests.filter(r => r.status === "approved").length}
+                {requests.filter((r) => r.status === "approved").length}
               </div>
               <div className="text-sm text-green-600">تمت الموافقة</div>
             </div>
             <div className="text-center p-4 bg-red-50 rounded-lg">
               <div className="text-2xl font-bold text-red-600">
-                {requests.filter(r => r.status === "rejected").length}
+                {requests.filter((r) => r.status === "rejected").length}
               </div>
               <div className="text-sm text-red-600">مرفوض</div>
             </div>
@@ -246,4 +285,4 @@ export default function CashierCancelRequestsPage() {
       </Card>
     </div>
   )
-} 
+}
