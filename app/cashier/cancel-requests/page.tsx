@@ -7,6 +7,7 @@ import { Separator } from "@/components/ui/separator"
 import { CheckCircle, XCircle, Clock, AlertTriangle } from "lucide-react"
 import { orders } from "@/mock-data/orders"
 import { motion } from "framer-motion"
+import Image from 'next/image'
 
 export default function CashierCancelRequestsPage() {
   const [requests, setRequests] = useState<any[]>([])
@@ -236,7 +237,7 @@ export default function CashierCancelRequestsPage() {
                             <div className="flex flex-col items-center mt-3">
                               <div className="w-12 h-1 rounded-full bg-gradient-to-r from-blue-400 to-blue-700 mb-1" />
                               <div className="flex items-center gap-2 mt-1">
-                                <img src="/images/eathrel.png" alt="Eathrel Logo" className="w-5 h-5 object-contain" />
+                                <Image src="/images/eathrel.png" alt="Eathrel Logo" width={20} height={20} className="w-5 h-5 object-contain" />
                                 <span className="text-[11px] text-blue-700 font-semibold tracking-wide uppercase">
                                   Powered by Ethereal
                                 </span>

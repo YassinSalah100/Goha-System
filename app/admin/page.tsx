@@ -20,6 +20,7 @@ export default function AdminDashboard() {
     activeWorkers: 0,
     todaySales: 0,
   })
+  const [cancelRequestsCount, setCancelRequestsCount] = useState(0)
 
   useEffect(() => {
     if (typeof window !== "undefined") {
@@ -29,12 +30,16 @@ export default function AdminDashboard() {
       // Calculate stats
       const today = new Date().toDateString()
       const todayOrders = orders.filter((order) => new Date(order.date).toDateString() === today)
-      const pendingCancelRequests = orders.filter((order) => order.cancelRequestedBy && !order.cancelApprovedBy).length
       const lowStockItems = inventory.filter((item) => item.quantity <= item.minQuantity).length
       const activeWorkers = workers.filter((worker) =>
         worker.attendance.some((a) => a.date === today.split("T")[0]),
       ).length
       const todaySales = todayOrders.reduce((sum, order) => sum + order.total, 0)
+
+      // Get cancel requests from localStorage
+      const cancelRequests = JSON.parse(localStorage.getItem("cancelRequests") || "[]")
+      const pendingCancelRequests = cancelRequests.filter((req: any) => req.status === "pending").length
+      setCancelRequestsCount(pendingCancelRequests)
 
       setStats({
         pendingCancelRequests,
@@ -82,19 +87,19 @@ export default function AdminDashboard() {
         <motion.div variants={itemVariants}>
           <Card>
             <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-              <CardTitle className="text-sm font-medium">Cancel Requests</CardTitle>
+              <CardTitle className="text-sm font-medium">طلبات الإلغاء</CardTitle>
               <AlertCircle className="h-4 w-4 text-muted-foreground" />
             </CardHeader>
             <CardContent>
-              <div className="text-2xl font-bold">{stats.pendingCancelRequests}</div>
-              <p className="text-xs text-muted-foreground">Pending approval</p>
-              {stats.pendingCancelRequests > 0 && (
+              <div className="text-2xl font-bold">{cancelRequestsCount}</div>
+              <p className="text-xs text-muted-foreground">طلبات بحاجة للموافقة</p>
+              {cancelRequestsCount > 0 && (
                 <Button
                   variant="link"
                   className="p-0 h-auto text-orange-600"
                   onClick={() => router.push("/admin/cancel-requests")}
                 >
-                  View requests <ChevronRight className="h-4 w-4 ml-1" />
+                  عرض الطلبات <ChevronRight className="h-4 w-4 ml-1" />
                 </Button>
               )}
             </CardContent>
@@ -141,21 +146,6 @@ export default function AdminDashboard() {
                   View inventory <ChevronRight className="h-4 w-4 ml-1" />
                 </Button>
               )}
-            </CardContent>
-          </Card>
-        </motion.div>
-
-        <motion.div variants={itemVariants}>
-          <Card>
-            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-              <CardTitle className="text-sm font-medium">Today's Sales</CardTitle>
-              <DollarSign className="h-4 w-4 text-muted-foreground" />
-            </CardHeader>
-            <CardContent>
-              <div className="text-2xl font-bold">${stats.todaySales.toFixed(2)}</div>
-              <p className="text-xs text-muted-foreground">
-                {stats.todaySales > 1000 ? "Good performance" : "Below target"}
-              </p>
             </CardContent>
           </Card>
         </motion.div>

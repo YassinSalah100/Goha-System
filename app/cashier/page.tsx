@@ -27,7 +27,7 @@ export default function CashierDashboard() {
 
       // Load cancel requests - filter by current cashier and add real-time updates
       const storedRequests = JSON.parse(localStorage.getItem("cancelRequests") || "[]")
-      const userRequests = storedRequests.filter((req) => req.cashier === user.name)
+      const userRequests = storedRequests.filter((req: any) => req.cashier === user.name)
       setCancelRequests(userRequests)
 
       // Load only real saved orders (filter out mock data)
@@ -75,7 +75,7 @@ export default function CashierDashboard() {
         loadRealOrders()
         // Also reload cancel requests when storage changes
         const updatedRequests = JSON.parse(localStorage.getItem("cancelRequests") || "[]")
-        const filteredRequests = updatedRequests.filter((req) => req.cashier === user.name)
+        const filteredRequests = updatedRequests.filter((req: any) => req.cashier === user.name)
         setCancelRequests(filteredRequests)
       }
 

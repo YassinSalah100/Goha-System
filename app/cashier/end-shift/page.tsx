@@ -9,6 +9,7 @@ import { Separator } from "@/components/ui/separator"
 import { AlertCircle, CheckCircle2, Printer, RefreshCw } from "lucide-react"
 import { motion } from "framer-motion"
 import { useReactToPrint } from "react-to-print"
+import Image from 'next/image'
 
 interface CartItem {
   id: string
@@ -714,7 +715,7 @@ export default function EndShiftPage() {
       <div ref={shiftReportRef} className="hidden print:block shift-report-print" style={{ display: "none" }}>
         <div className="shift-report">
           <div className="header">
-            <img src="/images/logo.png" alt="Logo" style={{ width: 80, height: 80, margin: "0 auto 5px" }} />
+            <Image src="/images/logo.png" alt="Logo" width={80} height={80} style={{ margin: "0 auto 5px" }} />
             <h1>دوار جحا</h1>
             <p>Restaurant & Café</p>
             <p>123 Main Street, City</p>
@@ -898,7 +899,7 @@ export default function EndShiftPage() {
             <div
               style={{ marginTop: "3mm", display: "flex", alignItems: "center", justifyContent: "center", gap: "2mm" }}
             >
-              <img src="/images/eathrel.png" alt="Eathrel Logo" style={{ width: 20, height: 20 }} />
+              <Image src="/images/eathrel.png" alt="Eathrel Logo" width={20} height={20} />
               <span style={{ fontSize: "10px", fontWeight: "bold" }}>POWERED BY ETHEREAL</span>
             </div>
           </div>

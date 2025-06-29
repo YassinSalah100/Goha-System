@@ -9,6 +9,7 @@ import { FileText, Phone, User, Trash2 } from "lucide-react"
 import { useReactToPrint } from "react-to-print"
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog"
 import { Textarea } from "@/components/ui/textarea"
+import Image from 'next/image'
 
 interface CartItem {
   id: string
@@ -548,7 +549,7 @@ export default function OrdersPage() {
       <div ref={printAllRef} className="hidden print:block print-all-summary" style={{ display: "none" }}>
         <div className="advanced-receipt">
           <div className="header">
-            <img src="/images/logo.png" alt="Logo" style={{ width: 60, height: 60, margin: "0 auto 5px" }} />
+            <Image src="/images/logo.png" alt="Logo" width={60} height={60} style={{ margin: "0 auto 5px" }} />
             <h1>دوار جحا</h1>
             <p>Restaurant & Café</p>
             <p>123 Main Street, City</p>
@@ -665,7 +666,7 @@ export default function OrdersPage() {
             <div
               style={{ marginTop: "2mm", display: "flex", alignItems: "center", justifyContent: "center", gap: "2mm" }}
             >
-              <img src="/images/eathrel.png" alt="Eathrel Logo" style={{ width: 15, height: 15 }} />
+              <Image src="/images/eathrel.png" alt="Eathrel Logo" width={15} height={15} />
               <span style={{ fontSize: "8px", fontWeight: "bold" }}>POWERED BY ETHEREAL</span>
             </div>
           </div>

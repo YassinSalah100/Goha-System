@@ -11,9 +11,6 @@ const nextConfig = {
   images: {
     unoptimized: true,
   },
-  experimental: {
-    optimizeFonts: false
-  },
   basePath: '',
   webpack: (config, { isServer }) => {
     if (!isServer) {

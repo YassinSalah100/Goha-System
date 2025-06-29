@@ -7,7 +7,7 @@ import { Button } from "@/components/ui/button"
 import { Textarea } from "@/components/ui/textarea"
 import { Badge } from "@/components/ui/badge"
 import { ScrollArea } from "@/components/ui/scroll-area"
-import { Plus, Minus, Printer, Save, X } from "lucide-react"
+import { Plus, Minus, Printer, Save, X, Trash2 } from "lucide-react"
 import { motion, AnimatePresence } from "framer-motion"
 import { menuItems } from "@/mock-data/menu-items"
 import { orders } from "@/mock-data/orders"
@@ -572,7 +572,7 @@ export default function SalesPage() {
         {/* Customer Receipt (Invoice) - always visible, styled as in screenshot */}
         <div className="bg-white rounded-xl shadow-lg p-6 w-full max-w-xs flex flex-col items-center mt-4">
           <div className="flex flex-col items-center mb-4">
-            <img src="/images/logo.png" alt="Logo" className="rounded-full mb-2" style={{ width: 80, height: 80 }} />
+            <Image src="/images/logo.png" alt="Logo" width={80} height={80} className="rounded-full mb-2" />
             <h1 className="text-2xl font-bold">Dawar Juha</h1>
             <p className="text-sm text-gray-600">Restaurant & Café</p>
             <p className="text-sm text-gray-600">123 Main Street, City</p>
@@ -621,7 +621,7 @@ export default function SalesPage() {
               <div className="text-center text-gray-400 py-4 text-xs">---</div>
             ) : (
               cart.map((item) => (
-                <div key={item.id} className="border-b last:border-b-0 py-2 text-xs">
+                <div key={item.id} className="border-b last:border-b-0 py-2 text-xs group">
                   {/* Main Item Row */}
                   <div className="flex items-center mb-1">
                     <div className="w-2/5 truncate">
@@ -634,7 +634,6 @@ export default function SalesPage() {
                     <div className="w-1/5 text-right">ج.م{item.basePrice.toFixed(2)}</div>
                     <div className="w-1/5 text-right">ج.م{(item.basePrice * item.quantity).toFixed(2)}</div>
                   </div>
-
                   {/* Extras Rows */}
                   {item.extras && item.extras.length > 0 && (
                     <div className="w-full text-[10px] text-gray-500 pl-2 mb-1">
@@ -648,9 +647,20 @@ export default function SalesPage() {
                       ))}
                     </div>
                   )}
-
                   {/* Notes Row */}
                   {item.notes && <div className="w-full text-[10px] italic text-gray-500 pl-2">Note: {item.notes}</div>}
+                  {/* Delete Button Row */}
+                  <div className="flex justify-end mt-1">
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="h-7 w-7 p-0 text-red-500 hover:text-red-700 hover:bg-red-50 shadow-md rounded-full transition-opacity duration-200 print:hidden opacity-0 group-hover:opacity-100 md:opacity-0 md:group-hover:opacity-100 sm:opacity-100"
+                      onClick={() => handleRemoveFromCart(item.id)}
+                      aria-label="حذف العنصر"
+                    >
+                      <Trash2 className="h-4 w-4" />
+                    </Button>
+                  </div>
                 </div>
               ))
             )}
@@ -710,7 +720,7 @@ export default function SalesPage() {
             <div className="flex flex-col items-center mt-3">
               <div className="w-12 h-1 rounded-full bg-gradient-to-r from-blue-400 to-blue-700 mb-1" />
               <div className="flex items-center gap-2 mt-1">
-                <img src="/images/eathrel.png" alt="Eathrel Logo" className="w-5 h-5 object-contain" />
+                <Image src="/images/eathrel.png" alt="Eathrel Logo" width={20} height={20} className="w-5 h-5 object-contain" />
                 <span className="text-[11px] text-blue-700 font-semibold tracking-wide uppercase">
                   Powered by Ethereal
                 </span>
@@ -739,7 +749,7 @@ export default function SalesPage() {
           {/* Customer Receipt - First on page */}
           <div className="receipt-container customer-receipt bg-white p-6 w-full flex flex-col items-center">
             <div className="flex flex-col items-center mb-4">
-              <img src="/images/logo.png" alt="Logo" className="receipt-logo rounded-full mb-2" />
+              <Image src="/images/logo.png" alt="Logo" width={80} height={80} className="receipt-logo rounded-full mb-2" />
               <h1 className="text-2xl font-bold">Dawar Juha</h1>
               <p className="text-sm text-gray-600">Restaurant & Café</p>
               <p className="text-sm text-gray-600">123 Main Street, City</p>
@@ -836,7 +846,7 @@ export default function SalesPage() {
               <div className="flex flex-col items-center mt-3">
                 <div className="w-12 h-1 rounded-full bg-gradient-to-r from-blue-400 to-blue-700 mb-1" />
                 <div className="flex items-center gap-2 mt-1">
-                  <img src="/images/eathrel.png" alt="Eathrel Logo" className="w-5 h-5 object-contain" />
+                  <Image src="/images/eathrel.png" alt="Eathrel Logo" width={20} height={20} className="w-5 h-5 object-contain" />
                   <span className="text-[11px] text-blue-700 font-semibold tracking-wide uppercase">
                     Powered by Ethereal
                   </span>

@@ -6,45 +6,28 @@ import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { Separator } from "@/components/ui/separator"
 import { CheckCircle, XCircle } from "lucide-react"
-import { orders } from "@/mock-data/orders"
 import { motion } from "framer-motion"
 
-// Mock cancel requests - will be replaced by localStorage data
-const initialCancelRequests = [
-  {
-    id: "req-001",
-    orderId: "0003",
-    cashier: "Ahmed Cashier",
-    reason: "Customer changed their mind",
-    timestamp: new Date().toISOString(),
-    status: "pending",
-  },
-  {
-    id: "req-002",
-    orderId: "0002",
-    cashier: "Sara Cashier",
-    reason: "Order was incorrect",
-    timestamp: new Date(Date.now() - 30 * 60000).toISOString(),
-    status: "pending",
-  },
-]
-
 export default function CancelRequestsPage() {
-  const [requests, setRequests] = useState(initialCancelRequests)
+  // Start with empty array, only load from localStorage
+  const [requests, setRequests] = useState<any[]>([])
   const [currentUser, setCurrentUser] = useState<any>(null)
 
   useEffect(() => {
     if (typeof window !== "undefined") {
       const user = JSON.parse(localStorage.getItem("currentUser") || "{}")
       setCurrentUser(user)
-      
       // Load cancel requests from localStorage
       const storedRequests = JSON.parse(localStorage.getItem("cancelRequests") || "[]")
-      if (storedRequests.length > 0) {
-        setRequests(storedRequests)
-      }
+      setRequests(storedRequests)
     }
   }, [])
+
+  // Helper to get real order details from localStorage
+  const getOrderDetails = (orderId: string | number) => {
+    const savedOrders = JSON.parse(localStorage.getItem("savedOrders") || "[]")
+    return savedOrders.find((order: any) => String(order.id) === String(orderId))
+  }
 
   const handleApprove = (requestId: string) => {
     const updatedRequests = requests.map((req) =>
@@ -64,10 +47,10 @@ export default function CancelRequestsPage() {
     // Update order status
     const request = requests.find(req => req.id === requestId)
     if (request) {
-      const orderIndex = orders.findIndex(o => o.id === request.orderId)
+      const orderIndex = requests.findIndex(r => r.id === request.id)
       if (orderIndex !== -1) {
-        orders[orderIndex].status = "canceled"
-        orders[orderIndex].cancelApprovedBy = currentUser?.name || "Admin"
+        requests[orderIndex].status = "approved"
+        requests[orderIndex].approvedBy = currentUser?.name || "Admin"
       }
     }
   }
@@ -90,17 +73,14 @@ export default function CancelRequestsPage() {
     // Update order status back to completed
     const request = requests.find(req => req.id === requestId)
     if (request) {
-      const orderIndex = orders.findIndex(o => o.id === request.orderId)
+      const orderIndex = requests.findIndex(r => r.id === request.id)
       if (orderIndex !== -1) {
-        orders[orderIndex].status = "completed"
-        orders[orderIndex].cancelReason = undefined
-        orders[orderIndex].cancelRequestedBy = undefined
+        requests[orderIndex].status = "rejected"
+        requests[orderIndex].rejectedBy = currentUser?.name || "Admin"
+        requests[orderIndex].rejectedReason = undefined
+        requests[orderIndex].rejectedTimestamp = new Date().toISOString()
       }
     }
-  }
-
-  const getOrderDetails = (orderId: string) => {
-    return orders.find((order) => order.id === orderId)
   }
 
   if (!currentUser) return null
