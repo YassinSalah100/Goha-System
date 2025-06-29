@@ -26,7 +26,7 @@ import {
   X,
 } from "lucide-react"
 
-const API_BASE_URL = "http://172.162.241.242:3000/api/v1"
+const API_BASE_URL = "https://172.162.241.242:3000/api/v1"
 
 interface Category {
   id: string
