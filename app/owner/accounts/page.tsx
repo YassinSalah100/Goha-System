@@ -1,41 +1,76 @@
 "use client"
 
+import type React from "react"
+
 import { useState, useEffect } from "react"
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
-import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
-import { Select, SelectItem, SelectTrigger, SelectContent } from "@/components/ui/select"
-import { Alert, AlertDescription } from "@/components/ui/alert"
-import { Loader2, CheckCircle, AlertCircle } from "lucide-react"
+import { Label } from "@/components/ui/label"
+import { Button } from "@/components/ui/button"
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 
 const API_BASE_URL = "http://172.162.241.242:3000/api/v1"
 
-export default function OwnerAccountsPage() {
-  const [accounts, setAccounts] = useState<any[]>([])
-  const [loading, setLoading] = useState(false)
-  const [message, setMessage] = useState<{ type: 'success' | 'error', text: string } | null>(null)
+interface Account {
+  id?: string;
+  user_id?: string;
+  _id?: string;
+  username?: string;
+  full_name?: string;
+  fullName?: string;
+  email?: string;
+  role?: string;
+  shift?: string;
+  hour_rate?: number;
+  hourRate?: number;
+}
+
+interface Message {
+  type: "success" | "error" | null;
+  text: string | null;
+}
+
+const AccountsPage = () => {
+  const [accounts, setAccounts] = useState<Account[]>([])
   const [form, setForm] = useState({
     username: "",
     full_name: "",
     email: "",
+    phone: "", // Add phone field
     password: "",
     role: "cashier",
     shift: "morning",
-    hour_rate: 0,
+    hour_rate: "", // Change to string for compatibility
+  })
+  const [loading, setLoading] = useState(false)
+  const [message, setMessage] = useState<Message>({
+    type: null,
+    text: null,
   })
 
   useEffect(() => {
-    // Load accounts from API instead of localStorage
     fetchAccounts()
   }, [])
 
   const fetchAccounts = async () => {
     try {
       const response = await fetch(`${API_BASE_URL}/users`)
+
       if (response.ok) {
-        const data = await response.json() 
-        // Ensure data is an array
-        const accountsArray = Array.isArray(data) ? data : (data.users || data.data || [])
+        const data = await response.json()
+        console.log("Accounts API response:", data)
+
+        // Handle the API response structure
+        let accountsArray = []
+        if (data.success && data.data) {
+          if (Array.isArray(data.data)) {
+            accountsArray = data.data
+          } else if (data.data.users && Array.isArray(data.data.users)) {
+            accountsArray = data.data.users
+          }
+        } else if (Array.isArray(data)) {
+          accountsArray = data
+        }
+
         setAccounts(accountsArray)
       } else {
         console.error("Failed to fetch accounts:", response.status)
@@ -51,38 +86,21 @@ export default function OwnerAccountsPage() {
     }
   }
 
-  const handleChange = (e: any) => {
-    const { name, value, type } = e.target
-    const processedValue = type === 'number' ? Number(value) || 0 : value
-    
-    setForm({ ...form, [name]: processedValue })
-    // Clear any previous messages when user starts typing
-    if (message) setMessage(null)
+  const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
+    setForm({ ...form, [e.target.name]: e.target.value })
   }
 
   const validateForm = () => {
-    if (!form.username.trim()) {
-      setMessage({ type: "error", text: "اسم المستخدم مطلوب" })
-      return false
-    }
-    if (!form.full_name.trim()) {
-      setMessage({ type: "error", text: "الاسم الكامل مطلوب" })
-      return false
-    }
-    if (!form.email.trim()) {
-      setMessage({ type: "error", text: "البريد الإلكتروني مطلوب" })
-      return false
-    }
-    if (!form.password.trim()) {
-      setMessage({ type: "error", text: "كلمة المرور مطلوبة" })
+    if (!form.username || !form.full_name || !form.email || !form.phone || !form.password || form.hour_rate === "") {
+      setMessage({ type: "error", text: "الرجاء ملء جميع الحقول" })
       return false
     }
     if (form.password.length < 6) {
-      setMessage({ type: "error", text: "كلمة المرور يجب أن تكون 6 أحرف على الأقل" })
+      setMessage({ type: "error", text: "يجب أن تتكون كلمة المرور من 6 أحرف على الأقل" })
       return false
     }
-    if (typeof form.hour_rate !== 'number' || form.hour_rate < 0) {
-      setMessage({ type: "error", text: "معدل الساعة يجب أن يكون رقم موجب" })
+    if (isNaN(Number(form.hour_rate))) {
+      setMessage({ type: "error", text: "معدل الساعة يجب أن يكون رقمًا" })
       return false
     }
     return true
@@ -90,268 +108,209 @@ export default function OwnerAccountsPage() {
 
   const createAccount = async (e: React.FormEvent) => {
     e.preventDefault()
-    
+
     if (!validateForm()) return
-    
+
     setLoading(true)
-    setMessage(null)
+    setMessage({ type: null, text: null })
 
     try {
-      console.log("Sending data to API:", form)
-      
-      // Map the form data to match API expectations
+      console.log("Original form data:", form)
+
+      // Map the form data to match API expectations - try multiple field name formats
       const apiData = {
-        username: form.username,
-        fullName: form.full_name, // Try fullName instead of full_name
-        email: form.email,
+        username: form.username.trim(),
+        full_name: form.full_name.trim(),
+        fullName: form.full_name.trim(), // Add camelCase version
+        name: form.full_name.trim(), // Add simple name version
+        email: form.email.trim(),
+        phone: form.phone.trim(),
         password: form.password,
         role: form.role,
         shift: form.shift,
-        hour_rate: Number(form.hour_rate) || 0, // Try underscore version
-        hourRate: Number(form.hour_rate) || 0, // Try camelCase version
-        hourly_rate: Number(form.hour_rate) || 0, // Try full word version
+        hour_rate: Number(form.hour_rate),
+        hourRate: Number(form.hour_rate), // Add camelCase version
       }
-      
-      console.log("Mapped API data:", apiData)
-      console.log("Form hour_rate value:", form.hour_rate, "Type:", typeof form.hour_rate)
-      console.log("JSON being sent:", JSON.stringify(apiData))
-      
-      // Try both JSON and FormData approaches
-      let response
-      
-      // First try JSON
-      response = await fetch(`${API_BASE_URL}/users`, {
+
+      console.log("Sending to API:", apiData)
+      console.log("API URL:", `${API_BASE_URL}/users`)
+
+      const response = await fetch(`${API_BASE_URL}/users`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
         },
         body: JSON.stringify(apiData),
       })
-      
-      // If JSON fails with hour_rate error, try FormData
-      if (!response.ok) {
-        const errorData = await response.json().catch(() => ({}))
-        if (errorData.message?.includes("hour_rate")) {
-          console.log("Trying FormData approach...")
-          const formData = new FormData()
-          formData.append('username', form.username)
-          formData.append('fullName', form.full_name)
-          formData.append('email', form.email)
-          formData.append('password', form.password)
-          formData.append('role', form.role)
-          formData.append('shift', form.shift)
-          formData.append('hour_rate', String(form.hour_rate))
-          
-          response = await fetch(`${API_BASE_URL}/users`, {
-            method: "POST",
-            body: formData,
-          })
-        }
-      }
+
+      console.log("Response status:", response.status)
+      console.log("Response headers:", response.headers)
 
       if (response.ok) {
-        const newAccount = await response.json()
+        const result = await response.json()
+        console.log("Success response:", result)
         setMessage({ type: "success", text: "تم إنشاء الحساب بنجاح" })
         setForm({
           username: "",
           full_name: "",
           email: "",
+          phone: "", // Add phone field
           password: "",
           role: "cashier",
           shift: "morning",
-          hour_rate: 0,
+          hour_rate: "", // Reset to empty string
         })
         // Refresh the accounts list
         await fetchAccounts()
       } else {
-        const errorData = await response.json().catch(() => ({}))
-        console.error("API Error Response:", errorData)
-        
-        let errorMessage = "حدث خطأ أثناء إنشاء الحساب"
-        
-        if (response.status === 409) {
-          if (errorData.message?.includes("username")) {
-            errorMessage = "اسم المستخدم موجود مسبقاً"
-          } else if (errorData.message?.includes("email")) {
-            errorMessage = "البريد الإلكتروني موجود مسبقاً"
-          } else if (errorData.message?.includes("full_name")) {
-            errorMessage = "الاسم الكامل مطلوب"
-          } else {
-            errorMessage = "المستخدم موجود مسبقاً"
-          }
-        } else if (errorData.message) {
-          errorMessage = errorData.message
-        } else if (response.status === 400) {
-          errorMessage = "بيانات غير صحيحة"
-        } else if (response.status === 500) {
-          errorMessage = "خطأ في الخادم"
+        // Get the error response
+        const errorText = await response.text()
+        console.log("Error response text:", errorText)
+
+        let errorData: any = {}
+        try {
+          errorData = JSON.parse(errorText)
+        } catch (e) {
+          console.log("Could not parse error as JSON:", e)
         }
-        
-        setMessage({ 
-          type: "error", 
-          text: errorMessage 
+
+        console.log("Parsed error data:", errorData)
+
+        let errorMessage = "حدث خطأ أثناء إنشاء الحساب"
+
+        if (response.status === 409) {
+          if (errorData.message) {
+            if (errorData.message.toLowerCase().includes("username")) {
+              errorMessage = "اسم المستخدم موجود مسبقاً"
+            } else if (errorData.message.toLowerCase().includes("email")) {
+              errorMessage = "البريد الإلكتروني موجود مسبقاً"
+            } else if (errorData.message.toLowerCase().includes("phone")) {
+              errorMessage = "رقم الهاتف موجود مسبقاً"
+            } else if (errorData.message.includes("full_name") && errorData.message.includes("not-null")) {
+              errorMessage = "خطأ في حقل الاسم الكامل - تأكد من ملء الحقل"
+            } else {
+              errorMessage = errorData.message
+            }
+          } else {
+            errorMessage = "المستخدم موجود مسبقاً - جرب بيانات مختلفة"
+          }
+        } else if (response.status === 400) {
+          if (errorData.message && errorData.message.includes("not-null")) {
+            errorMessage = "يرجى ملء جميع الحقول المطلوبة"
+          } else {
+            errorMessage = errorData.message || "بيانات غير صحيحة - تحقق من جميع الحقول"
+          }
+        } else if (response.status === 500) {
+          errorMessage = "خطأ في الخادم - حاول مرة أخرى لاحقاً"
+        }
+
+        setMessage({
+          type: "error",
+          text: errorMessage,
         })
       }
     } catch (error) {
-      console.error("Error creating account:", error)
-      setMessage({ type: "error", text: "حدث خطأ في الاتصال" })
+      console.error("Network error:", error)
+      setMessage({ type: "error", text: "حدث خطأ في الاتصال بالخادم - تحقق من الاتصال بالإنترنت" })
     } finally {
       setLoading(false)
     }
   }
 
   return (
-    <div className="max-w-xl mx-auto py-8 space-y-8">
-      <Card>
-        <CardHeader>
-          <CardTitle>إنشاء حساب جديد</CardTitle>
-        </CardHeader>
-        <CardContent>
-          {message && (
-            <Alert className={`mb-4 ${message.type === 'success' ? 'border-green-200 bg-green-50' : 'border-red-200 bg-red-50'}`}>
-              {message.type === 'success' ? (
-                <CheckCircle className="h-4 w-4 text-green-600" />
-              ) : (
-                <AlertCircle className="h-4 w-4 text-red-600" />
-              )}
-              <AlertDescription className={message.type === 'success' ? 'text-green-800' : 'text-red-800'}>
-                {message.text}
-              </AlertDescription>
-            </Alert>
-          )}
-          
-          <form onSubmit={createAccount} className="space-y-4">
-            <div>
-              <label className="text-sm font-medium mb-2 block">اسم المستخدم</label>
-              <Input
-                name="username"
-                value={form.username}
-                onChange={handleChange}
-                placeholder="أدخل اسم المستخدم"
-                required
-                disabled={loading}
-              />
-            </div>
-            
-            <div>
-              <label className="text-sm font-medium mb-2 block">الاسم الكامل</label>
-              <Input
-                name="full_name"
-                value={form.full_name}
-                onChange={handleChange}
-                placeholder="أدخل الاسم الكامل"
-                required
-                disabled={loading}
-              />
-            </div>
-            
-            <div>
-              <label className="text-sm font-medium mb-2 block">البريد الإلكتروني</label>
-              <Input
-                name="email"
-                type="email"
-                value={form.email}
-                onChange={handleChange}
-                placeholder="user@example.com"
-                required
-                disabled={loading}
-              />
-            </div>
-            
-            <div>
-              <label className="text-sm font-medium mb-2 block">كلمة المرور</label>
-              <Input
-                name="password"
-                type="password"
-                value={form.password}
-                onChange={handleChange}
-                placeholder="أدخل كلمة المرور (6 أحرف على الأقل)"
-                required
-                disabled={loading}
-                minLength={6}
-              />
-            </div>
-            
-            <div>
-              <label className="text-sm font-medium mb-2 block">معدل الساعة (بالدينار)</label>
-              <Input
-                name="hour_rate"
-                type="number"
-                value={form.hour_rate}
-                onChange={handleChange}
-                placeholder="0"
-                required
-                disabled={loading}
-                min={0}
-                step={0.5}
-              />
-            </div>
-            
-            <div className="flex gap-4">
-              <div className="flex-1">
-                <label className="text-sm font-medium mb-2 block">الدور</label>
-                <Select value={form.role} onValueChange={value => setForm(f => ({ ...f, role: value }))} disabled={loading}>
-                  <SelectTrigger>{form.role === "admin" ? "مدير" : "كاشير"}</SelectTrigger>
+    <div className="container mx-auto py-10">
+      <h1 className="text-2xl font-bold mb-5">إدارة الحسابات</h1>
+
+      {message.text && (
+        <div
+          className={`mb-4 p-3 rounded-md ${message.type === "success" ? "bg-green-100 text-green-800" : "bg-red-100 text-red-800"}`}
+        >
+          {message.text}
+        </div>
+      )}
+
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+        {/* Form Section */}
+        <div className="bg-white shadow-md rounded-md p-5">
+          <h2 className="text-lg font-semibold mb-4">إنشاء حساب جديد</h2>
+          <form onSubmit={createAccount}>
+            <div className="grid gap-4">
+              <div>
+                <Label htmlFor="username">اسم المستخدم</Label>
+                <Input type="text" id="username" name="username" value={form.username} onChange={handleChange} />
+              </div>
+              <div>
+                <Label htmlFor="full_name">الاسم الكامل</Label>
+                <Input type="text" id="full_name" name="full_name" value={form.full_name} onChange={handleChange} />
+              </div>
+              <div>
+                <Label htmlFor="email">البريد الإلكتروني</Label>
+                <Input type="email" id="email" name="email" value={form.email} onChange={handleChange} />
+              </div>
+              <div>
+                <Label htmlFor="phone">رقم الهاتف</Label>
+                <Input type="tel" id="phone" name="phone" value={form.phone} onChange={handleChange} />
+              </div>
+              <div>
+                <Label htmlFor="password">كلمة المرور</Label>
+                <Input type="password" id="password" name="password" value={form.password} onChange={handleChange} />
+              </div>
+              <div>
+                <Label htmlFor="role">الدور</Label>
+                <Select onValueChange={(value) => setForm({ ...form, role: value })}>
+                  <SelectTrigger className="w-full">
+                    <SelectValue placeholder="اختر دور" />
+                  </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="admin">مدير</SelectItem>
                     <SelectItem value="cashier">كاشير</SelectItem>
+                    <SelectItem value="admin">مدير</SelectItem>
                   </SelectContent>
                 </Select>
               </div>
-              
-              <div className="flex-1">
-                <label className="text-sm font-medium mb-2 block">الوردية</label>
-                <Select value={form.shift} onValueChange={value => setForm(f => ({ ...f, shift: value }))} disabled={loading}>
-                  <SelectTrigger>{form.shift === "morning" ? "صباحي" : "مسائي"}</SelectTrigger>
+              <div>
+                <Label htmlFor="shift">الوردية</Label>
+                <Select onValueChange={(value) => setForm({ ...form, shift: value })}>
+                  <SelectTrigger className="w-full">
+                    <SelectValue placeholder="اختر وردية" />
+                  </SelectTrigger>
                   <SelectContent>
                     <SelectItem value="morning">صباحي</SelectItem>
-                    <SelectItem value="night">مسائي</SelectItem>
+                    <SelectItem value="evening">مسائي</SelectItem>
                   </SelectContent>
                 </Select>
               </div>
+              <div>
+                <Label htmlFor="hour_rate">معدل الساعة</Label>
+                <Input type="number" id="hour_rate" name="hour_rate" value={form.hour_rate} onChange={handleChange} />
+              </div>
+              <Button disabled={loading} type="submit">
+                {loading ? "جاري الإنشاء..." : "إنشاء حساب"}
+              </Button>
             </div>
-            
-            <Button type="submit" className="w-full" disabled={loading}>
-              {loading ? (
-                <>
-                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                  جاري الإنشاء...
-                </>
-              ) : (
-                'إنشاء الحساب'
-              )}
-            </Button>
           </form>
-        </CardContent>
-      </Card>
-      
-      <Card>
-        <CardHeader>
-          <CardTitle>الحسابات الحالية</CardTitle>
-        </CardHeader>
-        <CardContent>
-          {accounts.length === 0 ? (
-            <div className="text-center text-muted-foreground py-8">
-              لا توجد حسابات بعد
-            </div>
-          ) : (
-            <ul className="divide-y">
-              {accounts.map((acc) => (
-                <li key={acc.id || acc._id} className="py-3 flex justify-between items-center">
-                  <div>
-                    <div className="font-medium">{acc.full_name || acc.username}</div>
-                    <div className="text-sm text-muted-foreground">{acc.email}</div>
-                    <div className="text-xs text-muted-foreground">
-                      {acc.role === "admin" ? "مدير" : "كاشير"} - {acc.shift === "morning" ? "صباحي" : "مسائي"}
-                      {acc.hour_rate && ` - ${acc.hour_rate} د/ساعة`}
-                    </div>
+        </div>
+
+        {/* Accounts List Section */}
+        <div>
+          <h2 className="text-lg font-semibold mb-4">قائمة الحسابات</h2>
+          <ul className="divide-y">
+            {accounts.map((acc, index) => (
+              <li key={acc.id || acc.user_id || acc._id || index} className="py-3 flex justify-between items-center">
+                <div>
+                  <div className="font-medium">{acc.full_name || acc.fullName || acc.username}</div>
+                  <div className="text-sm text-muted-foreground">{acc.email}</div>
+                  <div className="text-xs text-muted-foreground">
+                    {acc.role === "admin" ? "مدير" : "كاشير"} - {acc.shift === "morning" ? "صباحي" : "مسائي"}
+                    {(acc.hour_rate || acc.hourRate) && ` - ${acc.hour_rate || acc.hourRate} د/ساعة`}
                   </div>
-                </li>
-              ))}
-            </ul>
-          )}
-        </CardContent>
-      </Card>
+                </div>
+              </li>
+            ))}
+          </ul>
+        </div>
+      </div>
     </div>
   )
-} 
+}
+
+export default AccountsPage

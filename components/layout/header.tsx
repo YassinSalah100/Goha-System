@@ -39,7 +39,8 @@ export function Header({ title }: HeaderProps) {
 
   if (!currentUser) return null
 
-  const getInitials = (name: string) => {
+  const getInitials = (name: string | undefined) => {
+    if (!name) return "U"
     return name
       .split(" ")
       .map((n) => n[0])
@@ -125,9 +126,13 @@ export function Header({ title }: HeaderProps) {
             <DropdownMenuTrigger asChild>
               <Button variant="ghost" className="flex items-center gap-2">
                 <Avatar className="h-8 w-8">
-                  <AvatarFallback>{getInitials(currentUser.name)}</AvatarFallback>
+                  <AvatarFallback>
+                    {getInitials(currentUser.full_name || currentUser.fullName || currentUser.name || currentUser.username)}
+                  </AvatarFallback>
                 </Avatar>
-                <span className="hidden md:inline-block font-medium">{currentUser.name}</span>
+                <span className="hidden md:inline-block font-medium">
+                  {currentUser.full_name || currentUser.fullName || currentUser.name || currentUser.username}
+                </span>
               </Button>
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end">

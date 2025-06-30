@@ -1,7 +1,6 @@
 "use client"
 
 import { Button } from "@/components/ui/button"
-
 import { useState, useEffect } from "react"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { ShoppingCart, DollarSign, AlertTriangle } from "lucide-react"
@@ -115,7 +114,9 @@ export default function CashierDashboard() {
       <div className="flex flex-col md:flex-row justify-between items-start md:items-center mb-2">
         <div>
           <h2 className="text-3xl font-bold tracking-tight mb-1">Welcome, {currentUser.name}</h2>
-          <p className="text-muted-foreground">Here's an overview of your {currentUser.shift} shift today</p>
+          <p className="text-muted-foreground">
+            Here's an overview of your {currentUser.shift?.type || "current"} shift today
+          </p>
         </div>
         <Button
           className="mt-4 md:mt-0 bg-orange-600 hover:bg-orange-700"

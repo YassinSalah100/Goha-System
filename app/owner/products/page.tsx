@@ -26,7 +26,7 @@ import {
   X,
 } from "lucide-react"
 
-const API_BASE_URL = "https://172.162.241.242:3000/api/v1"
+const API_BASE_URL = "http://172.162.241.242:3000/api/v1"
 
 interface Category {
   id: string
@@ -1170,7 +1170,7 @@ export default function IntegratedProductManagement() {
 
           {/* Dashboard Tab */}
           <TabsContent value="dashboard" className="space-y-6">
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-6">
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
               <Card className="bg-gradient-to-r from-blue-500 to-blue-600 text-white">
                 <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
                   <CardTitle className="text-sm font-medium">إجمالي الفئات</CardTitle>
@@ -1208,16 +1208,6 @@ export default function IntegratedProductManagement() {
                 </CardHeader>
                 <CardContent>
                   <div className="text-2xl font-bold">{stats.totalExtras}</div>
-                </CardContent>
-              </Card>
-
-              <Card className="bg-gradient-to-r from-red-500 to-red-600 text-white">
-                <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                  <CardTitle className="text-sm font-medium">إجمالي الإيرادات</CardTitle>
-                  <DollarSign className="h-4 w-4" />
-                </CardHeader>
-                <CardContent>
-                  <div className="text-2xl font-bold">{stats.totalRevenue.toFixed(2)} ج.م</div>
                 </CardContent>
               </Card>
             </div>
