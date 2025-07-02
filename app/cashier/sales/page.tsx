@@ -4,7 +4,6 @@ import { useState, useEffect, useRef } from "react"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Button } from "@/components/ui/button"
-import { Textarea } from "@/components/ui/textarea"
 import { Badge } from "@/components/ui/badge"
 import { ScrollArea } from "@/components/ui/scroll-area"
 import { Plus, Minus, Printer, Save, X, Trash2, Loader2 } from "lucide-react"
@@ -12,6 +11,7 @@ import { motion, AnimatePresence } from "framer-motion"
 import Image from "next/image"
 import { useReactToPrint } from "react-to-print"
 import { useRouter } from "next/navigation"
+import { Textarea } from "@/components/ui/textarea"
 
 const API_BASE_URL = "http://172.162.241.242:3000/api/v1"
 
@@ -88,6 +88,7 @@ export default function SalesPageFixed() {
   const [selectedExtras, setSelectedExtras] = useState<{ id: string; name: string; price: number }[]>([])
   const [cashierName, setCashierName] = useState("")
   const [shift, setShift] = useState("")
+  const [isSaving, setIsSaving] = useState(false)
 
   // API Data
   const [categories, setCategories] = useState<Category[]>([])
@@ -98,18 +99,18 @@ export default function SalesPageFixed() {
   const [error, setError] = useState<string | null>(null)
 
   const combinedReceiptRef = useRef<HTMLDivElement>(null)
+  const customerReceiptRef = useRef<HTMLDivElement>(null)
+  const kitchenReceiptRef = useRef<HTMLDivElement>(null)
   const router = useRouter()
 
   // Enhanced user and shift data fetching
   useEffect(() => {
     fetchAllData()
-
     // Set cashier and shift from localStorage with better error handling
     if (typeof window !== "undefined") {
       const user = JSON.parse(localStorage.getItem("currentUser") || "{}")
       const userName = user.full_name || user.fullName || user.name || user.username || "مستخدم غير معروف"
       setCashierName(userName)
-
       if (user.shift?.shift_id) {
         setShift(user.shift.shift_id)
       }
@@ -119,7 +120,6 @@ export default function SalesPageFixed() {
   const fetchAllData = async () => {
     setLoading(true)
     setError(null)
-
     try {
       // Fetch categories
       const categoriesResponse = await fetch(`${API_BASE_URL}/categories`)
@@ -127,7 +127,6 @@ export default function SalesPageFixed() {
       const categoriesData = await categoriesResponse.json()
       const categoriesList = categoriesData.success ? categoriesData.data.categories || categoriesData.data : []
       setCategories(categoriesList)
-
       if (categoriesList.length > 0 && !activeCategory) {
         setActiveCategory(categoriesList[0].category_id)
       }
@@ -175,12 +174,10 @@ export default function SalesPageFixed() {
     if (currentItem.sizePrices && currentItem.sizePrices.length > 0) {
       const selectedSizePrice = currentItem.sizePrices.find((sp) => sp.size?.size_id === itemSizeId)
       const sizePrice = selectedSizePrice || currentItem.sizePrices[0]
-
       if (!sizePrice.product_size_id) {
-        alert("خطأ: معرف حجم المنتج غير متوفر")
+        alert("خطأ: معرف حجم ا��منتج غير متوفر")
         return
       }
-
       basePrice = Number.parseFloat(sizePrice.price)
       selectedSizeName = sizePrice.size?.size_name || "عادي"
       productSizeId = sizePrice.product_size_id
@@ -227,7 +224,6 @@ export default function SalesPageFixed() {
 
   const handleSelectItem = (item: Product) => {
     setCurrentItem(item)
-
     if (item.sizePrices.length > 0) {
       setItemSizeId(item.sizePrices[0].size.size_id)
       setItemSize(item.sizePrices[0].size.size_name)
@@ -235,7 +231,6 @@ export default function SalesPageFixed() {
       setItemSizeId("")
       setItemSize("عادي")
     }
-
     setShowItemModal(true)
   }
 
@@ -243,10 +238,15 @@ export default function SalesPageFixed() {
     return cart.reduce((sum, item) => sum + item.price * item.quantity, 0)
   }
 
-  // Enhanced saveOrderToAPI with better data structure
+  // FIXED: Complete rewrite of saveOrderToAPI with proper event timing
   const saveOrderToAPI = async () => {
     if (cart.length === 0) {
       alert("لا يمكن حفظ طلب فارغ")
+      return
+    }
+
+    if (isSaving) {
+      console.log("⚠️ Save already in progress, preventing duplicate")
       return
     }
 
@@ -258,14 +258,21 @@ export default function SalesPageFixed() {
     }
 
     try {
+      setIsSaving(true)
       setLoading(true)
 
-      // Create a properly structured order object
+      // Generate a unique order ID
+      const uniqueOrderId = `order_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`
+      console.log(`💾 Starting save process for order: ${uniqueOrderId}`)
+
+      // Create order data structure
       const orderData = {
-        order_id: `order_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
+        order_id: uniqueOrderId,
         customer_name: customerName || "عميل عابر",
         order_type: orderType,
-        phone_number: orderType === "delivery" ? phoneNumber : null,
+        // FIXED: Proper phone number handling
+        phone_number: orderType === "delivery" ? phoneNumber || null : null,
+        customer_phone: orderType === "delivery" ? phoneNumber || null : null, // Add both fields
         total_price: calculateTotal(),
         status: "pending",
         payment_method: "cash",
@@ -281,8 +288,8 @@ export default function SalesPageFixed() {
           quantity: item.quantity,
           unit_price: item.basePrice.toString(),
           notes: item.notes || null,
-          product_name: item.name, // Store product name for display
-          size_name: item.size, // Store size name for display
+          product_name: item.name,
+          size_name: item.size,
           product: {
             product_id: item.productId,
             name: item.name,
@@ -301,6 +308,7 @@ export default function SalesPageFixed() {
                 },
               }
             : null,
+          // FIXED: Better extras structure
           extras: item.extras.map((extra) => ({
             extra_id: extra.id,
             name: extra.name,
@@ -311,83 +319,195 @@ export default function SalesPageFixed() {
         })),
       }
 
-      // Save to localStorage with the enhanced structure
-      const savedOrders = JSON.parse(localStorage.getItem("savedOrders") || "[]")
-      localStorage.setItem("savedOrders", JSON.stringify([...savedOrders, orderData]))
+      console.log(`📝 Order data prepared for: ${orderType} order`)
 
-      // Try to save to API (optional, don't fail if API is down)
+      // STEP 1: Save to API first (this is the source of truth)
+      let apiSuccess = false
+      let apiOrderId = uniqueOrderId
+
       try {
+        console.log("🌐 Step 1: Saving to API...")
+
+        const validOrderTypes = ["dine-in", "takeaway", "delivery"]
+        if (!validOrderTypes.includes(orderType)) {
+          throw new Error(`Invalid order type: ${orderType}`)
+        }
+
+        const apiPayloadBase = {
+          cashier_id: storedUser.user_id,
+          shift_id: storedUser.shift?.shift_id || `shift_${Date.now()}`,
+          table_number: orderType === "dine-in" ? "1" : "TAKEAWAY",
+          order_type: orderType,
+          customer_name: customerName || "عميل عابر",
+          items: cart.map((item) => ({
+            product_id: item.productId,
+            product_size_id: item.productSizeId || null,
+            quantity: item.quantity,
+            unit_price: item.basePrice,
+            special_instructions: item.notes || "",
+            extras: item.extras.map((extra) => ({
+              extra_id: extra.id,
+              quantity: 1,
+              price: extra.price,
+            })),
+          })),
+        }
+
+        if (orderType === "delivery") {
+          ;(apiPayloadBase as any).customer_phone = phoneNumber || null
+          ;(apiPayloadBase as any).phone_number = phoneNumber || null // Add both fields
+        }
+
+        console.log("🚀 Sending API request...")
         const apiResponse = await fetch(`${API_BASE_URL}/orders`, {
           method: "POST",
           headers: {
             "Content-Type": "application/json",
             Authorization: `Bearer ${localStorage.getItem("authToken") || ""}`,
           },
-          body: JSON.stringify({
-            cashier_id: storedUser.user_id,
-            shift_id: storedUser.shift?.shift_id || `shift_${Date.now()}`,
-            table_number: null,
-            order_type: orderType,
-            customer_name: customerName || null,
-            customer_phone: orderType === "delivery" ? phoneNumber : null,
-            items: cart.map((item) => ({
-              product_id: item.productId,
-              product_size_id: item.productSizeId,
-              quantity: item.quantity,
-              unit_price: item.basePrice,
-              notes: item.notes || null,
-              extras: item.extras.map((extra) => ({
-                extra_id: extra.id,
-                quantity: 1,
-              })),
-            })),
-          }),
+          body: JSON.stringify(apiPayloadBase),
         })
 
+        const responseText = await apiResponse.text()
+        console.log("📡 API Response received:", responseText.substring(0, 200) + "...")
+
         if (apiResponse.ok) {
-          console.log("Order saved to API successfully")
+          const responseData = JSON.parse(responseText)
+          if (responseData.success && responseData.data?.order_id) {
+            apiOrderId = responseData.data.order_id
+            apiSuccess = true
+            console.log(`✅ API save successful! Server order ID: ${apiOrderId}`)
+          }
         } else {
-          console.warn("Failed to save to API, but saved locally")
+          console.warn("❌ API save failed:", responseText)
         }
       } catch (apiError) {
-        console.warn("API save failed, but order saved locally:", apiError)
+        console.error("❌ API save error:", apiError)
       }
 
-      // Clear cart and reset form
+      // STEP 2: Save to localStorage (using API order ID if available)
+      console.log("💾 Step 2: Saving to localStorage...")
+
+      const finalOrderData = {
+        ...orderData,
+        order_id: apiOrderId, // Use API order ID if available
+        api_saved: apiSuccess,
+      }
+
+      // Check for duplicates before saving
+      const savedOrders = JSON.parse(localStorage.getItem("savedOrders") || "[]")
+      const existingOrder = savedOrders.find((order: any) => order.order_id === apiOrderId)
+
+      if (!existingOrder) {
+        const updatedOrders = [...savedOrders, finalOrderData]
+        localStorage.setItem("savedOrders", JSON.stringify(updatedOrders))
+        console.log(`💾 Order ${apiOrderId} saved to localStorage`)
+      } else {
+        console.log(`⚠️ Order ${apiOrderId} already exists in localStorage`)
+      }
+
+      // STEP 3: Clear form and show success
       setCart([])
       setCustomerName("")
       setPhoneNumber("")
       setOrderType("dine-in")
       setOrderId(Math.floor(Math.random() * 10000) + 1)
 
-      alert("تم حفظ الطلب بنجاح!")
-      window.dispatchEvent(new CustomEvent("orderAdded"))
+      if (apiSuccess) {
+        alert("✅ تم حفظ الطلب بنجاح في النظام!")
+      } else {
+        alert("⚠️ تم حفظ الطلب محلياً. سيتم رفعه للنظام لاحقاً.")
+      }
+
+      // STEP 4: FIXED - Dispatch event ONLY after everything is complete
+      console.log("📢 Step 4: Dispatching orderAdded event...")
+      setTimeout(() => {
+        console.log("🔔 Dispatching orderAdded event now...")
+        window.dispatchEvent(
+          new CustomEvent("orderAdded", {
+            detail: {
+              orderId: apiOrderId,
+              orderType: orderType,
+              apiSuccess: apiSuccess,
+            },
+          }),
+        )
+      }, 500) // Small delay to ensure everything is saved
     } catch (error) {
-      console.error("Error saving order:", error)
+      console.error("❌ Complete save process failed:", error)
       alert(`فشل حفظ الطلب: ${error instanceof Error ? error.message : "خطأ غير معروف"}`)
     } finally {
       setLoading(false)
+      setIsSaving(false)
     }
   }
 
-  // Remove the enhanced CSS and restore original print handling
-  const handlePrintCombinedReceipt = useReactToPrint({
-    contentRef: combinedReceiptRef,
-    documentTitle: `Combined Receipt - Order #${orderId}`,
-    onAfterPrint: () => {
-      if (cart.length > 0) {
-        saveOrderToAPI()
-      }
-    },
+  // Add this function after the saveOrderToAPI function
+  const debugSavedOrders = () => {
+    const savedOrders = JSON.parse(localStorage.getItem("savedOrders") || "[]")
+    console.log("All saved orders:", savedOrders)
+    console.log("Total orders in localStorage:", savedOrders.length)
+    console.log(
+      "Order types in localStorage:",
+      savedOrders.map((order: any) => ({
+        id: order.order_id,
+        type: order.order_type,
+        customer: order.customer_name,
+        created: order.created_at,
+      })),
+    )
+
+    // Check for duplicates
+    const orderIds = savedOrders.map((order: any) => order.order_id)
+    const duplicates = orderIds.filter((id: string, index: number) => orderIds.indexOf(id) !== index)
+    if (duplicates.length > 0) {
+      console.warn("🚨 Found duplicate order IDs:", duplicates)
+    } else {
+      console.log("✅ No duplicates found")
+    }
+  }
+
+  // FIXED: Add function to clean up duplicate orders
+  const cleanupDuplicateOrders = () => {
+    const savedOrders = JSON.parse(localStorage.getItem("savedOrders") || "[]")
+    const uniqueOrders = savedOrders.filter(
+      (order: any, index: number, self: any[]) => index === self.findIndex((o: any) => o.order_id === order.order_id),
+    )
+
+    if (uniqueOrders.length !== savedOrders.length) {
+      localStorage.setItem("savedOrders", JSON.stringify(uniqueOrders))
+      console.log(`🧹 Cleaned up ${savedOrders.length - uniqueOrders.length} duplicate orders`)
+      alert(`تم حذف ${savedOrders.length - uniqueOrders.length} طلب مكرر`)
+      window.dispatchEvent(new CustomEvent("orderAdded"))
+    } else {
+      console.log("✅ No duplicates to clean up")
+      alert("لا توجد طلبات مكررة")
+    }
+  }
+
+  // Function to get Arabic display text for order types
+  const getOrderTypeDisplayText = (type: string) => {
+    switch (type) {
+      case "dine-in":
+        return "تناول في المطعم"
+      case "takeaway":
+        return "تيك اواي"
+      case "delivery":
+        return "توصيل"
+      default:
+        return type
+    }
+  }
+
+  const handlePrintCustomerReceipt = useReactToPrint({
+    contentRef: customerReceiptRef,
+    documentTitle: `Customer Receipt - Order #${orderId}`,
   })
 
-  const onPrintClick = () => {
-    if (!combinedReceiptRef.current || cart.length === 0) {
-      console.error("Cannot print empty receipt")
-      return
-    }
-    handlePrintCombinedReceipt()
-  }
+  const handlePrintKitchenReceipt = useReactToPrint({
+    contentRef: kitchenReceiptRef,
+    documentTitle: `Kitchen Receipt - Order #${orderId}`,
+  })
 
   const filteredProducts = products.filter(
     (product) => product.category.category_id === activeCategory && product.is_active,
@@ -401,6 +521,14 @@ export default function SalesPageFixed() {
     if (product.sizePrices.length === 0) return 0
     return Math.min(...product.sizePrices.map((sp) => Number.parseFloat(sp.price)))
   }
+
+  // Add a single print ref for both receipts
+  const bothReceiptsRef = useRef<HTMLDivElement>(null)
+
+  const handlePrintBothReceipts = useReactToPrint({
+    contentRef: bothReceiptsRef,
+    documentTitle: `Receipts - Order #${orderId}`,
+  })
 
   if (loading) {
     return (
@@ -422,6 +550,116 @@ export default function SalesPageFixed() {
         </div>
       </div>
     )
+  }
+
+  // Simple Receipt Print Styles
+  const simpleReceiptPrintStyles = `
+@media print {
+  @page {
+    size: 80mm auto;
+    margin: 0;
+  }
+  
+  body {
+    margin: 0;
+    padding: 0;
+    font-family: 'Courier New', monospace;
+  }
+  
+  .print\\:hidden {
+    display: none !important;
+  }
+  
+  .print\\:block {
+    display: block !important;
+  }
+  
+  .print-receipt {
+    width: 80mm;
+    max-width: 80mm;
+    margin: 0 auto;
+    padding: 2mm;
+    font-size: 12px;
+    line-height: 1.3;
+    color: #000;
+    background: white;
+  }
+  
+  .receipt-header {
+    text-align: center;
+    margin-bottom: 3mm;
+    border-bottom: 1px dashed #000;
+    padding-bottom: 2mm;
+  }
+  
+  .receipt-logo {
+    width: 25mm;
+    height: 25mm;
+    margin: 0 auto 2mm;
+  }
+  
+  .receipt-title {
+    font-size: 16px;
+    font-weight: bold;
+    margin: 1mm 0;
+  }
+  
+  .receipt-info {
+    margin: 2mm 0;
+    font-size: 11px;
+  }
+  
+  .receipt-info-row {
+    display: flex;
+    justify-content: space-between;
+    margin: 1mm 0;
+  }
+  
+  .receipt-items {
+    margin: 3mm 0;
+  }
+  
+  .receipt-item {
+    margin: 1mm 0;
+    font-size: 11px;
+    border-bottom: 1px dotted #ccc;
+    padding-bottom: 1mm;
+  }
+  
+  .receipt-item-main {
+    display: flex;
+    justify-content: space-between;
+    margin-bottom: 0.5mm;
+  }
+  
+  .receipt-total {
+    border-top: 2px solid #000;
+    margin-top: 3mm;
+    padding-top: 2mm;
+    text-align: center;
+  }
+  
+  .receipt-total-amount {
+    font-size: 16px;
+    font-weight: bold;
+    margin: 1mm 0;
+  }
+  
+  .receipt-footer {
+    text-align: center;
+    margin-top: 3mm;
+    padding-top: 2mm;
+    border-top: 1px dashed #000;
+    font-size: 10px;
+  }
+}
+`
+
+  // Replace the complex style injection with this simple one
+  if (typeof document !== "undefined") {
+    const styleElement = document.createElement("style")
+    styleElement.textContent = simpleReceiptPrintStyles
+    document.head.appendChild(styleElement)
   }
 
   return (
@@ -506,7 +744,7 @@ export default function SalesPageFixed() {
       <div className="w-full lg:w-1/3 flex flex-col items-center">
         <div className="bg-white rounded-xl shadow-lg p-6 w-full max-w-xs flex flex-col items-center mt-4">
           <div className="flex flex-col items-center mb-4">
-            <Image src="/images/logo.png" alt="Logo" width={80} height={80} className="rounded-full mb-2" />
+            <img src="/images/logo.png" alt="Logo" width={80} height={80} className="rounded-full mb-2" />
             <h1 className="text-2xl font-bold">Dawar Juha</h1>
             <p className="text-sm text-gray-600">Restaurant & Café</p>
             <p className="text-sm text-gray-600">123 Main Street, City</p>
@@ -532,7 +770,7 @@ export default function SalesPageFixed() {
             </div>
             <div className="flex justify-between mb-1 text-sm">
               <span className="font-medium">النوع:</span>
-              <span>{orderType === "dine-in" ? "تناول في المطعم" : orderType === "takeaway" ? "استلام" : "توصيل"}</span>
+              <span>{getOrderTypeDisplayText(orderType)}</span>
             </div>
             {orderType === "delivery" && phoneNumber && (
               <div className="flex justify-between mb-1 text-sm">
@@ -569,7 +807,6 @@ export default function SalesPageFixed() {
                     <div className="w-1/5 text-right">ج.م{item.basePrice.toFixed(2)}</div>
                     <div className="w-1/5 text-right">ج.م{(item.basePrice * item.quantity).toFixed(2)}</div>
                   </div>
-
                   {item.extras && item.extras.length > 0 && (
                     <div className="w-full text-[10px] text-gray-500 pl-2 mb-1">
                       {item.extras.map((extra) => (
@@ -582,11 +819,9 @@ export default function SalesPageFixed() {
                       ))}
                     </div>
                   )}
-
                   {item.notes && (
                     <div className="w-full text-[10px] italic text-gray-500 pl-2">ملاحظة: {item.notes}</div>
                   )}
-
                   <div className="flex justify-end mt-1">
                     <Button
                       variant="ghost"
@@ -618,11 +853,15 @@ export default function SalesPageFixed() {
                   <label className="text-sm font-medium">نوع العميل:</label>
                   <select
                     value={orderType}
-                    onChange={(e) => setOrderType(e.target.value as "dine-in" | "takeaway" | "delivery")}
+                    onChange={(e) => {
+                      const newOrderType = e.target.value as "dine-in" | "takeaway" | "delivery"
+                      console.log("Order type changed to:", newOrderType)
+                      setOrderType(newOrderType)
+                    }}
                     className="text-sm border rounded px-2 py-1"
                   >
                     <option value="dine-in">تناول في المطعم</option>
-                    <option value="takeaway">استلام</option>
+                    <option value="takeaway">تيك اواي</option>
                     <option value="delivery">توصيل</option>
                   </select>
                 </div>
@@ -650,6 +889,28 @@ export default function SalesPageFixed() {
                     />
                   </div>
                 )}
+
+                {/* Debug buttons */}
+                <div className="flex gap-2 mt-2">
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="outline"
+                    onClick={debugSavedOrders}
+                    className="text-xs bg-transparent"
+                  >
+                    Debug Orders
+                  </Button>
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="outline"
+                    onClick={cleanupDuplicateOrders}
+                    className="text-xs bg-red-50 text-red-600"
+                  >
+                    Clean Duplicates
+                  </Button>
+                </div>
               </div>
             </div>
           )}
@@ -660,7 +921,7 @@ export default function SalesPageFixed() {
             <div className="flex flex-col items-center mt-3">
               <div className="w-12 h-1 rounded-full bg-gradient-to-r from-blue-400 to-blue-700 mb-1" />
               <div className="flex items-center gap-2 mt-1">
-                <Image
+                <img
                   src="/images/eathrel.png"
                   alt="Eathrel Logo"
                   width={20}
@@ -676,505 +937,522 @@ export default function SalesPageFixed() {
         </div>
 
         <div className="flex gap-2 mt-4 print:hidden">
-          <Button onClick={onPrintClick} className="flex-1 bg-blue-600 hover:bg-blue-700" disabled={cart.length === 0}>
+          <Button
+            onClick={handlePrintBothReceipts}
+            className="flex-1 bg-blue-600 hover:bg-blue-700"
+            disabled={cart.length === 0}
+          >
             <Printer className="w-4 h-4 mr-2" />
             طباعة الفاتورة
           </Button>
+
           <Button
             onClick={saveOrderToAPI}
             className="flex-1 bg-green-600 hover:bg-green-700"
-            disabled={cart.length === 0}
+            disabled={cart.length === 0 || isSaving}
           >
-            <Save className="w-4 h-4 mr-2" />
-            حفظ الطلب
+            {isSaving ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <Save className="w-4 h-4 mr-2" />}
+            {isSaving ? "جاري الحفظ..." : "حفظ الطلب"}
           </Button>
         </div>
 
-        {/* Print Content - Customer and Kitchen Receipts */}
-        <div ref={combinedReceiptRef} className="hidden print:block">
+        {/* Both Receipts Print Content */}
+        <div ref={bothReceiptsRef} className="hidden print:block">
+          {/* Print styles and content remain the same as in your original code */}
+          <style>{`
+            @media print {
+              @page {
+                size: 80mm auto;
+                margin: 0;
+                -webkit-print-color-adjust: exact;
+                print-color-adjust: exact;
+              }
+              body {
+                margin: 0;
+                padding: 0;
+                font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+                background: white;
+              }
+              .receipt-print-page { 
+                page-break-after: always; 
+                break-after: page; 
+                width: 80mm;
+                max-width: 80mm;
+                margin: 0 auto;
+                padding: 3mm;
+                background: white;
+                position: relative;
+                overflow: hidden;
+              }
+              .receipt-print-page:last-child { 
+                page-break-after: auto; 
+                break-after: auto; 
+              }
+              .receipt-print-page::before {
+                content: '';
+                position: absolute;
+                top: 0;
+                left: 0;
+                right: 0;
+                bottom: 0;
+                background: 
+                  radial-gradient(circle at 20% 50%, rgba(59, 130, 246, 0.03) 0%, transparent 50%),
+                  radial-gradient(circle at 80% 20%, rgba(16, 185, 129, 0.03) 0%, transparent 50%),
+                  radial-gradient(circle at 40% 80%, rgba(245, 158, 11, 0.03) 0%, transparent 50%);
+                pointer-events: none;
+                z-index: -1;
+              }
+              .receipt-header { 
+                text-align: center;
+                margin-bottom: 4mm;
+                position: relative;
+                background: linear-gradient(135deg, #f8fafc 0%, #e2e8f0 100%);
+                border-radius: 2mm;
+                padding: 3mm;
+                border: 1px solid #e2e8f0;
+                box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+              }
+              .receipt-header::after {
+                content: '';
+                position: absolute;
+                bottom: -2mm;
+                left: 50%;
+                transform: translateX(-50%);
+                width: 30mm;
+                height: 1px;
+                background: linear-gradient(to right, transparent, #3b82f6, transparent);
+              }
+              .receipt-title { 
+                font-size: 20px; 
+                font-weight: 800; 
+                margin: 2mm 0 1mm;
+                color: #1e293b;
+                text-shadow: 0 1px 2px rgba(0,0,0,0.1);
+                letter-spacing: 0.5px;
+              }
+              .receipt-subtitle {
+                font-size: 11px;
+                color: #64748b;
+                font-weight: 500;
+                margin: 0.5mm 0;
+                text-transform: uppercase;
+                letter-spacing: 0.8px;
+              }
+              .receipt-contact {
+                font-size: 10px;
+                color: #64748b;
+                margin: 0.5mm 0;
+                font-weight: 400;
+              }
+              .receipt-info { 
+                margin: 3mm 0; 
+                background: #f8fafc;
+                border-radius: 2mm;
+                padding: 2mm;
+                border-left: 3px solid #3b82f6;
+              }
+              .receipt-info-row { 
+                display: flex; 
+                justify-content: space-between; 
+                margin: 1.5mm 0; 
+                font-size: 11px;
+                align-items: center;
+              }
+              .receipt-info-label {
+                font-weight: 600;
+                color: #374151;
+                display: flex;
+                align-items: center;
+              }
+              .receipt-info-label::before {
+                content: '▪';
+                color: #3b82f6;
+                margin-left: 1mm;
+                font-size: 8px;
+              }
+              .receipt-info-value {
+                font-weight: 500;
+                color: #1f2937;
+                background: white;
+                padding: 0.5mm 1mm;
+                border-radius: 1mm;
+                border: 1px solid #e5e7eb;
+              }
+              .receipt-items { 
+                margin: 4mm 0; 
+                background: white;
+                border-radius: 2mm;
+                overflow: hidden;
+                border: 1px solid #e5e7eb;
+                box-shadow: 0 1px 3px rgba(0,0,0,0.05);
+              }
+              .receipt-items-header {
+                background: linear-gradient(135deg, #3b82f6 0%, #1d4ed8 100%);
+                color: white;
+                padding: 2mm;
+                font-size: 11px;
+                font-weight: 700;
+                text-align: center;
+                text-transform: uppercase;
+                letter-spacing: 0.5px;
+                text-shadow: 0 1px 2px rgba(0,0,0,0.2);
+              }
+              .receipt-item { 
+                margin: 0;
+                padding: 2mm;
+                font-size: 11px;
+                border-bottom: 1px solid #f1f5f9;
+                position: relative;
+                background: white;
+                transition: all 0.2s ease;
+              }
+              .receipt-item:nth-child(even) {
+                background: #f8fafc;
+              }
+              .receipt-item:last-child {
+                border-bottom: none;
+              }
+              .receipt-item::before {
+                content: '';
+                position: absolute;
+                left: 0;
+                top: 0;
+                bottom: 0;
+                width: 2px;
+                background: linear-gradient(to bottom, #3b82f6, #10b981);
+              }
+              .receipt-item-main { 
+                display: flex; 
+                justify-content: space-between; 
+                margin-bottom: 1mm;
+                font-weight: 600;
+                color: #1f2937;
+                align-items: center;
+              }
+              .receipt-item-name {
+                flex: 1;
+                margin-right: 2mm;
+              }
+              .receipt-item-price {
+                font-weight: 700;
+                color: #059669;
+                background: #d1fae5;
+                padding: 0.5mm 1mm;
+                border-radius: 1mm;
+                font-size: 10px;
+              }
+              .receipt-item-details {
+                font-size: 9px;
+                color: #6b7280;
+                margin-left: 2mm;
+                font-style: italic;
+                background: #f9fafb;
+                padding: 1mm;
+                border-radius: 1mm;
+                margin-top: 1mm;
+                border-left: 2px solid #e5e7eb;
+              }
+              .receipt-extras {
+                background: #fef3c7;
+                border-left: 2px solid #f59e0b;
+              }
+              .receipt-notes {
+                background: #fce7f3;
+                border-left: 2px solid #ec4899;
+              }
+              .receipt-total { 
+                margin-top: 4mm;
+                padding: 3mm;
+                text-align: center;
+                background: linear-gradient(135deg, #1f2937 0%, #374151 100%);
+                color: white;
+                border-radius: 2mm;
+                position: relative;
+                overflow: hidden;
+                box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+              }
+              .receipt-total::before {
+                content: '';
+                position: absolute;
+                top: 0;
+                left: 0;
+                right: 0;
+                height: 1px;
+                background: linear-gradient(to right, transparent, #fbbf24, transparent);
+              }
+              .receipt-total-label {
+                font-size: 12px;
+                font-weight: 500;
+                margin-bottom: 1mm;
+                text-transform: uppercase;
+                letter-spacing: 1px;
+                color: #d1d5db;
+              }
+              .receipt-total-amount {
+                font-size: 20px;
+                font-weight: 900;
+                color: #fbbf24;
+                text-shadow: 0 2px 4px rgba(0,0,0,0.3);
+                letter-spacing: 0.5px;
+              }
+              .receipt-footer { 
+                text-align: center; 
+                margin-top: 4mm;
+                padding: 3mm;
+                background: #f8fafc;
+                border-radius: 2mm;
+                border: 1px dashed #cbd5e1;
+                position: relative;
+              }
+              .receipt-footer::before {
+                content: '';
+                position: absolute;
+                top: -1px;
+                left: 0;
+                right: 0;
+                height: 1px;
+                background: linear-gradient(to right, transparent, #3b82f6, transparent);
+              }
+              .receipt-thank-you {
+                font-size: 12px;
+                font-weight: 600;
+                color: #1e293b;
+                margin-bottom: 2mm;
+              }
+              .receipt-visit-again {
+                font-size: 10px;
+                color: #64748b;
+                margin-bottom: 3mm;
+                font-style: italic;
+              }
+              .receipt-logo { 
+                width: 20mm;
+                height: 20mm;
+                margin: 0 auto 2mm;
+                display: block;
+                border-radius: 50%;
+                border: 2px solid #e2e8f0;
+                box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+                background: white;
+                padding: 1mm;
+              }
+              .receipt-powered { 
+                display: flex; 
+                align-items: center; 
+                justify-content: center; 
+                gap: 2mm;
+                background: white;
+                padding: 2mm;
+                border-radius: 1mm;
+                border: 1px solid #e2e8f0;
+                margin-top: 2mm;
+              }
+              .receipt-powered img { 
+                width: 4mm;
+                height: 4mm;
+                object-fit: contain; 
+                display: inline-block;
+              }
+              .receipt-powered span { 
+                font-size: 8px; 
+                color: #2563eb; 
+                font-weight: 700; 
+                text-transform: uppercase; 
+                letter-spacing: 0.5px;
+              }
+              .kitchen-receipt .receipt-header {
+                background: linear-gradient(135deg, #dc2626 0%, #991b1b 100%);
+                color: white;
+              }
+              .kitchen-receipt .receipt-title {
+                color: white;
+                text-shadow: 0 1px 2px rgba(0,0,0,0.3);
+              }
+              .kitchen-receipt .receipt-subtitle,
+              .kitchen-receipt .receipt-contact {
+                color: #fecaca;
+              }
+              .kitchen-receipt .receipt-info {
+                background: #fef2f2;
+                border-left-color: #dc2626;
+              }
+              .kitchen-receipt .receipt-info-label::before {
+                color: #dc2626;
+              }
+              .kitchen-receipt .receipt-items-header {
+                background: linear-gradient(135deg, #dc2626 0%, #991b1b 100%);
+              }
+              .kitchen-receipt .receipt-item::before {
+                background: linear-gradient(to bottom, #dc2626, #f97316);
+              }
+              .kitchen-receipt .receipt-total {
+                background: linear-gradient(135deg, #374151 0%, #1f2937 100%);
+              }
+              .receipt-ornament {
+                width: 100%;
+                height: 2mm;
+                background: linear-gradient(to right, transparent, #3b82f6, transparent);
+                margin: 2mm 0;
+                border-radius: 1mm;
+              }
+              .kitchen-receipt .receipt-ornament {
+                background: linear-gradient(to right, transparent, #dc2626, transparent);
+              }
+              * {
+                -webkit-print-color-adjust: exact;
+                print-color-adjust: exact;
+              }
+            }
+          `}</style>
+
           {/* Customer Receipt */}
-          <div className="print-receipt mb-8">
-            <div className="text-center mb-4">
-              <img src="/images/logo.png" alt="Logo" className="w-20 h-20 mx-auto mb-2 rounded-full" />
-              <h1 className="text-xl font-bold">Dawar Juha</h1>
-              <p className="text-sm">Restaurant & Café</p>
-              <p className="text-sm">123 Main Street, City</p>
-              <p className="text-sm">Tel: +123 456 7890</p>
-              <div className="border-b border-dashed border-gray-400 my-2"></div>
-              <h2 className="text-lg font-bold">فاتورة العميل</h2>
+          <div className="receipt-print-page">
+            <div className="receipt-header">
+              <img src="/images/logo.png" alt="Logo" className="receipt-logo" />
+              <div className="receipt-title">Dawar Juha</div>
+              <div className="receipt-subtitle">Restaurant & Café</div>
+              <div className="receipt-contact">123 Main Street, City</div>
+              <div className="receipt-contact">Tel: +123 456 7890</div>
             </div>
 
-            <div className="mb-4 text-sm">
-              <div className="flex justify-between mb-1">
-                <span>طلب #:</span>
-                <span>{orderId}</span>
+            <div className="receipt-ornament"></div>
+
+            <div className="receipt-info">
+              <div className="receipt-info-row">
+                <span className="receipt-info-label">طلب #</span>
+                <span className="receipt-info-value">{orderId}</span>
               </div>
-              <div className="flex justify-between mb-1">
-                <span>التاريخ:</span>
-                <span>{new Date().toLocaleDateString()}</span>
+              <div className="receipt-info-row">
+                <span className="receipt-info-label">التاريخ</span>
+                <span className="receipt-info-value">{new Date().toLocaleDateString("ar-EG")}</span>
               </div>
-              <div className="flex justify-between mb-1">
-                <span>الوقت:</span>
-                <span>{new Date().toLocaleTimeString()}</span>
+              <div className="receipt-info-row">
+                <span className="receipt-info-label">الوقت</span>
+                <span className="receipt-info-value">{new Date().toLocaleTimeString("ar-EG", { hour12: false })}</span>
               </div>
-              <div className="flex justify-between mb-1">
-                <span>العميل:</span>
-                <span>{customerName || "عميل عابر"}</span>
+              <div className="receipt-info-row">
+                <span className="receipt-info-label">العميل</span>
+                <span className="receipt-info-value">{customerName || "عميل عابر"}</span>
               </div>
-              <div className="flex justify-between mb-1">
-                <span>النوع:</span>
-                <span>
-                  {orderType === "dine-in" ? "تناول في المطعم" : orderType === "takeaway" ? "استلام" : "توصيل"}
-                </span>
+              <div className="receipt-info-row">
+                <span className="receipt-info-label">النوع</span>
+                <span className="receipt-info-value">{getOrderTypeDisplayText(orderType)}</span>
               </div>
               {orderType === "delivery" && phoneNumber && (
-                <div className="flex justify-between mb-1">
-                  <span>الهاتف:</span>
-                  <span>{phoneNumber}</span>
+                <div className="receipt-info-row">
+                  <span className="receipt-info-label">الهاتف</span>
+                  <span className="receipt-info-value">{phoneNumber}</span>
                 </div>
               )}
-              <div className="flex justify-between mb-1">
-                <span>الكاشير:</span>
-                <span>{cashierName}</span>
+              <div className="receipt-info-row">
+                <span className="receipt-info-label">الكاشير</span>
+                <span className="receipt-info-value">{cashierName}</span>
               </div>
             </div>
 
-            <div className="border-b border-dashed border-gray-400 mb-2"></div>
-
-            <div className="mb-4">
-              <div className="flex justify-between font-bold text-sm mb-2">
-                <span className="w-2/5">الصنف</span>
-                <span className="w-1/5 text-center">العدد</span>
-                <span className="w-1/5 text-right">السعر</span>
-                <span className="w-1/5 text-right">الإجمالي</span>
-              </div>
-
-              {cart.map((item) => (
-                <div key={item.id} className="mb-2 text-sm">
-                  <div className="flex justify-between">
-                    <span className="w-2/5">
-                      {item.name}
-                      {item.size && item.size !== "عادي" && <span className="text-xs"> ({item.size})</span>}
+            <div className="receipt-items">
+              <div className="receipt-items-header">تفاصيل الطلب</div>
+              {cart.map((item, index) => (
+                <div key={item.id} className="receipt-item">
+                  <div className="receipt-item-main">
+                    <span className="receipt-item-name">
+                      {item.name} {item.size && item.size !== "عادي" && `(${item.size})`} × {item.quantity}
                     </span>
-                    <span className="w-1/5 text-center">{item.quantity}</span>
-                    <span className="w-1/5 text-right">ج.م{item.basePrice.toFixed(2)}</span>
-                    <span className="w-1/5 text-right">ج.م{(item.basePrice * item.quantity).toFixed(2)}</span>
+                    <span className="receipt-item-price">ج.م{(item.price * item.quantity).toFixed(2)}</span>
                   </div>
-
                   {item.extras && item.extras.length > 0 && (
-                    <div className="text-xs text-gray-600 mr-2">
-                      {item.extras.map((extra) => (
-                        <div key={extra.id} className="flex justify-between">
-                          <span className="w-2/5">+ {extra.name}</span>
-                          <span className="w-1/5 text-center">{item.quantity}</span>
-                          <span className="w-1/5 text-right">ج.م{extra.price.toFixed(2)}</span>
-                          <span className="w-1/5 text-right">ج.م{(extra.price * item.quantity).toFixed(2)}</span>
-                        </div>
-                      ))}
+                    <div className="receipt-item-details receipt-extras">
+                      <strong>إضافات:</strong>{" "}
+                      {item.extras.map((extra) => `${extra.name} (ج.م${extra.price.toFixed(2)})`).join(", ")}
                     </div>
                   )}
-
-                  {item.notes && <div className="text-xs text-gray-600 mr-2 italic">ملاحظة: {item.notes}</div>}
+                  {item.notes && (
+                    <div className="receipt-item-details receipt-notes">
+                      <strong>ملاحظات:</strong> {item.notes}
+                    </div>
+                  )}
                 </div>
               ))}
             </div>
 
-            <div className="border-t border-double border-gray-800 pt-2">
-              <div className="flex justify-between text-lg font-bold">
-                <span>الإجمالي</span>
-                <span>ج.م{calculateTotal().toFixed(2)}</span>
-              </div>
+            <div className="receipt-total">
+              <div className="receipt-total-label">إجمالي المبلغ</div>
+              <div className="receipt-total-amount">ج.م {calculateTotal().toFixed(2)}</div>
             </div>
 
-            <div className="text-center mt-4 text-sm">
-              <p>شكراً لطلبكم!</p>
-              <p>نتطلع لرؤيتكم مرة أخرى</p>
-              <div className="flex justify-center items-center mt-2">
-                <img src="/images/eathrel.png" alt="Eathrel Logo" className="w-4 h-4 mr-1" />
-                <span className="text-xs">Powered by Ethereal</span>
+            <div className="receipt-footer">
+              <div className="receipt-thank-you">شكراً لطلبكم!</div>
+              <div className="receipt-visit-again">نتطلع لرؤيتكم مرة أخرى</div>
+              <div className="receipt-powered">
+                <img src="/images/eathrel.png" alt="Eathrel Logo" />
+                <span>Powered by Ethereal</span>
               </div>
             </div>
           </div>
 
           {/* Kitchen Receipt */}
-          <div className="print-receipt page-break-before">
-            <div className="text-center mb-4">
-              <h1 className="text-xl font-bold">Dawar Juha</h1>
-              <h2 className="text-lg font-bold">طلب المطبخ</h2>
-              <div className="border-b border-dashed border-gray-400 my-2"></div>
+          <div className="receipt-print-page kitchen-receipt">
+            <div className="receipt-header">
+              <div className="receipt-title">🍳 فاتورة المطبخ</div>
+              <div className="receipt-subtitle">Kitchen Order</div>
             </div>
 
-            <div className="mb-4 text-sm">
-              <div className="flex justify-between mb-1">
-                <span>طلب #:</span>
-                <span className="font-bold text-lg">{orderId}</span>
+            <div className="receipt-ornament"></div>
+
+            <div className="receipt-info">
+              <div className="receipt-info-row">
+                <span className="receipt-info-label">طلب #</span>
+                <span className="receipt-info-value">{orderId}</span>
               </div>
-              <div className="flex justify-between mb-1">
-                <span>الوقت:</span>
-                <span>{new Date().toLocaleTimeString()}</span>
+              <div className="receipt-info-row">
+                <span className="receipt-info-label">الوقت</span>
+                <span className="receipt-info-value">{new Date().toLocaleTimeString("ar-EG", { hour12: false })}</span>
               </div>
-              <div className="flex justify-between mb-1">
-                <span>النوع:</span>
-                <span className="font-bold">
-                  {orderType === "dine-in" ? "تناول في المطعم" : orderType === "takeaway" ? "استلام" : "توصيل"}
-                </span>
+              <div className="receipt-info-row">
+                <span className="receipt-info-label">النوع</span>
+                <span className="receipt-info-value">{getOrderTypeDisplayText(orderType)}</span>
               </div>
-              <div className="flex justify-between mb-1">
-                <span>العميل:</span>
-                <span>{customerName || "عميل عابر"}</span>
+              <div className="receipt-info-row">
+                <span className="receipt-info-label">العميل</span>
+                <span className="receipt-info-value">{customerName || "عميل عابر"}</span>
               </div>
             </div>
 
-            <div className="border-b border-dashed border-gray-400 mb-2"></div>
-
-            <div className="mb-4">
-              <h3 className="font-bold text-center mb-2">عناصر الطلب</h3>
-
-              {cart.map((item) => (
-                <div key={item.id} className="mb-3 p-2 border border-gray-300 rounded">
-                  <div className="flex justify-between items-center mb-1">
-                    <span className="font-bold text-lg">{item.name}</span>
-                    <span className="bg-gray-800 text-white px-2 py-1 rounded font-bold">x{item.quantity}</span>
+            <div className="receipt-items">
+              <div className="receipt-items-header">🥘 قائمة الطبخ</div>
+              {cart.map((item, index) => (
+                <div key={item.id} className="receipt-item">
+                  <div className="receipt-item-main">
+                    <span className="receipt-item-name">
+                      <strong>{item.quantity}×</strong> {item.name}
+                      {item.size && item.size !== "عادي" && ` - ${item.size}`}
+                    </span>
                   </div>
-
-                  {item.size && item.size !== "عادي" && (
-                    <div className="text-sm text-gray-600 mb-1">الحجم: {item.size}</div>
-                  )}
-
                   {item.extras && item.extras.length > 0 && (
-                    <div className="text-sm mb-1">
-                      <span className="font-medium">الإضافات:</span>
-                      <ul className="list-disc list-inside ml-2">
-                        {item.extras.map((extra) => (
-                          <li key={extra.id}>{extra.name}</li>
-                        ))}
-                      </ul>
+                    <div className="receipt-item-details receipt-extras">
+                      <strong>إضافات:</strong> {item.extras.map((extra) => extra.name).join(", ")}
                     </div>
                   )}
-
                   {item.notes && (
-                    <div className="text-sm bg-yellow-100 p-1 rounded">
-                      <span className="font-medium">ملاحظة خاصة:</span> {item.notes}
+                    <div className="receipt-item-details receipt-notes">
+                      <strong>⚠️ ملاحظات مهمة:</strong> {item.notes}
                     </div>
                   )}
                 </div>
               ))}
             </div>
 
-            <div className="text-center mt-4 text-sm border-t border-dashed border-gray-400 pt-2">
-              <p>إجمالي العناصر: {cart.reduce((sum, item) => sum + item.quantity, 0)}</p>
-              <p>الكاشير: {cashierName}</p>
+            <div className="receipt-total">
+              <div className="receipt-total-label">⏱️ وقت التحضير المتوقع</div>
+              <div className="receipt-total-amount">{cart.length * 5} دقيقة</div>
+            </div>
+
+            <div className="receipt-footer">
+              <div className="receipt-thank-you">🔥 طبخ سعيد!</div>
+              <div className="receipt-visit-again">تأكد من جودة الطعام قبل التقديم</div>
             </div>
           </div>
         </div>
-
-        <style jsx>{`
-  @media print {
-    @page {
-      size: A4;
-      margin: 0.5in;
-    }
-    
-    .print-receipt {
-      width: 100%;
-      max-width: 320px;
-      margin: 0 auto;
-      font-family: 'Arial', 'Tahoma', sans-serif;
-      font-size: 14px;
-      line-height: 1.6;
-      color: #000;
-      background: white;
-    }
-    
-    .print-receipt h1 {
-      font-size: 22px;
-      font-weight: bold;
-      margin: 8px 0;
-      line-height: 1.3;
-    }
-    
-    .print-receipt h2 {
-      font-size: 18px;
-      font-weight: bold;
-      margin: 6px 0;
-      line-height: 1.4;
-    }
-    
-    .print-receipt h3 {
-      font-size: 16px;
-      font-weight: bold;
-      margin: 4px 0;
-      line-height: 1.4;
-    }
-    
-    .print-receipt p {
-      margin: 3px 0;
-      line-height: 1.5;
-    }
-    
-    .print-receipt .text-sm {
-      font-size: 13px;
-      line-height: 1.5;
-    }
-    
-    .print-receipt .text-xs {
-      font-size: 11px;
-      line-height: 1.4;
-    }
-    
-    .print-receipt .text-lg {
-      font-size: 16px;
-      font-weight: bold;
-      line-height: 1.4;
-    }
-    
-    .print-receipt .text-xl {
-      font-size: 20px;
-      font-weight: bold;
-      line-height: 1.3;
-    }
-    
-    .print-receipt .mb-1 {
-      margin-bottom: 4px;
-    }
-    
-    .print-receipt .mb-2 {
-      margin-bottom: 8px;
-    }
-    
-    .print-receipt .mb-3 {
-      margin-bottom: 12px;
-    }
-    
-    .print-receipt .mb-4 {
-      margin-bottom: 16px;
-    }
-    
-    .print-receipt .mt-2 {
-      margin-top: 8px;
-    }
-    
-    .print-receipt .mt-4 {
-      margin-top: 16px;
-    }
-    
-    .print-receipt .p-1 {
-      padding: 4px;
-    }
-    
-    .print-receipt .p-2 {
-      padding: 8px;
-    }
-    
-    .print-receipt .py-1 {
-      padding-top: 4px;
-      padding-bottom: 4px;
-    }
-    
-    .print-receipt .px-2 {
-      padding-left: 8px;
-      padding-right: 8px;
-    }
-    
-    .print-receipt .border-dashed {
-      border-style: dashed;
-      border-width: 1px;
-      border-color: #666;
-    }
-    
-    .print-receipt .border-double {
-      border-style: double;
-      border-width: 3px;
-      border-color: #000;
-    }
-    
-    .print-receipt .border-t {
-      border-top-width: 1px;
-      border-top-style: solid;
-      border-top-color: #000;
-    }
-    
-    .print-receipt .border-b {
-      border-bottom-width: 1px;
-      border-bottom-style: solid;
-      border-bottom-color: #000;
-    }
-    
-    .print-receipt .border {
-      border: 1px solid #333;
-    }
-    
-    .print-receipt .rounded {
-      border-radius: 4px;
-    }
-    
-    .print-receipt .font-bold {
-      font-weight: bold;
-    }
-    
-    .print-receipt .text-center {
-      text-align: center;
-    }
-    
-    .print-receipt .text-right {
-      text-align: right;
-    }
-    
-    .print-receipt .flex {
-      display: flex;
-    }
-    
-    .print-receipt .justify-between {
-      justify-content: space-between;
-    }
-    
-    .print-receipt .justify-center {
-      justify-content: center;
-    }
-    
-    .print-receipt .items-center {
-      align-items: center;
-    }
-    
-    .print-receipt .bg-gray-800 {
-      background-color: #1f2937;
-    }
-    
-    .print-receipt .bg-yellow-100 {
-      background-color: #fef3c7;
-    }
-    
-    .print-receipt .text-white {
-      color: white;
-    }
-    
-    .print-receipt .text-gray-600 {
-      color: #4b5563;
-    }
-    
-    .print-receipt .w-20 {
-      width: 80px;
-    }
-    
-    .print-receipt .h-20 {
-      height: 80px;
-    }
-    
-    .print-receipt .w-4 {
-      width: 16px;
-    }
-    
-    .print-receipt .h-4 {
-      height: 16px;
-    }
-    
-    .print-receipt .mx-auto {
-      margin-left: auto;
-      margin-right: auto;
-    }
-    
-    .print-receipt .mr-1 {
-      margin-right: 4px;
-    }
-    
-    .print-receipt .mr-2 {
-      margin-right: 8px;
-    }
-    
-    .print-receipt .ml-2 {
-      margin-left: 8px;
-    }
-    
-    .print-receipt .list-disc {
-      list-style-type: disc;
-    }
-    
-    .print-receipt .list-inside {
-      list-style-position: inside;
-    }
-    
-    .print-receipt .w-1\\/5 {
-      width: 20%;
-    }
-    
-    .print-receipt .w-2\\/5 {
-      width: 40%;
-    }
-    
-    .page-break-before {
-      page-break-before: always;
-      margin-top: 2in;
-    }
-    
-    .print\\:hidden {
-      display: none !important;
-    }
-    
-    .print\\:block {
-      display: block !important;
-    }
-    
-    /* Enhanced spacing for better readability */
-    .receipt-info-row {
-      display: flex;
-      justify-content: space-between;
-      margin-bottom: 6px;
-      padding: 2px 0;
-    }
-    
-    .receipt-items-row {
-      display: flex;
-      justify-content: space-between;
-      margin-bottom: 8px;
-      padding: 4px 0;
-      border-bottom: 1px dotted #ccc;
-    }
-    
-    .receipt-total-row {
-      display: flex;
-      justify-content: space-between;
-      font-size: 18px;
-      font-weight: bold;
-      padding: 8px 0;
-      margin-top: 8px;
-    }
-    
-    /* Kitchen receipt specific styles */
-    .kitchen-item {
-      margin-bottom: 16px;
-      padding: 12px;
-      border: 2px solid #333;
-      border-radius: 6px;
-      background-color: #f9f9f9;
-    }
-    
-    .kitchen-item-header {
-      display: flex;
-      justify-content: space-between;
-      align-items: center;
-      margin-bottom: 8px;
-      padding-bottom: 4px;
-      border-bottom: 1px solid #ddd;
-    }
-    
-    .kitchen-quantity-badge {
-      background-color: #000;
-      color: white;
-      padding: 6px 12px;
-      border-radius: 4px;
-      font-weight: bold;
-      font-size: 16px;
-    }
-    
-    .kitchen-notes {
-      background-color: #fff3cd;
-      border: 1px solid #ffeaa7;
-      padding: 8px;
-      border-radius: 4px;
-      margin-top: 8px;
-    }
-  }
-`}</style>
       </div>
 
       {/* Item Modal */}
@@ -1193,7 +1471,6 @@ export default function SalesPageFixed() {
                   <X className="h-4 w-4" />
                 </Button>
               </div>
-
               <div className="p-4 space-y-4">
                 {currentItem && currentItem.sizePrices.length > 1 && (
                   <div>

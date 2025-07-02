@@ -6,10 +6,12 @@ import { Card, CardContent, CardFooter, CardHeader, CardTitle } from "@/componen
 import { Button } from "@/components/ui/button"
 import { Textarea } from "@/components/ui/textarea"
 import { Separator } from "@/components/ui/separator"
-import { AlertCircle, CheckCircle2, Printer, RefreshCw } from "lucide-react"
+import { AlertCircle, CheckCircle2, Printer, RefreshCw, Users, Clock, DollarSign } from "lucide-react"
 import { motion } from "framer-motion"
 import { useReactToPrint } from "react-to-print"
-import Image from 'next/image'
+import Image from "next/image"
+
+const API_BASE_URL = "http://172.162.241.242:3000/api/v1"
 
 interface CartItem {
   id: string
@@ -41,226 +43,328 @@ interface Order {
   shift: string
 }
 
-// Advanced Print Styles for Shift Report
-const shiftReportPrintStyles = `
-  @media print {
-    @page {
-      size: A4;
-      margin: 10mm;
-    }
-    
-    body {
-      margin: 0;
-      padding: 0;
-      font-family: 'Arial', sans-serif;
-    }
-    
-    .print\\:hidden {
-      display: none !important;
-    }
-    
-    .shift-report-print {
-      display: block !important;
-      width: 100%;
-      max-width: none;
-      margin: 0;
-      padding: 0;
-      font-size: 12px;
-      line-height: 1.4;
-      color: #000;
-      background: white;
-      page-break-inside: avoid;
-    }
-    
-    .shift-report-print * {
-      color: #000 !important;
-      background: white !important;
-    }
-    
-    .shift-report {
-      font-family: 'Arial', sans-serif !important;
-      background: white !important;
-      color: #000 !important;
-      padding: 5mm !important;
-      margin: 0 !important;
-    }
-    
-    .shift-report .header {
-      text-align: center;
-      border-bottom: 3px solid #000;
-      padding-bottom: 5mm;
-      margin-bottom: 5mm;
-    }
-    
-    .shift-report .header h1 {
-      font-size: 24px !important;
-      margin: 3mm 0;
-      font-weight: bold;
-    }
-    
-    .shift-report .header p {
-      font-size: 12px !important;
-      margin: 1mm 0;
-    }
-    
-    .shift-report .shift-info {
-      display: grid;
-      grid-template-columns: 1fr 1fr;
-      gap: 5mm;
-      margin-bottom: 5mm;
-      padding: 3mm;
-      border: 2px solid #000;
-      background: #f9f9f9 !important;
-    }
-    
-    .shift-report .shift-info div {
-      font-size: 11px !important;
-      margin: 1mm 0;
-    }
-    
-    .shift-report .shift-info .info-label {
-      font-weight: bold;
-      margin-bottom: 0.5mm;
-    }
-    
-    .shift-report .summary-stats {
-      display: grid;
-      grid-template-columns: 1fr 1fr 1fr 1fr;
-      gap: 3mm;
-      margin-bottom: 5mm;
-    }
-    
-    .shift-report .stat-box {
-      border: 2px solid #000;
-      padding: 3mm;
-      text-align: center;
-      background: #f5f5f5 !important;
-    }
-    
-    .shift-report .stat-box .stat-value {
-      font-size: 16px !important;
-      font-weight: bold;
-      margin-bottom: 1mm;
-    }
-    
-    .shift-report .stat-box .stat-label {
-      font-size: 10px !important;
-      font-weight: bold;
-    }
-    
-    .shift-report .orders-table {
-      width: 100%;
-      border-collapse: collapse;
-      margin-bottom: 5mm;
-      font-size: 10px !important;
-    }
-    
-    .shift-report .orders-table th,
-    .shift-report .orders-table td {
-      border: 1px solid #000;
-      padding: 2mm;
-      text-align: left;
-      vertical-align: top;
-    }
-    
-    .shift-report .orders-table th {
-      background: #e0e0e0 !important;
-      font-weight: bold;
-      font-size: 11px !important;
-    }
-    
-    .shift-report .category-breakdown {
-      margin: 3mm 0;
-      page-break-inside: avoid;
-    }
-    
-    .shift-report .category-header {
-      background: #d0d0d0 !important;
-      padding: 2mm;
-      font-weight: bold;
-      font-size: 12px !important;
-      border: 1px solid #000;
-      text-align: center;
-    }
-    
-    .shift-report .category-table {
-      width: 100%;
-      border-collapse: collapse;
-      margin-bottom: 3mm;
-      font-size: 9px !important;
-    }
-    
-    .shift-report .category-table th,
-    .shift-report .category-table td {
-      border: 1px solid #000;
-      padding: 1mm;
-      text-align: left;
-    }
-    
-    .shift-report .category-table th {
-      background: #f0f0f0 !important;
-      font-weight: bold;
-    }
-    
-    .shift-report .total-section {
-      border: 3px solid #000;
-      padding: 3mm;
-      text-align: center;
-      font-size: 16px !important;
-      font-weight: bold;
-      background: #f0f0f0 !important;
-      margin-top: 5mm;
-    }
-    
-    .shift-report .notes-section {
-      margin-top: 5mm;
-      padding: 3mm;
-      border: 1px solid #000;
-      background: #fff3cd !important;
-    }
-    
-    .shift-report .footer {
-      text-align: center;
-      margin-top: 5mm;
-      padding-top: 3mm;
-      border-top: 2px solid #000;
-      font-size: 10px !important;
-    }
-    
-    .shift-report .signature-section {
-      display: grid;
-      grid-template-columns: 1fr 1fr;
-      gap: 10mm;
-      margin-top: 10mm;
-      padding-top: 5mm;
-      border-top: 1px solid #000;
-    }
-    
-    .shift-report .signature-box {
-      text-align: center;
-      padding: 5mm;
-      border: 1px solid #000;
-    }
-    
-    .shift-report .signature-line {
-      border-bottom: 1px solid #000;
-      height: 10mm;
-      margin-bottom: 2mm;
-    }
+// Very Simple Shift Report Styles
+const simpleShiftPrintStyles = `
+@media print {
+  @page {
+    size: A4;
+    margin: 10mm;
   }
+  
+  body {
+    margin: 0;
+    padding: 0;
+    font-family: Arial, sans-serif;
+  }
+  
+  .print\\:hidden {
+    display: none !important;
+  }
+  
+  .advanced-shift-report {
+    display: block !important;
+    width: 100%;
+    margin: 0;
+    padding: 0;
+    font-size: 12px;
+    line-height: 1.4;
+    color: #000;
+    background: white;
+  }
+  
+  /* Simple Header */
+  .report-header {
+    text-align: center;
+    padding: 5mm 0;
+    border-bottom: 2px solid #000;
+    margin-bottom: 5mm;
+  }
+  
+  .company-logo-container {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    margin-bottom: 3mm;
+  }
+  
+  .company-logo {
+    width: 40px;
+    height: 40px;
+    border-radius: 50%;
+    margin-left: 8px;
+    object-fit: cover;
+    border: 2px solid #333;
+  }
+  
+  .company-info h1 {
+    font-size: 20px;
+    font-weight: bold;
+    margin: 0 0 2px 0;
+  }
+  
+  .company-info p {
+    font-size: 10px;
+    margin: 1px 0;
+  }
+  
+  .report-title {
+    font-size: 18px;
+    font-weight: bold;
+    margin: 3mm 0;
+    text-transform: uppercase;
+  }
+  
+  .report-subtitle {
+    font-size: 12px;
+    font-style: italic;
+  }
+  
+  /* Simple Stats Grid - Updated to 3 columns */
+  .stats-grid {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 3mm;
+    margin: 4mm 0;
+  }
+  
+  .stat-card {
+    border: 1px solid #000;
+    padding: 3mm;
+    text-align: center;
+  }
+  
+  .stat-value {
+    font-size: 16px;
+    font-weight: bold;
+    margin-bottom: 1mm;
+  }
+  
+  .stat-label {
+    font-size: 9px;
+    font-weight: bold;
+    text-transform: uppercase;
+  }
+  
+  /* Simple Section Titles */
+  .section-title {
+    font-size: 14px;
+    font-weight: bold;
+    margin: 4mm 0 2mm 0;
+    padding-bottom: 1mm;
+    border-bottom: 1px solid #000;
+  }
+  
+  /* Simple Info Grid */
+  .info-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 4mm;
+    margin-bottom: 3mm;
+  }
+  
+  .info-card {
+    border: 1px solid #000;
+    padding: 2mm;
+  }
+  
+  .info-row {
+    display: flex;
+    justify-content: space-between;
+    margin: 1mm 0;
+    font-size: 10px;
+  }
+  
+  .info-label {
+    font-weight: bold;
+  }
+  
+  .info-value {
+    font-weight: normal;
+  }
+  
+  /* Simple Tables */
+  .orders-table {
+    width: 100%;
+    border-collapse: collapse;
+    margin: 2mm 0;
+    font-size: 9px;
+    border: 1px solid #000;
+  }
+  
+  .orders-table th {
+    background: #f0f0f0;
+    border: 1px solid #000;
+    padding: 1.5mm;
+    text-align: center;
+    font-weight: bold;
+    font-size: 9px;
+  }
+  
+  .orders-table td {
+    border: 1px solid #000;
+    padding: 1.5mm;
+    text-align: center;
+  }
+  
+  .orders-table tbody tr:nth-child(even) {
+    background: #f9f9f9;
+  }
+  
+  /* Simple Category Sections */
+  .category-section {
+    margin: 3mm 0;
+    border: 1px solid #000;
+  }
+  
+  .category-header {
+    background: #e0e0e0;
+    padding: 2mm;
+    font-weight: bold;
+    font-size: 11px;
+    display: flex;
+    justify-content: space-between;
+    border-bottom: 1px solid #000;
+  }
+  
+  .category-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 9px;
+  }
+  
+  .category-table th {
+    background: #f5f5f5;
+    border: 1px solid #000;
+    padding: 1.5mm;
+    text-align: center;
+    font-weight: bold;
+    font-size: 9px;
+  }
+  
+  .category-table td {
+    border: 1px solid #000;
+    padding: 1.5mm;
+    text-align: center;
+  }
+  
+  .category-table tbody tr:nth-child(even) {
+    background: #f9f9f9;
+  }
+  
+  /* Simple Total Section */
+  .total-section {
+    border: 2px solid #000;
+    padding: 4mm;
+    text-align: center;
+    margin: 4mm 0;
+  }
+  
+  .total-amount {
+    font-size: 20px;
+    font-weight: bold;
+    margin-bottom: 1mm;
+  }
+  
+  .total-label {
+    font-size: 12px;
+    font-weight: bold;
+    text-transform: uppercase;
+  }
+  
+  /* Simple Notes Section */
+  .notes-section {
+    border: 1px solid #000;
+    padding: 2mm;
+    margin: 3mm 0;
+  }
+  
+  .notes-title {
+    font-size: 11px;
+    font-weight: bold;
+    margin-bottom: 2mm;
+  }
+  
+  .notes-content {
+    font-size: 10px;
+    line-height: 1.4;
+  }
+  
+  /* Simple Signature Section */
+  .signature-section {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 5mm;
+    margin-top: 5mm;
+  }
+  
+  .signature-box {
+    border: 1px solid #000;
+    padding: 3mm;
+    text-align: center;
+  }
+  
+  .signature-line {
+    border-bottom: 1px solid #000;
+    height: 8mm;
+    margin-bottom: 2mm;
+  }
+  
+  .signature-title {
+    font-size: 10px;
+    font-weight: bold;
+    margin-bottom: 1mm;
+  }
+  
+  .signature-name {
+    font-size: 9px;
+  }
+  
+  /* Simple Footer */
+  .footer-section {
+    text-align: center;
+    margin-top: 5mm;
+    padding-top: 2mm;
+    border-top: 1px solid #000;
+  }
+  
+  .footer-content {
+    font-size: 9px;
+    margin-bottom: 2mm;
+  }
+  
+  .powered-by {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 2mm;
+    margin-top: 2mm;
+  }
+  
+  .footer-logo {
+    width: 12px;
+    height: 12px;
+  }
+  
+  .powered-text {
+    font-size: 8px;
+    font-weight: bold;
+    text-transform: uppercase;
+  }
+}
 `
 
-// Add the style tag to the document head
+// Replace the style injection
 if (typeof document !== "undefined") {
   const styleElement = document.createElement("style")
-  styleElement.textContent = shiftReportPrintStyles
+  styleElement.textContent = simpleShiftPrintStyles
   document.head.appendChild(styleElement)
 }
 
-export default function EndShiftPage() {
+export default function EndShiftPageFixed() {
   const router = useRouter()
   const [currentUser, setCurrentUser] = useState<any>(null)
-  const [savedOrders, setSavedOrders] = useState<Order[]>([]) // الطلبات المحفوظة
+  const [currentShift, setCurrentShift] = useState<any>(null)
+  const [savedOrders, setSavedOrders] = useState<Order[]>([])
   const [shiftStats, setShiftStats] = useState({
     totalOrders: 0,
     totalSales: 0,
@@ -271,16 +375,41 @@ export default function EndShiftPage() {
   })
   const [notes, setNotes] = useState("")
   const [requestSent, setRequestSent] = useState(false)
+  const [loading, setLoading] = useState(false)
+  const [error, setError] = useState<string | null>(null)
   const shiftReportRef = useRef<HTMLDivElement>(null)
 
-  // Function to load and filter saved orders
-  const loadSavedOrders = () => {
+  // Helper function to get shift display name
+  const getShiftDisplayName = (shift: any) => {
+    if (typeof shift === "string") return shift
+    if (typeof shift === "object" && shift !== null) {
+      return shift.shift_name || shift.type || shift.shift_type || shift.shift_id || "وردية غير محددة"
+    }
+    return "وردية غير محددة"
+  }
+
+  // Helper function to get shift ID for comparison
+  const getShiftId = (shift: any) => {
+    if (typeof shift === "string") return shift
+    if (typeof shift === "object" && shift !== null) {
+      return shift.shift_id || shift.id || shift.type || shift.shift_name || shift
+    }
+    return shift
+  }
+
+  const loadShiftData = async () => {
     if (typeof window !== "undefined") {
       const user = JSON.parse(localStorage.getItem("currentUser") || "{}")
+      setCurrentUser(user)
+      const currentCashierName = user.full_name || user.name || user.username || ""
 
-      // Get all saved orders from localStorage
+      if (user.shift) {
+        setCurrentShift(user.shift)
+      }
+
       const savedOrdersString = localStorage.getItem("savedOrders")
-      let allOrders: Order[] = []
+      let allOrders: any[] = []
+
       if (savedOrdersString) {
         try {
           allOrders = JSON.parse(savedOrdersString)
@@ -290,145 +419,182 @@ export default function EndShiftPage() {
         }
       }
 
-      console.log("All orders from localStorage:", allOrders.length)
+      const currentShiftOrders = allOrders.filter((order: any) => {
+        if (!order || !order.order_id) return false
 
-      // Filter out mock data completely
-      const mockIds = ["0001", "0002", "0003", "1", "2", "3"]
-      const realOrders = allOrders.filter((order: any) => {
-        const isMockId = mockIds.includes(String(order.id))
-        const isMockDate = order.date && order.date.includes("2023-06-12")
-        const isMockCashier = order.cashier === "cashier"
-        const isMockCustomer = order.customerName === "أحمد محمد" && order.total === 85.5
+        const orderCashierName = order.cashier_name || order.cashier?.full_name || "[اسم الكاشير غير متوفر]"
+        const matchesCashier = orderCashierName === currentCashierName
 
-        return !isMockId && !isMockDate && !isMockCashier && !isMockCustomer
-      })
-
-      console.log("Real orders after filtering mock data:", realOrders.length)
-
-      // Filter orders for current cashier and shift
-      // Don't filter by login time - get ALL orders from this cashier and shift
-      const currentShiftOrders = realOrders.filter((order) => {
-        const matchesCashier = order.cashier === user.name || order.cashier === user.username
-        const matchesShift = order.shift === user.shift
-
-        console.log(
-          `Order ${order.id}: cashier=${order.cashier}, shift=${order.shift}, matches=${matchesCashier && matchesShift}`,
-        )
+        const orderShiftId = order.shift?.shift_id || order.shift_id || ""
+        const currentShiftId = getShiftId(user.shift)
+        const matchesShift = orderShiftId === currentShiftId
 
         return matchesCashier && matchesShift
       })
 
-      console.log("Orders for current shift:", currentShiftOrders.length)
-      console.log("Current user:", user.name, user.shift)
+      const convertedOrders = currentShiftOrders.map((order: any) => ({
+        id: order.order_id || `order_${Date.now()}`,
+        customerName: order.customer_name || "عميل عابر",
+        orderType: order.order_type || "dine-in",
+        phoneNumber: order.phone_number || "",
+        total: typeof order.total_price === "string" ? Number.parseFloat(order.total_price) : order.total_price || 0,
+        date: order.created_at || new Date().toISOString(),
+        status: order.status || "pending",
+        paymentMethod: order.payment_method || "cash",
+        cashier: order.cashier_name || order.cashier?.full_name || "[اسم الكاشير غير متوفر]",
+        shift: order.shift?.shift_id || order.shift_id || "",
+        items: (order.items || []).map((item: any) => ({
+          id: item.order_item_id || item.id || `item_${Date.now()}`,
+          name: item.product_name || item.name || "[اسم المنتج غير معروفة]",
+          price:
+            typeof item.unit_price === "string"
+              ? Number.parseFloat(item.unit_price)
+              : item.unit_price || item.price || 0,
+          basePrice:
+            typeof item.unit_price === "string"
+              ? Number.parseFloat(item.unit_price)
+              : item.unit_price || item.price || 0,
+          quantity: item.quantity || 0,
+          size: item.size_name || item.size || "عادي",
+          notes: item.notes || "",
+          category: item.product?.category?.name || item.category || "غير محدد",
+          extras: (item.extras || []).map((extra: any) => ({
+            name: extra.name || "[إضافة غير معروفة]",
+            price: typeof extra.price === "string" ? Number.parseFloat(extra.price) : extra.price || 0,
+          })),
+        })),
+      }))
 
-      setSavedOrders(currentShiftOrders)
+      setSavedOrders(convertedOrders)
 
-      // Calculate comprehensive stats
-      const total = currentShiftOrders.reduce((sum, order) => sum + order.total, 0)
-      const cashTotal = currentShiftOrders
-        .filter((order) => order.paymentMethod === "cash")
-        .reduce((sum, order) => sum + order.total, 0)
-      const cardTotal = currentShiftOrders
-        .filter((order) => order.paymentMethod === "card")
-        .reduce((sum, order) => sum + order.total, 0)
+      const total = convertedOrders.reduce((sum: number, order: any) => sum + order.total, 0)
+      const cashTotal = convertedOrders
+        .filter((order: any) => order.paymentMethod === "cash")
+        .reduce((sum: number, order: any) => sum + order.total, 0)
+      const cardTotal = convertedOrders
+        .filter((order: any) => order.paymentMethod === "card")
+        .reduce((sum: number, order: any) => sum + order.total, 0)
 
-      // Calculate orders per hour based on shift duration
       const loginTime = new Date(user.loginTime)
       const shiftDurationHours = (new Date().getTime() - loginTime.getTime()) / (1000 * 60 * 60)
-      const ordersPerHour = shiftDurationHours > 0 ? currentShiftOrders.length / shiftDurationHours : 0
+      const ordersPerHour = shiftDurationHours > 0 ? convertedOrders.length / shiftDurationHours : 0
 
       setShiftStats({
-        totalOrders: currentShiftOrders.length,
+        totalOrders: convertedOrders.length,
         totalSales: total,
         cashSales: cashTotal,
         cardSales: cardTotal,
-        avgOrderValue: currentShiftOrders.length > 0 ? total / currentShiftOrders.length : 0,
+        avgOrderValue: convertedOrders.length > 0 ? total / convertedOrders.length : 0,
         ordersPerHour: ordersPerHour,
       })
-
-      setCurrentUser(user)
     }
   }
 
   useEffect(() => {
-    loadSavedOrders()
+    loadShiftData()
 
-    // Listen for new orders added from sales page
     const handleOrderAdded = () => {
-      loadSavedOrders() // Reload orders when new order is added
+      loadShiftData()
     }
 
     const handleStorageChange = () => {
-      loadSavedOrders() // Reload orders when localStorage changes
+      loadShiftData()
     }
 
-    // Add event listeners for real-time updates
     window.addEventListener("orderAdded", handleOrderAdded)
     window.addEventListener("storage", handleStorageChange)
 
-    // Cleanup event listeners
     return () => {
       window.removeEventListener("orderAdded", handleOrderAdded)
       window.removeEventListener("storage", handleStorageChange)
     }
   }, [])
 
-  // Add this after the existing useEffect
-  useEffect(() => {
-    // Debug: Log localStorage contents
-    const savedOrdersString = localStorage.getItem("savedOrders")
-    if (savedOrdersString) {
-      const allOrders = JSON.parse(savedOrdersString)
-      console.log("Debug - All saved orders:", allOrders)
-      console.log("Debug - Total saved orders:", allOrders.length)
+  const handleEndShiftRequest = async () => {
+    if (!currentUser || !currentShift) {
+      setError("معلومات المستخدم أو الوردية غير متوفرة")
+      return
     }
 
-    const user = JSON.parse(localStorage.getItem("currentUser") || "{}")
-    console.log("Debug - Current user:", user)
-  }, [])
+    try {
+      setError(null)
+      setLoading(true)
 
-  const handleEndShiftRequest = () => {
-    // Create comprehensive end shift request
-    const endShiftRequest = {
-      id: `shift-end-${Date.now()}`,
-      cashier: currentUser.name,
-      shift: currentUser.shift,
-      startTime: currentUser.loginTime,
-      endTime: new Date().toISOString(),
-      totalOrders: shiftStats.totalOrders,
-      totalSales: shiftStats.totalSales,
-      cashSales: shiftStats.cashSales,
-      cardSales: shiftStats.cardSales,
-      avgOrderValue: shiftStats.avgOrderValue,
-      ordersPerHour: shiftStats.ordersPerHour,
-      savedOrdersCount: savedOrders.length,
-      notes: notes,
-      status: "pending",
-      timestamp: new Date().toISOString(),
-      orders: savedOrders, // Include all saved orders in the request
+      const shiftId = getShiftId(currentShift)
+      const userId = currentUser.user_id || currentUser.id
+
+      let apiSuccess = false
+
+      try {
+        const response = await fetch(`${API_BASE_URL}/shifts/${shiftId}/request-close`, {
+          method: "PATCH",
+          headers: {
+            Authorization: `Bearer ${localStorage.getItem("authToken") || ""}`,
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            closed_by: userId,
+          }),
+        })
+
+        const result = await response.json()
+        if (response.ok && result.success) {
+          apiSuccess = true
+        }
+      } catch (apiError) {
+        console.warn("API request failed, continuing with local storage:", apiError)
+      }
+
+      const endShiftRequest = {
+        id: `shift-end-${Date.now()}`,
+        cashier: currentUser.name,
+        shift: shiftId,
+        shiftName: getShiftDisplayName(currentShift),
+        startTime: currentUser.loginTime,
+        endTime: new Date().toISOString(),
+        totalOrders: shiftStats.totalOrders,
+        totalSales: shiftStats.totalSales,
+        cashSales: shiftStats.cashSales,
+        cardSales: shiftStats.cardSales,
+        avgOrderValue: shiftStats.avgOrderValue,
+        ordersPerHour: shiftStats.ordersPerHour,
+        savedOrdersCount: savedOrders.length,
+        notes: notes,
+        status: apiSuccess ? "api_requested" : "local_pending",
+        timestamp: new Date().toISOString(),
+        orders: savedOrders,
+        apiSuccess: apiSuccess,
+      }
+
+      const existingRequests = JSON.parse(localStorage.getItem("endShiftRequests") || "[]")
+      existingRequests.push(endShiftRequest)
+      localStorage.setItem("endShiftRequests", JSON.stringify(existingRequests))
+
+      setRequestSent(true)
+
+      setTimeout(() => {
+        localStorage.removeItem("currentUser")
+        router.push("/")
+      }, 3000)
+    } catch (error: any) {
+      setError(error.message || "فشل في إرسال طلب إنهاء الوردية")
+      console.error("Error ending shift:", error)
+    } finally {
+      setLoading(false)
     }
-
-    // Store in localStorage for admin review
-    const existingRequests = JSON.parse(localStorage.getItem("endShiftRequests") || "[]")
-    existingRequests.push(endShiftRequest)
-    localStorage.setItem("endShiftRequests", JSON.stringify(existingRequests))
-
-    setRequestSent(true)
-
-    // After 3 seconds, redirect to login page (simulating approval)
-    setTimeout(() => {
-      localStorage.removeItem("currentUser")
-      router.push("/")
-    }, 3000)
   }
 
-  // Group items by category for detailed breakdown
   const groupItemsByCategory = (orders: Order[]) => {
     const grouped: { [key: string]: { items: any[]; total: number; count: number } } = {}
 
     orders.forEach((order) => {
       order.items.forEach((item) => {
-        const category = item.category
+        // Get category name and ensure it's not empty or undefined
+        let category = item.category
+        if (!category || category.trim() === "" || category === "غير محدد") {
+          category = "منتجات أخرى"
+        }
+
         if (!grouped[category]) {
           grouped[category] = { items: [], total: 0, count: 0 }
         }
@@ -461,12 +627,6 @@ export default function EndShiftPage() {
   const handlePrintShiftReport = useReactToPrint({
     contentRef: shiftReportRef,
     documentTitle: `تقرير نهاية الوردية - ${currentUser?.name} - ${new Date().toLocaleDateString()}`,
-    onAfterPrint: () => {
-      console.log("Shift report printed successfully")
-    },
-    onPrintError: (error) => {
-      console.error("Print shift report error:", error)
-    },
   })
 
   const onPrintShiftReport = () => {
@@ -484,8 +644,6 @@ export default function EndShiftPage() {
 
   if (!currentUser) return null
 
-  const shiftOrders = savedOrders
-
   return (
     <div className="max-w-4xl mx-auto p-6">
       <Card>
@@ -493,7 +651,7 @@ export default function EndShiftPage() {
           <div className="flex justify-between items-center">
             <CardTitle className="text-2xl">طلب إنهاء الوردية</CardTitle>
             <div className="flex gap-2">
-              <Button onClick={loadSavedOrders} variant="outline" className="bg-gray-100 hover:bg-gray-200">
+              <Button onClick={loadShiftData} variant="outline">
                 <RefreshCw className="w-4 h-4 mr-2" />
                 تحديث
               </Button>
@@ -509,6 +667,16 @@ export default function EndShiftPage() {
           </div>
         </CardHeader>
         <CardContent className="space-y-6">
+          {error && (
+            <div className="bg-red-50 border border-red-200 rounded-lg p-4 flex items-start">
+              <AlertCircle className="h-5 w-5 text-red-500 mr-3 mt-0.5" />
+              <div>
+                <h4 className="font-medium text-red-800">خطأ</h4>
+                <p className="text-red-700 text-sm">{error}</p>
+              </div>
+            </div>
+          )}
+
           {requestSent ? (
             <motion.div
               initial={{ opacity: 0, y: 20 }}
@@ -534,10 +702,48 @@ export default function EndShiftPage() {
                 <div>
                   <h4 className="font-medium text-amber-800">تأكيد إنهاء الوردية</h4>
                   <p className="text-amber-700 text-sm">
-                    أنت على وشك إنهاء وردية {currentUser.shift}. هذا الإجراء يتطلب موافقة المدير. يرجى مراجعة ملخص
-                    الوردية أدناه.
+                    أنت على وشك إنهاء وردية {getShiftDisplayName(currentShift)}. هذا الإجراء يتطلب موافقة المدير.
                   </p>
                 </div>
+              </div>
+
+              {/* Stats Cards - REMOVED Average Order Card */}
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                <Card className="bg-gradient-to-br from-blue-500 to-blue-600 text-white">
+                  <CardContent className="p-4">
+                    <div className="flex items-center justify-between">
+                      <div>
+                        <p className="text-blue-100 text-sm">إجمالي الطلبات</p>
+                        <p className="text-2xl font-bold">{shiftStats.totalOrders}</p>
+                      </div>
+                      <Users className="h-8 w-8 text-blue-200" />
+                    </div>
+                  </CardContent>
+                </Card>
+
+                <Card className="bg-gradient-to-br from-green-500 to-green-600 text-white">
+                  <CardContent className="p-4">
+                    <div className="flex items-center justify-between">
+                      <div>
+                        <p className="text-green-100 text-sm">إجمالي المبيعات</p>
+                        <p className="text-2xl font-bold">ج.م{shiftStats.totalSales.toFixed(2)}</p>
+                      </div>
+                      <DollarSign className="h-8 w-8 text-green-200" />
+                    </div>
+                  </CardContent>
+                </Card>
+
+                <Card className="bg-gradient-to-br from-orange-500 to-orange-600 text-white">
+                  <CardContent className="p-4">
+                    <div className="flex items-center justify-between">
+                      <div>
+                        <p className="text-orange-100 text-sm">مدة الوردية</p>
+                        <p className="text-2xl font-bold">{shiftDuration}س</p>
+                      </div>
+                      <Clock className="h-8 w-8 text-orange-200" />
+                    </div>
+                  </CardContent>
+                </Card>
               </div>
 
               <div className="grid gap-6 md:grid-cols-2">
@@ -550,7 +756,7 @@ export default function EndShiftPage() {
                     </div>
                     <div className="flex justify-between">
                       <span className="text-muted-foreground">نوع الوردية:</span>
-                      <span className="font-medium capitalize">{currentUser.shift}</span>
+                      <span className="font-medium">{getShiftDisplayName(currentShift)}</span>
                     </div>
                     <div className="flex justify-between">
                       <span className="text-muted-foreground">بدأت في:</span>
@@ -560,10 +766,6 @@ export default function EndShiftPage() {
                           minute: "2-digit",
                         })}
                       </span>
-                    </div>
-                    <div className="flex justify-between">
-                      <span className="text-muted-foreground">التاريخ:</span>
-                      <span className="font-medium">{new Date(currentUser.loginTime).toLocaleDateString()}</span>
                     </div>
                     <div className="flex justify-between">
                       <span className="text-muted-foreground">المدة:</span>
@@ -580,16 +782,8 @@ export default function EndShiftPage() {
                       <span className="font-medium">{shiftStats.totalOrders}</span>
                     </div>
                     <div className="flex justify-between">
-                      <span className="text-muted-foreground">إجمالي الطلبات:</span>
+                      <span className="text-muted-foreground">إجمالي المبيعات:</span>
                       <span className="font-medium text-green-600 text-lg">ج.م{shiftStats.totalSales.toFixed(2)}</span>
-                    </div>
-                    <div className="flex justify-between">
-                      <span className="text-muted-foreground">متوسط قيمة الطلب:</span>
-                      <span className="font-medium">ج.م{shiftStats.avgOrderValue.toFixed(2)}</span>
-                    </div>
-                    <div className="flex justify-between">
-                      <span className="text-muted-foreground">طلبات في الساعة:</span>
-                      <span className="font-medium">{shiftStats.ordersPerHour.toFixed(1)}</span>
                     </div>
                     <Separator className="my-2" />
                     <div className="flex justify-between">
@@ -605,89 +799,6 @@ export default function EndShiftPage() {
               </div>
 
               <div>
-                <h3 className="font-medium mb-2">الطلبات المحفوظة ({savedOrders.length} طلب)</h3>
-                <div className="bg-gray-50 rounded-lg overflow-hidden">
-                  <table className="min-w-full divide-y divide-gray-200">
-                    <thead className="bg-gray-100">
-                      <tr>
-                        <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                          رقم الطلب
-                        </th>
-                        <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                          الوقت
-                        </th>
-                        <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                          العميل
-                        </th>
-                        <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                          النوع
-                        </th>
-                        <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                          عدد الأصناف
-                        </th>
-                        <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                          الإجمالي
-                        </th>
-                        <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                          الحالة
-                        </th>
-                      </tr>
-                    </thead>
-                    <tbody className="bg-white divide-y divide-gray-200">
-                      {savedOrders.length > 0 ? (
-                        savedOrders.map((order) => (
-                          <tr key={order.id}>
-                            <td className="px-4 py-3 whitespace-nowrap text-sm font-medium">#{order.id}</td>
-                            <td className="px-4 py-3 whitespace-nowrap text-sm">
-                              {new Date(order.date).toLocaleTimeString([], {
-                                hour: "2-digit",
-                                minute: "2-digit",
-                              })}
-                            </td>
-                            <td className="px-4 py-3 whitespace-nowrap text-sm">
-                              {order.customerName || "Walk-in Customer"}
-                            </td>
-                            <td className="px-4 py-3 whitespace-nowrap text-sm">
-                              {order.orderType === "dine-in"
-                                ? "تناول في المطعم"
-                                : order.orderType === "takeaway"
-                                  ? "استلام"
-                                  : "توصيل"}
-                            </td>
-                            <td className="px-4 py-3 whitespace-nowrap text-sm text-center">
-                              {order.items.reduce((sum, item) => sum + item.quantity, 0)}
-                            </td>
-                            <td className="px-4 py-3 whitespace-nowrap text-sm font-medium text-green-600">
-                              ج.م{order.total.toFixed(2)}
-                            </td>
-                            <td className="px-4 py-3 whitespace-nowrap text-sm">
-                              <span
-                                className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${
-                                  order.status === "completed"
-                                    ? "bg-green-100 text-green-800"
-                                    : order.status === "pending"
-                                      ? "bg-yellow-100 text-yellow-800"
-                                      : "bg-red-100 text-red-800"
-                                }`}
-                              >
-                                {order.status === "completed" ? "مكتمل" : order.status === "pending" ? "معلق" : "ملغي"}
-                              </span>
-                            </td>
-                          </tr>
-                        ))
-                      ) : (
-                        <tr>
-                          <td colSpan={7} className="px-4 py-3 text-center text-sm text-gray-500">
-                            لا توجد طلبات محفوظة في هذه الوردية
-                          </td>
-                        </tr>
-                      )}
-                    </tbody>
-                  </table>
-                </div>
-              </div>
-
-              <div>
                 <h3 className="font-medium mb-2">ملاحظات إضافية</h3>
                 <Textarea
                   placeholder="أضف أي ملاحظات حول الوردية (اختياري)"
@@ -699,209 +810,156 @@ export default function EndShiftPage() {
             </>
           )}
         </CardContent>
+
         {!requestSent && (
           <CardFooter className="flex justify-end space-x-4">
             <Button variant="outline" onClick={() => router.back()}>
               إلغاء
             </Button>
-            <Button className="bg-orange-600 hover:bg-orange-700" onClick={handleEndShiftRequest}>
-              إرسال طلب إنهاء الوردية
+            <Button className="bg-orange-600 hover:bg-orange-700" onClick={handleEndShiftRequest} disabled={loading}>
+              {loading ? "جاري الإرسال..." : "إرسال طلب إنهاء الوردية"}
             </Button>
           </CardFooter>
         )}
       </Card>
 
-      {/* Advanced Shift Report for Printing - Hidden from normal view */}
-      <div ref={shiftReportRef} className="hidden print:block shift-report-print" style={{ display: "none" }}>
-        <div className="shift-report">
-          <div className="header">
-            <Image src="/images/logo.png" alt="Logo" width={80} height={80} style={{ margin: "0 auto 5px" }} />
-            <h1>دوار جحا</h1>
-            <p>Restaurant & Café</p>
-            <p>123 Main Street, City</p>
-            <p>Tel: +123 456 7890</p>
-            <p style={{ fontWeight: "bold", marginTop: "5mm", fontSize: "18px" }}>تقرير نهاية الوردية</p>
-          </div>
-
-          <div className="shift-info">
-            <div>
-              <div className="info-label">معلومات الكاشير</div>
-              <div>
-                <strong>الاسم:</strong> {currentUser?.name}
-              </div>
-              <div>
-                <strong>اسم المستخدم:</strong> {currentUser?.username}
-              </div>
-              <div>
-                <strong>نوع الوردية:</strong> {currentUser?.shift}
-              </div>
-            </div>
-            <div>
-              <div className="info-label">معلومات الوقت</div>
-              <div>
-                <strong>تاريخ التقرير:</strong> {new Date().toLocaleDateString()}
-              </div>
-              <div>
-                <strong>وقت الطباعة:</strong> {new Date().toLocaleTimeString()}
-              </div>
-              <div>
-                <strong>بداية الوردية:</strong> {new Date(currentUser?.loginTime).toLocaleTimeString()}
-              </div>
-              <div>
-                <strong>مدة الوردية:</strong> {shiftDuration} ساعات
-              </div>
+      {/* Clean Professional Shift Report for Printing */}
+      <div ref={shiftReportRef} className="hidden print:block advanced-shift-report" style={{ display: "none" }}>
+        <div className="report-header">
+          <div className="company-logo-container">
+            <img src="/images/logo.png" alt="Logo" width={40} height={40} className="company-logo" />
+            <div className="company-info">
+              <h1>دوار جحا</h1>
+              <p>Restaurant & Café</p>
+              <p>123 Main Street, City</p>
+              <p>Tel: +123 456 7890</p>
             </div>
           </div>
+          <div className="report-title">تقرير نهاية الوردية</div>
+          <div className="report-subtitle">Shift End Report</div>
+        </div>
 
-          <div className="summary-stats">
-            <div className="stat-box">
-              <div className="stat-value">{shiftStats.totalOrders}</div>
-              <div className="stat-label">إجمالي الطلبات</div>
+        {/* Updated Stats Grid - 3 columns instead of 4 */}
+        <div className="stats-grid">
+          <div className="stat-card orders">
+            <div className="stat-value">{shiftStats.totalOrders}</div>
+            <div className="stat-label">إجمالي الطلبات</div>
+          </div>
+          <div className="stat-card revenue">
+            <div className="stat-value">ج.م{shiftStats.totalSales.toFixed(2)}</div>
+            <div className="stat-label">إجمالي المبيعات</div>
+          </div>
+          <div className="stat-card time">
+            <div className="stat-value">{shiftDuration}س</div>
+            <div className="stat-label">مدة الوردية</div>
+          </div>
+        </div>
+
+        <div className="info-grid">
+          <div className="info-card">
+            <h4 className="section-title">معلومات الكاشير</h4>
+            <div className="info-row">
+              <span className="info-label">الاسم:</span>
+              <span className="info-value">{currentUser?.name}</span>
             </div>
-            <div className="stat-box">
-              <div className="stat-value">ج.م{shiftStats.totalSales.toFixed(2)}</div>
-              <div className="stat-label">إجمالي المبيعات</div>
+            <div className="info-row">
+              <span className="info-label">نوع الوردية:</span>
+              <span className="info-value">{getShiftDisplayName(currentShift)}</span>
             </div>
-            <div className="stat-box">
-              <div className="stat-value">ج.م{shiftStats.cashSales.toFixed(2)}</div>
-              <div className="stat-label">مبيعات نقدية</div>
-            </div>
-            <div className="stat-box">
-              <div className="stat-value">ج.م{shiftStats.cardSales.toFixed(2)}</div>
-              <div className="stat-label">مبيعات بالكارت</div>
+            <div className="info-row">
+              <span className="info-label">بداية الوردية:</span>
+              <span className="info-value">{new Date(currentUser?.loginTime).toLocaleTimeString()}</span>
             </div>
           </div>
 
-          {shiftOrders.length > 0 && (
-            <>
-              <h3 style={{ fontSize: "14px", fontWeight: "bold", marginBottom: "3mm" }}>تفاصيل الطلبات</h3>
-              <table className="orders-table">
-                <thead>
-                  <tr>
-                    <th>رقم الطلب</th>
-                    <th>الوقت</th>
-                    <th>العميل</th>
-                    <th>النوع</th>
-                    <th>طريقة الدفع</th>
-                    <th>الإجمالي</th>
-                    <th>الحالة</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {shiftOrders.map((order) => (
-                    <tr key={order.id}>
-                      <td>#{order.id}</td>
-                      <td>{new Date(order.date).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}</td>
-                      <td>{order.customerName || "Walk-in Customer"}</td>
-                      <td>
-                        {order.orderType === "dine-in"
-                          ? "تناول في المطعم"
-                          : order.orderType === "takeaway"
-                            ? "استلام"
-                            : "توصيل"}
-                      </td>
-                      <td>{order.paymentMethod === "cash" ? "نقدي" : "كارت"}</td>
-                      <td style={{ fontWeight: "bold" }}>ج.م{order.total.toFixed(2)}</td>
-                      <td>{order.status === "completed" ? "مكتمل" : order.status === "pending" ? "معلق" : "ملغي"}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-
-              {Object.entries(groupedItems).length > 0 && (
-                <>
-                  <h3 style={{ fontSize: "14px", fontWeight: "bold", marginBottom: "3mm", marginTop: "5mm" }}>
-                    تفصيل المنتجات حسب الفئة
-                  </h3>
-                  {Object.entries(groupedItems).map(([category, data]) => (
-                    <div key={category} className="category-breakdown">
-                      <div className="category-header">
-                        {category === "pizza"
-                          ? "البيتزا"
-                          : category === "feteer"
-                            ? "الفطائر"
-                            : category === "sandwiches"
-                              ? "الساندويتشات"
-                              : category === "crepes"
-                                ? "الكريبات"
-                                : category === "grilled"
-                                  ? "المشويات"
-                                  : category === "drinks"
-                                    ? "المشروبات"
-                                    : category === "pasta"
-                                      ? "المكرونة"
-                                      : category === "rice"
-                                        ? "الأرز"
-                                        : category === "desserts"
-                                          ? "الحلويات"
-                                          : category === "extras"
-                                            ? "الإضافات"
-                                            : category}{" "}
-                        - {data.count} قطعة - ج.م{data.total.toFixed(2)}
-                      </div>
-                      <table className="category-table">
-                        <thead>
-                          <tr>
-                            <th>اسم المنتج</th>
-                            <th>الحجم</th>
-                            <th>الكمية</th>
-                            <th>السعر</th>
-                            <th>الإجمالي</th>
-                          </tr>
-                        </thead>
-                        <tbody>
-                          {data.items.map((item, index) => (
-                            <tr key={index}>
-                              <td>{item.name}</td>
-                              <td>{item.size !== "regular" ? item.size : "-"}</td>
-                              <td style={{ textAlign: "center" }}>{item.quantity}</td>
-                              <td>ج.م{item.price.toFixed(2)}</td>
-                              <td style={{ fontWeight: "bold" }}>ج.م{item.total.toFixed(2)}</td>
-                            </tr>
-                          ))}
-                        </tbody>
-                      </table>
-                    </div>
-                  ))}
-                </>
-              )}
-            </>
-          )}
-
-          <div className="total-section">
-            <div style={{ fontSize: "18px", marginBottom: "2mm" }}>إجمالي مبيعات الوردية</div>
-            <div style={{ fontSize: "24px" }}>ج.م{shiftStats.totalSales.toFixed(2)}</div>
-          </div>
-
-          {notes && (
-            <div className="notes-section">
-              <h4 style={{ fontSize: "12px", fontWeight: "bold", marginBottom: "2mm" }}>ملاحظات الكاشير:</h4>
-              <p style={{ fontSize: "11px" }}>{notes}</p>
+          <div className="info-card">
+            <h4 className="section-title">معلومات التقرير</h4>
+            <div className="info-row">
+              <span className="info-label">تاريخ التقرير:</span>
+              <span className="info-value">{new Date().toLocaleDateString()}</span>
             </div>
-          )}
-
-          <div className="signature-section">
-            <div className="signature-box">
-              <div className="signature-line"></div>
-              <div style={{ fontSize: "10px", fontWeight: "bold" }}>توقيع الكاشير</div>
-              <div style={{ fontSize: "9px" }}>{currentUser?.name}</div>
+            <div className="info-row">
+              <span className="info-label">وقت الطباعة:</span>
+              <span className="info-value">{new Date().toLocaleTimeString()}</span>
             </div>
-            <div className="signature-box">
-              <div className="signature-line"></div>
-              <div style={{ fontSize: "10px", fontWeight: "bold" }}>توقيع المدير</div>
-              <div style={{ fontSize: "9px" }}>التاريخ: ___________</div>
+            <div className="info-row">
+              <span className="info-label">مدة الوردية:</span>
+              <span className="info-value">{shiftDuration} ساعات</span>
             </div>
           </div>
+        </div>
 
-          <div className="footer">
+        {Object.entries(groupedItems).length > 0 && (
+          <>
+            <h3 className="section-title">تفصيل المنتجات حسب الفئة</h3>
+            {Object.entries(groupedItems)
+              .filter(([category, data]) => category && data.items.length > 0)
+              .map(([category, data]) => (
+                <div key={category} className="category-section">
+                  <div className="category-header">
+                    <span>{category}</span>
+                    <span>ج.م{data.total.toFixed(2)}</span>
+                  </div>
+                  <table className="category-table">
+                    <thead>
+                      <tr>
+                        <th>اسم المنتج</th>
+                        <th>الحجم</th>
+                        <th>الكمية</th>
+                        <th>السعر</th>
+                        <th>الإجمالي</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {data.items.map((item, index) => (
+                        <tr key={index}>
+                          <td>{item.name}</td>
+                          <td>{item.size !== "عادي" ? item.size : "-"}</td>
+                          <td>{item.quantity}</td>
+                          <td>ج.م{item.price.toFixed(2)}</td>
+                          <td>ج.م{item.total.toFixed(2)}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              ))}
+          </>
+        )}
+
+        <div className="total-section">
+          <div className="total-label">إجمالي مبيعات الوردية</div>
+          <div className="total-amount">ج.م{shiftStats.totalSales.toFixed(2)}</div>
+        </div>
+
+        {notes && (
+          <div className="notes-section">
+            <div className="notes-title">ملاحظات الكاشير:</div>
+            <div className="notes-content">{notes}</div>
+          </div>
+        )}
+
+        <div className="signature-section">
+          <div className="signature-box">
+            <div className="signature-line"></div>
+            <div className="signature-title">توقيع الكاشير</div>
+            <div className="signature-name">{currentUser?.name}</div>
+          </div>
+          <div className="signature-box">
+            <div className="signature-line"></div>
+            <div className="signature-title">توقيع المدير</div>
+            <div className="signature-name">التاريخ: ___________</div>
+          </div>
+        </div>
+
+        <div className="footer-section">
+          <div className="footer-content">
             <p>تم إنشاء هذا التقرير بواسطة نظام نقاط البيع</p>
             <p>تاريخ ووقت الطباعة: {new Date().toLocaleString()}</p>
-            <div
-              style={{ marginTop: "3mm", display: "flex", alignItems: "center", justifyContent: "center", gap: "2mm" }}
-            >
-              <Image src="/images/eathrel.png" alt="Eathrel Logo" width={20} height={20} />
-              <span style={{ fontSize: "10px", fontWeight: "bold" }}>POWERED BY ETHEREAL</span>
-            </div>
+          </div>
+          <div className="powered-by">
+            <Image src="/images/eathrel.png" alt="Eathrel Logo" width={12} height={12} className="footer-logo" />
+            <span className="powered-text">POWERED BY ETHEREAL</span>
           </div>
         </div>
       </div>

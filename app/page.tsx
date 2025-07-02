@@ -492,12 +492,12 @@ export default function LoginPage() {
               <div className="relative">
                 <div className="absolute inset-0 bg-gradient-to-r from-orange-400 to-amber-400 rounded-full blur-lg opacity-30 animate-pulse"></div>
                 <Image
-                  src="/placeholder.svg?height=100&width=100"
+                  src="/images/logo.png"
                   alt="شعار مطعم دوار جحا"
                   width={100}
                   height={100}
                   priority
-                  className="rounded-full relative z-10 border-4 border-white shadow-xl"
+                  className="rounded-full relative z-10 border-4 border-white shadow-xl bg-white"
                 />
               </div>
             </motion.div>
@@ -780,45 +780,6 @@ export default function LoginPage() {
                 </Button>
               </motion.div>
             </form>
-
-            {/* Quick Login Buttons for Demo - Remove in production */}
-            <motion.div
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              transition={{ delay: 1.2, duration: 0.5 }}
-              className="mt-6 space-y-3"
-            >
-              <h4 className="font-semibold text-gray-700 text-center text-sm md:text-base">دخول سريع للتجربة:</h4>
-              <div className="grid grid-cols-1 gap-2">
-                <Button
-                  type="button"
-                  variant="outline"
-                  onClick={() => quickLogin("cashier")}
-                  className="w-full h-10 text-sm font-medium border-orange-200 hover:bg-orange-50 hover:border-orange-300 transition-all duration-300"
-                >
-                  <User className="ml-2 h-4 w-4 text-orange-600" />
-                  دخول كاشير
-                </Button>
-                <Button
-                  type="button"
-                  variant="outline"
-                  onClick={() => quickLogin("admin")}
-                  className="w-full h-10 text-sm font-medium border-blue-200 hover:bg-blue-50 hover:border-blue-300 transition-all duration-300"
-                >
-                  <User className="ml-2 h-4 w-4 text-blue-600" />
-                  دخول مدير
-                </Button>
-                <Button
-                  type="button"
-                  variant="outline"
-                  onClick={() => quickLogin("owner")}
-                  className="w-full h-10 text-sm font-medium border-purple-200 hover:bg-purple-50 hover:border-purple-300 transition-all duration-300"
-                >
-                  <User className="ml-2 h-4 w-4 text-purple-600" />
-                  دخول مالك
-                </Button>
-              </div>
-            </motion.div>
           </CardContent>
 
           <CardFooter className="flex justify-center text-xs md:text-sm text-gray-500 pb-6">
