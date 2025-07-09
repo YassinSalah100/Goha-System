@@ -7,8 +7,7 @@ import { Badge } from "@/components/ui/badge"
 import { ScrollArea } from "@/components/ui/scroll-area"
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog"
 import { Textarea } from "@/components/ui/textarea"
-import { FileText, Phone, User, Trash2, Loader2, RefreshCw } from "lucide-react"
-import { useReactToPrint } from "react-to-print"
+import { FileText, Phone, User, Trash2, Loader2, RefreshCw, Clock, Users } from "lucide-react"
 
 // Constants
 const API_BASE_URL = "http://172.162.241.242:3000/api/v1"
@@ -69,6 +68,7 @@ interface Order {
   payment_method: "cash" | "card"
   created_at: string
   updated_at?: string
+  shift_id?: string
   cashier?: {
     user_id: string
     full_name: string
@@ -79,6 +79,16 @@ interface Order {
   }
   items: OrderItem[]
   cashier_name?: string
+}
+
+interface Shift {
+  shift_id: string
+  shift_name?: string
+  start_time: string
+  end_time?: string
+  status: "active" | "closed" | "pending_close"
+  cashier_id: string
+  created_at: string
 }
 
 interface OrderStats {
@@ -116,14 +126,14 @@ const normalizePrice = (price: string | number): number => {
 }
 
 const formatPrice = (price: string | number): string => {
-  return `ج.م${normalizePrice(price).toFixed(2)}`
+  return `${normalizePrice(price).toFixed(2)} ج.م`
 }
 
 const generateId = (): string => {
   return `${Date.now()}_${Math.random().toString(36).substr(2, 9)}`
 }
 
-// FIXED: Enhanced normalizeOrderItem with better error handling
+// Enhanced normalizeOrderItem with better error handling
 const normalizeOrderItem = (item: any): OrderItem => {
   let productName = "منتج غير محدد"
   let sizeName = "عادي"
@@ -133,16 +143,12 @@ const normalizeOrderItem = (item: any): OrderItem => {
     // Strategy 1: Check product_size (API response structure) - PRIORITY
     if (item.product_size) {
       productName = item.product_size.product_name || productName
-
-      // FIXED: Safe access to size_name
       if (item.product_size.size && item.product_size.size.size_name) {
         sizeName = item.product_size.size.size_name
       } else if (item.product_size.size_name) {
         sizeName = item.product_size.size_name
       }
-
       unitPrice = String(item.product_size.price || item.unit_price || 0)
-      console.log(`✅ Found product_size data: ${productName} (${sizeName}) - ${unitPrice}`)
     }
     // Strategy 2: Check product object with productSize
     else if (item.product && item.product.name) {
@@ -153,53 +159,39 @@ const normalizeOrderItem = (item: any): OrderItem => {
       } else {
         unitPrice = String(item.unit_price || 0)
       }
-      console.log(`✅ Found product object: ${productName} (${sizeName}) - ${unitPrice}`)
     }
     // Strategy 3: Direct fields (from localStorage or other sources)
     else if (item.product_name) {
       productName = item.product_name
       sizeName = item.size_name || sizeName
       unitPrice = String(item.unit_price || item.price || 0)
-      console.log(`✅ Found direct fields: ${productName} (${sizeName}) - ${unitPrice}`)
     }
     // Strategy 4: Try to extract from any available data
     else {
       const possibleNames = [item.name, item.product?.name, item.productName].filter(Boolean)
       if (possibleNames.length > 0) {
         productName = possibleNames[0]
-        console.log(`✅ Found alternative name: ${productName}`)
-      } else {
-        console.warn(`❌ No product name found for item:`, item)
       }
       unitPrice = String(item.unit_price || item.price || 0)
     }
   } catch (error) {
     console.error(`❌ Error normalizing order item:`, error, item)
-    // Use fallback values
     productName = item.product_name || item.name || "منتج غير محدد"
     sizeName = item.size_name || "عادي"
     unitPrice = String(item.unit_price || item.price || 0)
   }
 
-  // FIXED: Better extras handling with multiple fallback strategies
+  // Better extras handling
   let processedExtras = []
   if (Array.isArray(item.extras) && item.extras.length > 0) {
     processedExtras = item.extras.map((extra) => {
-      // Strategy 1: Check for direct name field
       let extraName = extra.name || extra.extra_name || extra.extraName
-
-      // Strategy 2: Check if there's a nested extra object
       if (!extraName && extra.extra) {
         extraName = extra.extra.name || extra.extra.extra_name
       }
-
-      // Strategy 3: Check for category-based extra lookup
       if (!extraName && extra.extra_id) {
-        // This would require a lookup table, but for now use fallback
         extraName = `إضافة ${extra.extra_id.slice(-4)}`
       }
-
-      // Final fallback
       if (!extraName) {
         extraName = "[إضافة غير معروفة]"
       }
@@ -211,31 +203,6 @@ const normalizeOrderItem = (item: any): OrderItem => {
         quantity: extra.quantity || 1,
       }
     })
-  } else if (item.extras && typeof item.extras === "object") {
-    // Handle single extra object
-    const extra = item.extras
-    let extraName = extra.name || extra.extra_name || extra.extraName
-
-    if (!extraName && extra.extra) {
-      extraName = extra.extra.name || extra.extra.extra_name
-    }
-
-    if (!extraName && extra.extra_id) {
-      extraName = `إضافة ${extra.extra_id.slice(-4)}`
-    }
-
-    if (!extraName) {
-      extraName = "[إضافة غير معروفة]"
-    }
-
-    processedExtras = [
-      {
-        extra_id: extra.extra_id || extra.id || `extra_${Date.now()}_${Math.random().toString(36).substr(2, 5)}`,
-        name: extraName,
-        price: typeof extra.price === "string" ? Number.parseFloat(extra.price) : extra.price || 0,
-        quantity: extra.quantity || 1,
-      },
-    ]
   }
 
   return {
@@ -250,51 +217,97 @@ const normalizeOrderItem = (item: any): OrderItem => {
 }
 
 const normalizeOrder = (order: any): Order => {
+  // Enhanced cashier name extraction
+  let cashierName = "غير محدد"
+  // Try multiple sources for cashier name
+  if (order.cashier?.full_name) {
+    cashierName = order.cashier.full_name
+  } else if (order.cashier?.fullName) {
+    cashierName = order.cashier.fullName
+  } else if (order.cashier?.name) {
+    cashierName = order.cashier.name
+  } else if (order.cashier_name) {
+    cashierName = order.cashier_name
+  } else if (order.created_by_name) {
+    cashierName = order.created_by_name
+  } else if (order.user?.full_name) {
+    cashierName = order.user.full_name
+  } else if (order.user?.name) {
+    cashierName = order.user.name
+  }
+
   return {
     ...order,
     order_id: order.order_id || `order_${generateId()}`,
     total_price: typeof order.total_price === "string" ? order.total_price : String(order.total_price || 0),
-    cashier_name: order.cashier?.fullName || order.cashier?.full_name || order.cashier_name || "مستخدم غير معروف",
+    cashier_name: cashierName,
     customer_name: order.customer_name || "عميل عابر",
-    // FIXED: Better phone number handling
     phone_number: order.phone_number || order.customer_phone || null,
     order_type: order.order_type || "dine-in",
-    status: "completed", // Force all orders to show as completed
+    status: "completed",
     payment_method: order.payment_method || "cash",
     created_at: order.created_at || new Date().toISOString(),
+    shift_id: order.shift_id,
     items: Array.isArray(order.items) ? order.items.map(normalizeOrderItem) : [],
   }
 }
 
-// FIXED: Enhanced fetchOrderItems with better error handling
+// Fetch current user's active shift
+const fetchCurrentShift = async (cashierId: string): Promise<Shift | null> => {
+  try {
+    console.log(`🔍 Fetching shifts for cashier ${cashierId}`)
+    const response = await fetch(`${API_BASE_URL}/shifts/cashier/${cashierId}`)
+    if (response.ok) {
+      const result = await response.json()
+      console.log(`📊 Shifts response:`, result)
+      if (result.success && result.data) {
+        const shifts = Array.isArray(result.data.shifts)
+          ? result.data.shifts
+          : Array.isArray(result.data)
+            ? result.data
+            : []
+
+        // Find active shift first
+        const activeShift = shifts.find((shift: Shift) => shift.status === "active")
+        if (activeShift) {
+          console.log(`✅ Found active shift: ${activeShift.shift_id}`)
+          return activeShift
+        }
+
+        // If no active shift, get the most recent one
+        if (shifts.length > 0) {
+          const mostRecentShift = shifts.sort(
+            (a: Shift, b: Shift) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime(),
+          )[0]
+          console.log(`✅ Using most recent shift: ${mostRecentShift.shift_id}`)
+          return mostRecentShift
+        }
+      }
+    } else {
+      console.warn(`❌ Failed to fetch shifts, status:`, response.status)
+    }
+  } catch (error) {
+    console.error(`❌ Error fetching shifts:`, error)
+  }
+  return null
+}
+
+// Enhanced fetchOrderItems with better error handling
 const fetchOrderItems = async (orderId: string): Promise<OrderItem[]> => {
   try {
     console.log(`🔍 Fetching items for order ${orderId}`)
     const response = await fetch(`${API_BASE_URL}/order-items/order/${orderId}`)
-
     if (response.ok) {
       const result = await response.json()
       console.log(`📦 Items response for order ${orderId}:`, result)
-
       if (result.success && result.data) {
         let items = []
-
         if (Array.isArray(result.data.order_items)) {
           items = result.data.order_items
         } else if (Array.isArray(result.data)) {
           items = result.data
         }
-
         console.log(`✅ Found ${items.length} items for order ${orderId}`)
-        // TEMPORARY DEBUG: Log extras structure
-        items.forEach((item, index) => {
-          if (item.extras && item.extras.length > 0) {
-            console.log(
-              `🔍 DEBUG - Item ${index} extras for ${item.product_size?.product_name}:`,
-              JSON.stringify(item.extras, null, 2),
-            )
-          }
-        })
         return items.map(normalizeOrderItem)
       }
     } else {
@@ -303,12 +316,11 @@ const fetchOrderItems = async (orderId: string): Promise<OrderItem[]> => {
   } catch (error) {
     console.error(`❌ Error fetching items for order ${orderId}:`, error)
   }
-
   return []
 }
 
-// FIXED: SINGLETON FETCH FUNCTION TO PREVENT DUPLICATES
-const fetchFromAPI = async (): Promise<Order[]> => {
+// SHIFT-AWARE FETCH FUNCTION
+const fetchFromAPI = async (shiftId: string): Promise<Order[]> => {
   // If already fetching, return the existing promise
   if (globalFetchInProgress && globalFetchPromise) {
     console.log("🔄 Reusing existing fetch promise...")
@@ -317,76 +329,49 @@ const fetchFromAPI = async (): Promise<Order[]> => {
 
   // Set global flag and create new promise
   globalFetchInProgress = true
-
   globalFetchPromise = (async () => {
     try {
-      const endpoints = [
-        `${API_BASE_URL}/orders/status/active`,
-        `${API_BASE_URL}/orders/status/completed`,
-        `${API_BASE_URL}/orders/status/cancelled`,
-      ]
+      console.log(`🌐 Starting SHIFT-AWARE API fetch for shift: ${shiftId}`)
+      // Fetch orders for specific shift
+      const response = await fetch(`${API_BASE_URL}/orders/shift/${shiftId}`)
+      let orders = []
 
-      console.log(`🌐 Starting SINGLETON API fetch from ${endpoints.length} endpoints`)
-
-      const promises = endpoints.map(async (endpoint) => {
-        try {
-          console.log(`🌐 Fetching from: ${endpoint}`)
-          const response = await fetch(endpoint)
-          if (response.ok) {
-            const result = await response.json()
-            console.log(`📊 Response from ${endpoint}:`, result)
-
-            if (result.success && result.data) {
-              const orders = Array.isArray(result.data.orders)
-                ? result.data.orders
-                : Array.isArray(result.data)
-                  ? result.data
-                  : []
-
-              console.log(`✅ Found ${orders.length} orders from ${endpoint}`)
-              return orders
-            }
-          } else {
-            console.warn(`❌ Endpoint ${endpoint} failed with status:`, response.status)
-          }
-          return []
-        } catch (error) {
-          console.warn(`❌ Failed to fetch from ${endpoint}:`, error)
-          return []
+      if (response.ok) {
+        const result = await response.json()
+        console.log(`📊 Shift orders response:`, result)
+        if (result.success && result.data) {
+          orders = Array.isArray(result.data.orders)
+            ? result.data.orders
+            : Array.isArray(result.data)
+              ? result.data
+              : []
+          console.log(`✅ Found ${orders.length} orders for shift ${shiftId}`)
         }
-      })
-
-      const results = await Promise.all(promises)
-      let combinedOrders = results.flat()
-
-      // Fallback to general endpoint if no orders found
-      if (combinedOrders.length === 0) {
-        console.log("🔄 No orders from status endpoints, trying general endpoint...")
+      } else {
+        console.warn(`❌ Shift orders endpoint failed with status:`, response.status)
+        // Fallback: try to get all orders and filter by shift_id
         try {
-          const response = await fetch(`${API_BASE_URL}/orders?page=1&limit=100`)
-          if (response.ok) {
-            const result = await response.json()
-            if (result.success && result.data) {
-              const orders = Array.isArray(result.data.orders)
-                ? result.data.orders
-                : Array.isArray(result.data)
-                  ? result.data
-                  : []
-              combinedOrders = orders
+          const fallbackResponse = await fetch(`${API_BASE_URL}/orders?page=1&limit=100`)
+          if (fallbackResponse.ok) {
+            const fallbackResult = await fallbackResponse.json()
+            if (fallbackResult.success && fallbackResult.data) {
+              const allOrders = Array.isArray(fallbackResult.data.orders) ? fallbackResult.data.orders : []
+              orders = allOrders.filter((order: any) => order.shift_id === shiftId)
+              console.log(`✅ Fallback: Found ${orders.length} orders for shift ${shiftId}`)
             }
           }
-        } catch (error) {
-          console.warn("❌ General endpoint also failed:", error)
+        } catch (fallbackError) {
+          console.warn("❌ Fallback also failed:", fallbackError)
         }
       }
 
-      console.log(`📈 Total orders before processing: ${combinedOrders.length}`)
+      console.log(`📈 Total orders before processing: ${orders.length}`)
 
-      // FIXED: Better error handling for fetching items
+      // Fetch items for each order
       const ordersWithItems = await Promise.all(
-        combinedOrders.map(async (order: any) => {
+        orders.map(async (order: any) => {
           const orderId = order.order_id || order.id
-          console.log(`🔍 Fetching items for order ${orderId} (${order.status})`)
+          console.log(`🔍 Fetching items for order ${orderId}`)
 
           try {
             const orderItems = await fetchOrderItems(orderId)
@@ -398,15 +383,14 @@ const fetchFromAPI = async (): Promise<Order[]> => {
             console.error(`❌ Failed to fetch items for order ${orderId}:`, error)
             return {
               ...order,
-              items: [], // Return empty items array on error
+              items: [],
             }
           }
         }),
       )
 
       const finalOrders = ordersWithItems.filter((order) => order && order.order_id).map(normalizeOrder)
-
-      console.log(`🎯 Final processed orders: ${finalOrders.length}`)
+      console.log(`🎯 Final processed orders for shift ${shiftId}: ${finalOrders.length}`)
       return finalOrders
     } catch (error) {
       console.error("❌ API fetch failed:", error)
@@ -421,10 +405,15 @@ const fetchFromAPI = async (): Promise<Order[]> => {
   return await globalFetchPromise
 }
 
-const fetchFromLocalStorage = (): Order[] => {
+const fetchFromLocalStorage = (shiftId?: string): Order[] => {
   try {
     const localOrders = JSON.parse(localStorage.getItem("savedOrders") || "[]")
-    return localOrders.filter((order: any) => order && order.order_id).map(normalizeOrder)
+    const normalizedOrders = localOrders.filter((order: any) => order && order.order_id).map(normalizeOrder)
+    // Filter by shift if shiftId is provided
+    if (shiftId) {
+      return normalizedOrders.filter((order: Order) => order.shift_id === shiftId)
+    }
+    return normalizedOrders
   } catch (error) {
     console.error("Failed to fetch from localStorage:", error)
     return []
@@ -444,9 +433,7 @@ const deleteOrderFromAPI = async (orderId: string, reason: string, cashier: stri
         deleted_by: cashier,
       }),
     })
-
     console.log(`🗑️ Delete response status: ${response.status}`)
-
     if (response.ok) {
       console.log(`✅ Order ${orderId} deleted successfully`)
       return true
@@ -471,96 +458,245 @@ const deleteOrderFromLocalStorage = (orderId: string): void => {
   }
 }
 
+// Enhanced category detection function for specific restaurant categories
+const getCategoryName = (item: OrderItem): string => {
+  // Method 1: Check product.category.name
+  if (item.product?.category?.name) {
+    return item.product.category.name
+  }
+
+  // Method 2: Check product_size.category.name
+  if (item.product_size?.category?.name) {
+    return item.product_size.category.name
+  }
+
+  // Method 3: Enhanced product name analysis with specific restaurant categories
+  const productName = (item.product_name || item.product?.name || "").toLowerCase()
+
+  if (productName) {
+    // بيتزا - Pizza category
+    if (productName.includes("بيتزا") || productName.includes("pizza") || productName.includes("بيزا")) {
+      return "🍕 بيتزا"
+    }
+
+    // مكرونات - Pasta category
+    if (
+      productName.includes("مكرونة") ||
+      productName.includes("مكرونات") ||
+      productName.includes("باستا") ||
+      productName.includes("pasta") ||
+      productName.includes("سباجيتي") ||
+      productName.includes("spaghetti") ||
+      productName.includes("بيني") ||
+      productName.includes("penne") ||
+      productName.includes("فوتوتشيني") ||
+      productName.includes("فيتوتشيني")
+    ) {
+      return "🍝 مكرونات"
+    }
+
+    // كريبات - Crepes category
+    if (
+      productName.includes("كريب") ||
+      productName.includes("كريبة") ||
+      productName.includes("كريبات") ||
+      productName.includes("crepe") ||
+      productName.includes("crepes")
+    ) {
+      return "🥞 كريبات"
+    }
+
+    // كشري - Koshari category
+    if (
+      productName.includes("كشري") ||
+      productName.includes("كشرى") ||
+      productName.includes("koshari") ||
+      productName.includes("koshary")
+    ) {
+      return "🍚 كشري"
+    }
+
+    // فطاير - Pies/Pastries category
+    if (
+      productName.includes("فطيرة") ||
+      productName.includes("فطاير") ||
+      productName.includes("فطائر") ||
+      productName.includes("pie") ||
+      productName.includes("معجنات") ||
+      productName.includes("عجينة") ||
+      productName.includes("جبنة وزعتر") ||
+      productName.includes("سبانخ") ||
+      productName.includes("لحمة مفرومة")
+    ) {
+      return "🥧 فطاير"
+    }
+
+    // سندوشتات - Sandwiches category
+    if (
+      productName.includes("ساندويتش") ||
+      productName.includes("سندوتش") ||
+      productName.includes("سندوش") ||
+      productName.includes("سندوشة") ||
+      productName.includes("سندوشتات") ||
+      productName.includes("sandwich") ||
+      productName.includes("برجر") ||
+      productName.includes("burger") ||
+      productName.includes("هوت دوج") ||
+      productName.includes("hot dog") ||
+      productName.includes("شاورما") ||
+      productName.includes("فاهيتا") ||
+      productName.includes("كباب") ||
+      productName.includes("كفتة") ||
+      productName.includes("فراخ مشوية") ||
+      productName.includes("تونة") ||
+      productName.includes("جبنة رومي") ||
+      productName.includes("بسطرمة")
+    ) {
+      return "🥪 سندوشتات"
+    }
+
+    // Additional beverages detection (in case you have drinks)
+    if (
+      productName.includes("مشروب") ||
+      productName.includes("عصير") ||
+      productName.includes("قهوة") ||
+      productName.includes("شاي") ||
+      productName.includes("كولا") ||
+      productName.includes("ماء") ||
+      productName.includes("كوكا") ||
+      productName.includes("بيبسي") ||
+      productName.includes("فانتا") ||
+      productName.includes("سبرايت") ||
+      productName.includes("نسكافيه") ||
+      productName.includes("كابتشينو") ||
+      productName.includes("لاتيه") ||
+      productName.includes("موكا")
+    ) {
+      return "🥤 مشروبات"
+    }
+
+    // Additional desserts detection (in case you have desserts)
+    if (
+      productName.includes("حلويات") ||
+      productName.includes("كيك") ||
+      productName.includes("حلوى") ||
+      productName.includes("آيس كريم") ||
+      productName.includes("تورتة") ||
+      productName.includes("جاتوه") ||
+      productName.includes("بسكويت") ||
+      productName.includes("شوكولاتة")
+    ) {
+      return "🍰 حلويات"
+    }
+  }
+
+  // Default category for unmatched items
+  return "📦 منتجات أخرى"
+}
+
 // Main Component
-export default function OrdersPageFinalFix() {
+export default function ShiftAwareOrdersPage() {
   // State
   const [orders, setOrders] = useState<Order[]>([])
   const [stats, setStats] = useState<OrderStats | null>(null)
   const [loading, setLoading] = useState(true)
+  const [shiftLoading, setShiftLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [showDialog, setShowDialog] = useState(false)
   const [deleteOrderId, setDeleteOrderId] = useState<string | null>(null)
   const [deleteReason, setDeleteReason] = useState("")
   const [currentCashier, setCurrentCashier] = useState("")
+  const [currentUser, setCurrentUser] = useState<any>(null)
+  const [currentShift, setCurrentShift] = useState<Shift | null>(null)
   const [isDeleting, setIsDeleting] = useState(false)
-  const printAllRef = useRef<HTMLDivElement>(null)
 
-  // FIXED: Use component-level ref for additional protection
+  // Component-level ref for additional protection
   const componentFetchInProgress = useRef(false)
   const lastFetchTime = useRef(0)
 
-  // FIXED: ULTIMATE FETCH FUNCTION WITH MULTIPLE PROTECTIONS
-  const fetchOrders = useCallback(async (forceRefresh = false) => {
-    const now = Date.now()
+  // SHIFT-AWARE FETCH FUNCTION WITH MULTIPLE PROTECTIONS
+  const fetchOrders = useCallback(
+    async (forceRefresh = false) => {
+      if (!currentShift) {
+        console.log("⚠️ No current shift available, skipping order fetch")
+        return
+      }
 
-    // Debounce: Don't fetch if last fetch was less than 2 seconds ago (unless forced)
-    if (!forceRefresh && now - lastFetchTime.current < 2000) {
-      console.log("⏰ Debounced: Too soon since last fetch, skipping...")
-      return
-    }
+      const now = Date.now()
+      // Debounce: Don't fetch if last fetch was less than 2 seconds ago (unless forced)
+      if (!forceRefresh && now - lastFetchTime.current < 2000) {
+        console.log("⏰ Debounced: Too soon since last fetch, skipping...")
+        return
+      }
 
-    // Component-level protection
-    if (componentFetchInProgress.current) {
-      console.log("⚠️ Component fetch already in progress, skipping...")
-      return
-    }
+      // Component-level protection
+      if (componentFetchInProgress.current) {
+        console.log("⚠️ Component fetch already in progress, skipping...")
+        return
+      }
 
-    // Global protection (handled in fetchFromAPI)
-    if (globalFetchInProgress && !forceRefresh) {
-      console.log("🌍 Global fetch in progress, skipping...")
-      return
-    }
+      // Global protection (handled in fetchFromAPI)
+      if (globalFetchInProgress && !forceRefresh) {
+        console.log("🌍 Global fetch in progress, skipping...")
+        return
+      }
 
-    try {
-      componentFetchInProgress.current = true
-      lastFetchTime.current = now
-      setLoading(true)
-      setError(null)
-      console.log("🚀 Starting PROTECTED fetchOrders...")
+      try {
+        componentFetchInProgress.current = true
+        lastFetchTime.current = now
+        setLoading(true)
+        setError(null)
 
-      // Fetch from both API and localStorage
-      const [apiOrders, localOrders] = await Promise.all([fetchFromAPI(), Promise.resolve(fetchFromLocalStorage())])
+        console.log(`🚀 Starting SHIFT-AWARE fetchOrders for shift: ${currentShift.shift_id}`)
 
-      // FIXED: Better duplicate removal using Set for order IDs
-      const seenOrderIds = new Set<string>()
-      const uniqueOrders: Order[] = []
+        // Fetch from both API and localStorage for the specific shift
+        const [apiOrders, localOrders] = await Promise.all([
+          fetchFromAPI(currentShift.shift_id),
+          Promise.resolve(fetchFromLocalStorage(currentShift.shift_id)),
+        ])
 
-      // Add API orders first (they have priority)
-      apiOrders.forEach((order) => {
-        if (order.order_id && !seenOrderIds.has(order.order_id)) {
-          seenOrderIds.add(order.order_id)
-          uniqueOrders.push(order)
-        }
-      })
+        // Better duplicate removal using Set for order IDs
+        const seenOrderIds = new Set<string>()
+        const uniqueOrders: Order[] = []
 
-      // Add localStorage orders that don't exist in API
-      localOrders.forEach((order) => {
-        if (order.order_id && !seenOrderIds.has(order.order_id)) {
-          seenOrderIds.add(order.order_id)
-          uniqueOrders.push(order)
-        }
-      })
+        // Add API orders first (they have priority)
+        apiOrders.forEach((order) => {
+          if (order.order_id && !seenOrderIds.has(order.order_id)) {
+            seenOrderIds.add(order.order_id)
+            uniqueOrders.push(order)
+          }
+        })
 
-      // Sort by creation date (newest first)
-      const finalOrders = uniqueOrders.sort((a, b) => {
-        const dateA = new Date(a.created_at || 0).getTime()
-        const dateB = new Date(b.created_at || 0).getTime()
-        return dateB - dateA
-      })
+        // Add localStorage orders that don't exist in API
+        localOrders.forEach((order) => {
+          if (order.order_id && !seenOrderIds.has(order.order_id)) {
+            seenOrderIds.add(order.order_id)
+            uniqueOrders.push(order)
+          }
+        })
 
-      console.log(`🎯 FINAL UNIQUE orders: ${finalOrders.length}`)
-      console.log(`📋 Order IDs: ${finalOrders.map((o) => o.order_id.slice(-6)).join(", ")}`)
+        // Sort by creation date (newest first)
+        const finalOrders = uniqueOrders.sort((a, b) => {
+          const dateA = new Date(a.created_at || 0).getTime()
+          const dateB = new Date(b.created_at || 0).getTime()
+          return dateB - dateA
+        })
 
-      setOrders(finalOrders)
-    } catch (err) {
-      console.error("Error fetching orders:", err)
-      setError(err instanceof Error ? err.message : "Failed to fetch orders")
-      setOrders([])
-    } finally {
-      setLoading(false)
-      componentFetchInProgress.current = false
-    }
-  }, [])
+        console.log(`🎯 FINAL UNIQUE orders for shift ${currentShift.shift_id}: ${finalOrders.length}`)
+        console.log(`📋 Order IDs: ${finalOrders.map((o) => o.order_id.slice(-6)).join(", ")}`)
+
+        setOrders(finalOrders)
+      } catch (err) {
+        console.error("Error fetching orders:", err)
+        setError(err instanceof Error ? err.message : "Failed to fetch orders")
+        setOrders([])
+      } finally {
+        setLoading(false)
+        componentFetchInProgress.current = false
+      }
+    },
+    [currentShift],
+  )
 
   // Calculate Stats
   const calculateStats = (orders: Order[]): OrderStats => {
@@ -590,39 +726,34 @@ export default function OrdersPageFinalFix() {
     const categoryMap = new Map<string, CategorySales>()
 
     orders.forEach((order) => {
-      if (order.items && Array.isArray(order.items)) {
-        order.items.forEach((item) => {
-          if (!item) return
+      order.items.forEach((item) => {
+        const categoryName = getCategoryName(item)
+        const productName = item.product_name || item.product?.name || "منتج غير محدد"
+        const unitPrice = normalizePrice(item.unit_price)
+        const quantity = item.quantity
+        const totalAmount = unitPrice * quantity
 
-          const categoryName = item.product?.category?.name || "فئة غير محددة"
-          const productName = item.product_name || "[اسم المنتج غير متوفر]"
-          const quantity = item.quantity || 0
-          const unitPrice = normalizePrice(item.unit_price)
-          const totalAmount = unitPrice * quantity
+        if (!categoryMap.has(categoryName)) {
+          categoryMap.set(categoryName, {
+            categoryName,
+            products: {},
+            categoryTotal: 0,
+          })
+        }
 
-          if (!categoryMap.has(categoryName)) {
-            categoryMap.set(categoryName, {
-              categoryName,
-              products: {},
-              categoryTotal: 0,
-            })
+        const category = categoryMap.get(categoryName)!
+        if (!category.products[productName]) {
+          category.products[productName] = {
+            quantity: 0,
+            totalAmount: 0,
+            unitPrice,
           }
+        }
 
-          const category = categoryMap.get(categoryName)!
-
-          if (!category.products[productName]) {
-            category.products[productName] = {
-              quantity: 0,
-              totalAmount: 0,
-              unitPrice: unitPrice,
-            }
-          }
-
-          category.products[productName].quantity += quantity
-          category.products[productName].totalAmount += totalAmount
-          category.categoryTotal += totalAmount
-        })
-      }
+        category.products[productName].quantity += quantity
+        category.products[productName].totalAmount += totalAmount
+        category.categoryTotal += totalAmount
+      })
     })
 
     return Array.from(categoryMap.values()).sort((a, b) => b.categoryTotal - a.categoryTotal)
@@ -659,10 +790,6 @@ export default function OrdersPageFinalFix() {
   }
 
   // UI Helper Functions
-  const getStatusBadge = (status: string) => {
-    return <Badge className="bg-green-500">مكتمل</Badge>
-  }
-
   const getOrderTypeBadge = (type: string) => {
     switch (type) {
       case "dine-in":
@@ -685,28 +812,59 @@ export default function OrdersPageFinalFix() {
 
   const handleDialogSubmit = () => {
     if (!deleteOrderId || !deleteReason.trim()) return
-
     handleDeleteOrder(deleteOrderId, deleteReason)
     setShowDialog(false)
     setDeleteOrderId(null)
     setDeleteReason("")
   }
 
-  const handlePrintAllOrders = useReactToPrint({
-    contentRef: printAllRef,
-    documentTitle: `تقرير إجمالي الحسابات - ${new Date().toLocaleDateString()}`,
-  })
-
-  // FIXED: Simplified and protected effect management
+  // Initialize user and shift
   useEffect(() => {
-    // Load current cashier
-    const user = JSON.parse(localStorage.getItem("currentUser") || "{}")
-    setCurrentCashier(user?.full_name || user?.name || user?.username || "")
+    const initializeUserAndShift = async () => {
+      try {
+        setShiftLoading(true)
+        // Load current user
+        const user = JSON.parse(localStorage.getItem("currentUser") || "{}")
+        setCurrentUser(user)
+        setCurrentCashier(user?.full_name || user?.name || user?.username || "")
 
-    // Initial fetch
-    fetchOrders()
+        if (user?.user_id) {
+          // Fetch current shift
+          const shift = await fetchCurrentShift(user.user_id)
+          setCurrentShift(shift)
+          if (!shift) {
+            setError("لا توجد وردية نشطة. يرجى بدء وردية جديدة.")
+          }
+        } else {
+          setError("لم يتم العثور على بيانات المستخدم. يرجى تسجيل الدخول مرة أخرى.")
+        }
+      } catch (error) {
+        console.error("Error initializing user and shift:", error)
+        setError("فشل في تحميل بيانات الوردية")
+      } finally {
+        setShiftLoading(false)
+      }
+    }
 
-    // FIXED: HEAVILY DEBOUNCED event listener
+    initializeUserAndShift()
+  }, [])
+
+  // Fetch orders when shift is available
+  useEffect(() => {
+    if (currentShift && !shiftLoading) {
+      fetchOrders()
+    }
+  }, [currentShift, shiftLoading, fetchOrders])
+
+  // Calculate stats when orders change
+  useEffect(() => {
+    if (orders.length > 0) {
+      setStats(calculateStats(orders))
+    }
+  }, [orders])
+
+  // Event listener for order updates
+  useEffect(() => {
     let timeoutId: NodeJS.Timeout
     const handleOrderAdded = () => {
       console.log("📢 Order added event received - will refetch in 3 seconds...")
@@ -718,26 +876,32 @@ export default function OrdersPageFinalFix() {
     }
 
     window.addEventListener("orderAdded", handleOrderAdded)
-
     return () => {
       window.removeEventListener("orderAdded", handleOrderAdded)
       clearTimeout(timeoutId)
     }
-  }, []) // NO dependencies to prevent infinite loops
-
-  useEffect(() => {
-    if (orders.length > 0) {
-      setStats(calculateStats(orders))
-    }
-  }, [orders])
+  }, [fetchOrders])
 
   // Loading State
-  if (loading) {
+  if (shiftLoading) {
     return (
       <div className="flex items-center justify-center min-h-screen">
         <div className="text-center">
           <Loader2 className="w-8 h-8 animate-spin mx-auto mb-4" />
-          <p>جاري تحميل الطلبات...</p>
+          <p>جاري تحميل بيانات الوردية...</p>
+        </div>
+      </div>
+    )
+  }
+
+  // Error State
+  if (error) {
+    return (
+      <div className="flex items-center justify-center min-h-screen">
+        <div className="text-center">
+          <div className="text-red-500 text-xl mb-4">❌</div>
+          <p className="text-red-600 mb-4">{error}</p>
+          <Button onClick={() => window.location.reload()}>إعادة المحاولة</Button>
         </div>
       </div>
     )
@@ -748,10 +912,22 @@ export default function OrdersPageFinalFix() {
       {/* Header */}
       <div className="flex justify-between items-center">
         <div>
-          <h1 className="text-3xl font-bold">الطلبات والمبيعات</h1>
-          <p className="text-gray-600">جميع الطلبات - تم إصلاح مشكلة التكرار نهائياً</p>
+          <h1 className="text-3xl font-bold">طلبات الوردية</h1>
+          <div className="flex items-center gap-4 mt-2">
+            {currentShift && (
+              <div className="flex items-center gap-2">
+                <Badge variant="outline" className="bg-blue-50 text-blue-700 border-blue-300">
+                  <Clock className="w-3 h-3 mr-1" />
+                  {currentShift.shift_name || currentShift.shift_id.slice(-6)}
+                </Badge>
+                <Badge variant="outline" className="bg-green-50 text-green-700 border-green-300">
+                  <Users className="w-3 h-3 mr-1" />
+                  {currentCashier}
+                </Badge>
+              </div>
+            )}
+          </div>
         </div>
-
         <div className="flex gap-2">
           <Button
             onClick={() => fetchOrders(true)}
@@ -762,20 +938,12 @@ export default function OrdersPageFinalFix() {
             <RefreshCw className={`w-4 h-4 mr-2 ${loading ? "animate-spin" : ""}`} />
             {loading ? "جاري التحديث..." : "تحديث"}
           </Button>
-          <Button
-            onClick={() => handlePrintAllOrders()}
-            className="bg-purple-600 hover:bg-purple-700 text-white"
-            disabled={orders.length === 0}
-          >
-            <FileText className="w-4 h-4 mr-2" />
-            طباعة الكل
-          </Button>
         </div>
       </div>
 
       {/* Stats Cards */}
       {stats && (
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
           <Card>
             <CardContent className="p-4">
               <div className="text-2xl font-bold text-blue-600">{stats.totalOrders}</div>
@@ -790,14 +958,8 @@ export default function OrdersPageFinalFix() {
           </Card>
           <Card>
             <CardContent className="p-4">
-              <div className="text-2xl font-bold text-red-600">{stats.ordersByStatus.cancelled}</div>
-              <div className="text-sm text-gray-600">طلبات ملغية</div>
-            </CardContent>
-          </Card>
-          <Card>
-            <CardContent className="p-4">
-              <div className="text-2xl font-bold text-purple-600">{stats.ordersByStatus.completed}</div>
-              <div className="text-sm text-gray-600">طلبات مكتملة</div>
+              <div className="text-2xl font-bold text-purple-600">{calculateCategorySales().length}</div>
+              <div className="text-sm text-gray-600">فئات المنتجات</div>
             </CardContent>
           </Card>
         </div>
@@ -806,120 +968,119 @@ export default function OrdersPageFinalFix() {
       {/* Orders List */}
       <Card>
         <CardHeader>
-          <CardTitle>جميع الطلبات ({orders.length}) - لا مزيد من التكرار!</CardTitle>
+          <CardTitle className="flex items-center gap-2">
+            <FileText className="w-5 h-5 text-blue-600" />
+            طلبات الوردية ({orders.length})
+          </CardTitle>
         </CardHeader>
         <CardContent>
-          {orders.length === 0 ? (
+          {loading ? (
+            <div className="flex items-center justify-center py-8">
+              <div className="text-center">
+                <Loader2 className="w-8 h-8 animate-spin mx-auto mb-4" />
+                <p>جاري تحميل الطلبات...</p>
+              </div>
+            </div>
+          ) : orders.length === 0 ? (
             <div className="text-center py-8 text-gray-500">
               <FileText className="w-12 h-12 mx-auto mb-4 opacity-50" />
-              <p>لا توجد طلبات محفوظة</p>
+              <p>لا توجد طلبات في هذه الوردية</p>
             </div>
           ) : (
             <ScrollArea className="h-[600px] w-full">
               <div className="space-y-4 pr-4">
-                {orders.map((order) => {
-                  const cardClassName = "transition-all duration-200 border-l-4 border-l-green-500"
-
-                  return (
-                    <Card key={order.order_id} className={cardClassName}>
-                      <CardContent className="p-4">
-                        <div className="flex justify-between items-start mb-3">
-                          <div className="flex items-center gap-3">
-                            <h3 className="font-semibold text-lg">طلب #{order.order_id.slice(-6)}</h3>
-                            {getStatusBadge(order.status)}
-                            {getOrderTypeBadge(order.order_type)}
-                          </div>
-
-                          <div className="text-right">
-                            <p className="font-bold text-lg text-green-600">{formatPrice(order.total_price)}</p>
-                            <p className="text-sm text-gray-500">
-                              {new Date(order.created_at).toLocaleDateString()} -{" "}
-                              {new Date(order.created_at).toLocaleTimeString()}
-                            </p>
-                          </div>
+                {orders.map((order) => (
+                  <Card key={order.order_id} className="border-l-4 border-l-blue-500">
+                    <CardContent className="p-4">
+                      <div className="flex justify-between items-start mb-3">
+                        <div className="flex items-center gap-3">
+                          <h3 className="font-semibold text-lg">#{order.order_id.slice(-6)}</h3>
+                          {getOrderTypeBadge(order.order_type)}
                         </div>
+                        <div className="text-right">
+                          <p className="font-bold text-lg text-green-600">{formatPrice(order.total_price)}</p>
+                          <p className="text-sm text-gray-500">
+                            {new Date(order.created_at).toLocaleDateString()} -{" "}
+                            {new Date(order.created_at).toLocaleTimeString()}
+                          </p>
+                        </div>
+                      </div>
 
-                        {/* Customer Info */}
-                        <div className="flex items-center gap-4 mb-3 text-sm text-gray-600">
+                      {/* Customer Info */}
+                      <div className="flex items-center gap-4 mb-3 text-sm text-gray-600">
+                        <div className="flex items-center gap-1">
+                          <User className="w-4 h-4" />
+                          <span>{order.customer_name}</span>
+                        </div>
+                        {order.phone_number && (
                           <div className="flex items-center gap-1">
-                            <User className="w-4 h-4" />
-                            <span>{order.customer_name}</span>
+                            <Phone className="w-4 h-4" />
+                            <span>{order.phone_number}</span>
                           </div>
-                          {order.phone_number && (
-                            <div className="flex items-center gap-1">
-                              <Phone className="w-4 h-4" />
-                              <span>{order.phone_number}</span>
-                            </div>
-                          )}
-                        </div>
+                        )}
+                      </div>
 
-                        {/* Order Items */}
-                        <div className="space-y-2 mb-3">
-                          <h4 className="font-medium text-sm text-gray-700">
-                            عناصر الطلب ({order.items?.length || 0}):
-                          </h4>
-                          {order.items && order.items.length > 0 ? (
-                            order.items.map((item, index) => (
-                              <div
-                                key={`${order.order_id}-${item.order_item_id || index}`}
-                                className="flex justify-between items-center text-sm bg-gray-50 p-2 rounded"
-                              >
-                                <div className="flex-1">
-                                  <span className="font-medium">{item.product_name}</span>
-                                  {item.size_name && item.size_name !== "عادي" && (
-                                    <span className="text-gray-500 ml-2">({item.size_name})</span>
-                                  )}
-                                  <span className="text-gray-500 ml-2">x{item.quantity}</span>
-                                  {item.extras && item.extras.length > 0 && (
-                                    <div className="text-blue-500 text-xs mt-1">
-                                      +{" "}
-                                      {item.extras
-                                        .map((extra) => {
-                                          const extraName = extra?.name || extra?.extra_name || "[إضافة غير معروفة]"
-                                          const extraPrice = extra?.price
-                                            ? ` (ج.م${normalizePrice(extra.price).toFixed(2)})`
-                                            : ""
-                                          return `${extraName}${extraPrice}`
-                                        })
-                                        .join(", ")}
-                                    </div>
-                                  )}
-                                </div>
-
-                                <span className="font-medium">
-                                  {formatPrice(normalizePrice(item.unit_price) * item.quantity)}
-                                </span>
+                      {/* Order Items */}
+                      <div className="space-y-2 mb-3">
+                        <h4 className="font-medium text-sm text-gray-700">عناصر الطلب ({order.items?.length || 0}):</h4>
+                        {order.items && order.items.length > 0 ? (
+                          order.items.map((item, index) => (
+                            <div
+                              key={`${order.order_id}-${item.order_item_id || index}`}
+                              className="flex justify-between items-center text-sm bg-gray-50 p-2 rounded"
+                            >
+                              <div className="flex-1">
+                                <span className="font-medium">{item.product_name}</span>
+                                {item.size_name && item.size_name !== "عادي" && (
+                                  <span className="text-gray-500 ml-2">({item.size_name})</span>
+                                )}
+                                <span className="text-gray-500 ml-2">x{item.quantity}</span>
+                                {item.extras && item.extras.length > 0 && (
+                                  <div className="text-blue-500 text-xs mt-1">
+                                    +{" "}
+                                    {item.extras
+                                      .map((extra) => {
+                                        const extraName = extra?.name || extra?.extra_name || "[إضافة غير معروفة]"
+                                        const extraPrice = extra?.price ? ` (${formatPrice(extra.price)})` : ""
+                                        return `${extraName}${extraPrice}`
+                                      })
+                                      .join(", ")}
+                                  </div>
+                                )}
                               </div>
-                            ))
-                          ) : (
-                            <div className="text-gray-500 text-sm bg-yellow-50 p-2 rounded">
-                              لا توجد عناصر في هذا الطلب - الطلب #{order.order_id.slice(-6)}
+                              <span className="font-medium">
+                                {formatPrice(normalizePrice(item.unit_price) * item.quantity)}
+                              </span>
                             </div>
-                          )}
-                        </div>
+                          ))
+                        ) : (
+                          <div className="text-gray-500 text-sm bg-yellow-50 p-2 rounded">
+                            لا توجد عناصر في هذا الطلب
+                          </div>
+                        )}
+                      </div>
 
-                        {/* Footer */}
-                        <div className="flex justify-between items-center pt-3 border-t text-sm text-gray-600">
-                          <span>الكاشير: {order.cashier_name}</span>
-                          <span>الدفع: {order.payment_method === "cash" ? "نقدي" : "كارت"}</span>
-                          <Button
-                            variant="destructive"
-                            size="sm"
-                            onClick={() => handleDeleteClick(order.order_id)}
-                            disabled={isDeleting}
-                          >
-                            {isDeleting ? (
-                              <Loader2 className="w-4 h-4 mr-1 animate-spin" />
-                            ) : (
-                              <Trash2 className="w-4 h-4 mr-1" />
-                            )}
-                            حذف
-                          </Button>
-                        </div>
-                      </CardContent>
-                    </Card>
-                  )
-                })}
+                      {/* Footer */}
+                      <div className="flex justify-between items-center pt-3 border-t text-sm text-gray-600">
+                        <span>الكاشير: {order.cashier_name || currentCashier}</span>
+                        <span>الدفع: {order.payment_method === "cash" ? "نقدي" : "كارت"}</span>
+                        <Button
+                          variant="destructive"
+                          size="sm"
+                          onClick={() => handleDeleteClick(order.order_id)}
+                          disabled={isDeleting}
+                        >
+                          {isDeleting ? (
+                            <Loader2 className="w-4 h-4 mr-1 animate-spin" />
+                          ) : (
+                            <Trash2 className="w-4 h-4 mr-1" />
+                          )}
+                          حذف
+                        </Button>
+                      </div>
+                    </CardContent>
+                  </Card>
+                ))}
               </div>
             </ScrollArea>
           )}
@@ -955,274 +1116,6 @@ export default function OrdersPageFinalFix() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
-
-      {/* Print Content */}
-      <div ref={printAllRef} className="hidden print:block">
-        <div className="advanced-print-report">
-          <div className="report-header">
-            <div className="header-content">
-              <div className="company-info">
-                <h1 className="company-name">Dawar Juha</h1>
-                <p className="company-subtitle">Restaurant & Café</p>
-              </div>
-            </div>
-            <div className="report-title-section">
-              <h2 className="report-title">تقرير المبيعات التفصيلي حسب الفئات</h2>
-              <div className="report-date">
-                <p>تاريخ التقرير: {new Date().toLocaleDateString()}</p>
-                <p>وقت الإنشاء: {new Date().toLocaleTimeString()}</p>
-              </div>
-            </div>
-          </div>
-
-          {stats && (
-            <div className="summary-section">
-              <h3 className="section-title">ملخص عام</h3>
-              <div className="summary-grid">
-                <div className="summary-item">
-                  <span className="summary-label">إجمالي الطلبات:</span>
-                  <span className="summary-value">{stats.totalOrders}</span>
-                </div>
-                <div className="summary-item">
-                  <span className="summary-label">إجمالي المبيعات:</span>
-                  <span className="summary-value">{formatPrice(stats.totalRevenue)}</span>
-                </div>
-                <div className="summary-item">
-                  <span className="summary-label">طلبات مكتملة:</span>
-                  <span className="summary-value">{stats.ordersByStatus.completed}</span>
-                </div>
-                <div className="summary-item">
-                  <span className="summary-label">طلبات ملغية:</span>
-                  <span className="summary-value">{stats.ordersByStatus.cancelled}</span>
-                </div>
-              </div>
-            </div>
-          )}
-
-          <div className="categories-section">
-            <h3 className="section-title">تفصيل المبيعات حسب الفئات</h3>
-            {calculateCategorySales().length === 0 ? (
-              <div className="no-data">لا توجد مبيعات للعرض</div>
-            ) : (
-              calculateCategorySales().map((category) => (
-                <div key={category.categoryName} className="category-block">
-                  <div className="category-header">
-                    <h4 className="category-name">{category.categoryName}</h4>
-                    <div className="category-total">{formatPrice(category.categoryTotal)}</div>
-                  </div>
-                  <table className="products-table">
-                    <thead>
-                      <tr>
-                        <th>المنتج</th>
-                        <th>الكمية</th>
-                        <th>سعر الوحدة</th>
-                        <th>الإجمالي</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {Object.entries(category.products).map(([productName, productData]) => (
-                        <tr key={productName}>
-                          <td className="product-name">{productName}</td>
-                          <td className="quantity">{productData.quantity}</td>
-                          <td className="unit-price">{formatPrice(productData.unitPrice)}</td>
-                          <td className="total-amount">{formatPrice(productData.totalAmount)}</td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              ))
-            )}
-          </div>
-
-          <div className="grand-total-section">
-            <div className="grand-total-line">
-              <span className="grand-total-label">الإجمالي العام:</span>
-              <span className="grand-total-amount">
-                {formatPrice(calculateCategorySales().reduce((sum, cat) => sum + cat.categoryTotal, 0))}
-              </span>
-            </div>
-          </div>
-        </div>
-      </div>
-
-      <style jsx>{`
-        @media print {
-          @page {
-            size: A4;
-            margin: 0.5in;
-          }
-          .advanced-print-report {
-            width: 100%;
-            font-family: 'Arial', 'Tahoma', sans-serif;
-            font-size: 12px;
-            line-height: 1.4;
-            color: #000;
-            background: white;
-          }
-          .report-header {
-            border-bottom: 3px solid #333;
-            margin-bottom: 20px;
-            padding-bottom: 15px;
-          }
-          .header-content {
-            display: flex;
-            align-items: center;
-            margin-bottom: 15px;
-          }
-          .company-info {
-            flex: 1;
-          }
-          .company-name {
-            font-size: 28px;
-            font-weight: bold;
-            margin: 0 0 5px 0;
-            color: #333;
-          }
-          .company-subtitle {
-            font-size: 16px;
-            margin: 0 0 3px 0;
-            color: #666;
-          }
-          .report-title-section {
-            text-align: center;
-          }
-          .report-title {
-            font-size: 22px;
-            font-weight: bold;
-            margin: 0 0 10px 0;
-            color: #333;
-          }
-          .report-date p {
-            font-size: 11px;
-            margin: 0 0 2px 0;
-            color: #666;
-          }
-          .summary-section {
-            margin-bottom: 25px;
-            padding: 15px;
-            border: 1px solid #ddd;
-            border-radius: 5px;
-            background-color: #f9f9f9;
-          }
-          .section-title {
-            font-size: 16px;
-            font-weight: bold;
-            margin: 0 0 12px 0;
-            color: #333;
-            border-bottom: 1px solid #ccc;
-            padding-bottom: 5px;
-          }
-          .summary-grid {
-            display: grid;
-            grid-template-columns: repeat(2, 1fr);
-            gap: 10px;
-          }
-          .summary-item {
-            display: flex;
-            justify-content: space-between;
-            padding: 5px 0;
-            border-bottom: 1px dotted #ccc;
-          }
-          .summary-label {
-            font-weight: 500;
-            color: #555;
-          }
-          .summary-value {
-            font-weight: bold;
-            color: #333;
-          }
-          .categories-section {
-            margin-bottom: 25px;
-          }
-          .category-block {
-            margin-bottom: 20px;
-            border: 1px solid #333;
-            border-radius: 5px;
-            overflow: hidden;
-          }
-          .category-header {
-            background-color: #333;
-            color: white;
-            padding: 10px 15px;
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-          }
-          .category-name {
-            font-size: 16px;
-            font-weight: bold;
-            margin: 0;
-          }
-          .category-total {
-            font-size: 16px;
-            font-weight: bold;
-          }
-          .products-table {
-            width: 100%;
-            border-collapse: collapse;
-            margin: 0;
-          }
-          .products-table th {
-            background-color: #f5f5f5;
-            border: 1px solid #ddd;
-            padding: 8px;
-            text-align: center;
-            font-weight: bold;
-            font-size: 11px;
-          }
-          .products-table td {
-            border: 1px solid #ddd;
-            padding: 6px 8px;
-            font-size: 11px;
-          }
-          .product-name {
-            text-align: right;
-            font-weight: 500;
-          }
-          .quantity {
-            text-align: center;
-            font-weight: bold;
-          }
-          .unit-price,
-          .total-amount {
-            text-align: right;
-            font-weight: 500;
-          }
-          .products-table tbody tr:nth-child(even) {
-            background-color: #f9f9f9;
-          }
-          .grand-total-section {
-            margin-top: 20px;
-            padding-top: 15px;
-            border-top: 3px double #333;
-          }
-          .grand-total-line {
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            font-size: 18px;
-            font-weight: bold;
-            padding: 10px 0;
-            background-color: #f0f0f0;
-            padding: 15px;
-            border-radius: 5px;
-          }
-          .grand-total-label {
-            color: #333;
-          }
-          .grand-total-amount {
-            color: #2563eb;
-            font-size: 20px;
-          }
-          .no-data {
-            text-align: center;
-            padding: 20px;
-            color: #666;
-            font-style: italic;
-          }
-        }
-      `}</style>
     </div>
   )
 }

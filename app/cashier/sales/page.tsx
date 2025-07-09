@@ -1,17 +1,17 @@
 "use client"
-
 import { useState, useEffect, useRef } from "react"
+import type React from "react"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { ScrollArea } from "@/components/ui/scroll-area"
-import { Plus, Minus, Printer, Save, X, Trash2, Loader2 } from "lucide-react"
+import { Plus, Minus, Printer, Save, X, Trash2, Loader2, Package, AlertTriangle } from "lucide-react"
 import { motion, AnimatePresence } from "framer-motion"
-import Image from "next/image"
 import { useReactToPrint } from "react-to-print"
 import { useRouter } from "next/navigation"
 import { Textarea } from "@/components/ui/textarea"
+import { Alert, AlertDescription } from "@/components/ui/alert"
 
 const API_BASE_URL = "http://172.162.241.242:3000/api/v1"
 
@@ -48,6 +48,7 @@ interface Product {
   name: string
   description?: string
   is_active: boolean
+  image_url?: string
   category: Category
   sizePrices: SizePrice[]
 }
@@ -65,6 +66,7 @@ interface CartItem {
   categoryId: string
   productId: string
   productSizeId: string
+  image_url?: string
   extras: Array<{
     id: string
     name: string
@@ -72,7 +74,91 @@ interface CartItem {
   }>
 }
 
-export default function SalesPageFixed() {
+// Enhanced Image Component with better error handling and debugging
+const ProductImage = ({
+  product,
+  className = "object-cover w-full h-full",
+  showDebugInfo = false,
+}: {
+  product: Product
+  className?: string
+  showDebugInfo?: boolean
+}) => {
+  const [imageError, setImageError] = useState(false)
+  const [imageLoading, setImageLoading] = useState(true)
+  const [debugInfo, setDebugInfo] = useState<string>("")
+
+  useEffect(() => {
+    if (showDebugInfo) {
+      const info = `
+Product: ${product.name}
+Image URL: ${product.image_url || "EMPTY"}
+URL Length: ${product.image_url?.length || 0}
+URL Type: ${product.image_url?.startsWith("data:") ? "Base64" : product.image_url?.startsWith("http") ? "HTTP URL" : "Unknown"}
+      `.trim()
+      setDebugInfo(info)
+    }
+  }, [product, showDebugInfo])
+
+  const handleImageLoad = () => {
+    setImageLoading(false)
+    setImageError(false)
+  }
+
+  const handleImageError = (e: React.SyntheticEvent<HTMLImageElement>) => {
+    console.error(`Image failed to load for product: ${product.name}`, {
+      imageUrl: product.image_url,
+      error: e,
+    })
+    setImageError(true)
+    setImageLoading(false)
+  }
+
+  // Check if we have a valid image URL
+  const hasValidImageUrl =
+    product.image_url &&
+    product.image_url.trim() !== "" &&
+    product.image_url !== "undefined" &&
+    product.image_url !== "null"
+
+  if (!hasValidImageUrl || imageError) {
+    return (
+      <div
+        className={`bg-gray-200 flex flex-col items-center justify-center ${className.includes("w-full h-full") ? "w-full h-full" : "w-12 h-12"}`}
+      >
+        <Package className="w-6 h-6 text-gray-400 mb-1" />
+        {showDebugInfo && <div className="text-xs text-red-500 p-1 bg-white rounded">No Image</div>}
+      </div>
+    )
+  }
+
+  return (
+    <div className="relative">
+      {imageLoading && (
+        <div
+          className={`absolute inset-0 bg-gray-200 flex items-center justify-center ${className.includes("w-full h-full") ? "w-full h-full" : "w-12 h-12"}`}
+        >
+          <Loader2 className="w-4 h-4 animate-spin text-gray-400" />
+        </div>
+      )}
+      <img
+        src={product.image_url || "/placeholder.svg"}
+        alt={product.name}
+        className={className}
+        onLoad={handleImageLoad}
+        onError={handleImageError}
+        style={{ display: imageLoading ? "none" : "block" }}
+      />
+      {showDebugInfo && (
+        <div className="absolute top-0 left-0 bg-black bg-opacity-75 text-white text-xs p-1 rounded max-w-xs z-10">
+          <pre className="whitespace-pre-wrap">{debugInfo}</pre>
+        </div>
+      )}
+    </div>
+  )
+}
+
+export default function SalesPage() {
   const [activeCategory, setActiveCategory] = useState("")
   const [cart, setCart] = useState<CartItem[]>([])
   const [customerName, setCustomerName] = useState("")
@@ -98,6 +184,17 @@ export default function SalesPageFixed() {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
 
+  // Debug states
+  const [showImageDebug, setShowImageDebug] = useState(false)
+  const [imageStats, setImageStats] = useState({
+    total: 0,
+    withImages: 0,
+    withValidImages: 0,
+    base64Images: 0,
+    httpImages: 0,
+    emptyImages: 0,
+  })
+
   const combinedReceiptRef = useRef<HTMLDivElement>(null)
   const customerReceiptRef = useRef<HTMLDivElement>(null)
   const kitchenReceiptRef = useRef<HTMLDivElement>(null)
@@ -117,6 +214,38 @@ export default function SalesPageFixed() {
     }
   }, [])
 
+  // Calculate image statistics
+  useEffect(() => {
+    const stats = {
+      total: products.length,
+      withImages: 0,
+      withValidImages: 0,
+      base64Images: 0,
+      httpImages: 0,
+      emptyImages: 0,
+    }
+
+    products.forEach((product) => {
+      if (product.image_url) {
+        stats.withImages++
+        if (product.image_url.trim() !== "" && product.image_url !== "undefined" && product.image_url !== "null") {
+          stats.withValidImages++
+          if (product.image_url.startsWith("data:")) {
+            stats.base64Images++
+          } else if (product.image_url.startsWith("http")) {
+            stats.httpImages++
+          }
+        } else {
+          stats.emptyImages++
+        }
+      } else {
+        stats.emptyImages++
+      }
+    })
+
+    setImageStats(stats)
+  }, [products])
+
   const fetchAllData = async () => {
     setLoading(true)
     setError(null)
@@ -131,12 +260,30 @@ export default function SalesPageFixed() {
         setActiveCategory(categoriesList[0].category_id)
       }
 
-      // Fetch products
+      // Fetch products with enhanced debugging
       const productsResponse = await fetch(`${API_BASE_URL}/products`)
       if (!productsResponse.ok) throw new Error("Failed to fetch products")
       const productsData = await productsResponse.json()
+
+      console.log("Raw products data:", productsData)
+
       const productsList = productsData.success ? productsData.data.products || productsData.data : []
-      setProducts(productsList)
+
+      // Enhanced product processing with image debugging
+      const processedProducts = productsList.map((product: any) => {
+        console.log(`Processing product: ${product.name}`, {
+          image_url: product.image_url,
+          image_url_type: typeof product.image_url,
+          image_url_length: product.image_url?.length,
+        })
+
+        return {
+          ...product,
+          image_url: product.image_url || "",
+        }
+      })
+
+      setProducts(processedProducts)
 
       // Fetch sizes
       const sizesResponse = await fetch(`${API_BASE_URL}/category-sizes`)
@@ -159,9 +306,27 @@ export default function SalesPageFixed() {
     }
   }
 
+  // Debug function to log all product images
+  const debugProductImages = () => {
+    console.log("=== PRODUCT IMAGES DEBUG ===")
+    products.forEach((product, index) => {
+      console.log(`${index + 1}. ${product.name}:`, {
+        image_url: product.image_url,
+        has_image: !!product.image_url,
+        is_valid: product.image_url && product.image_url.trim() !== "" && product.image_url !== "undefined",
+        url_type: product.image_url?.startsWith("data:")
+          ? "Base64"
+          : product.image_url?.startsWith("http")
+            ? "HTTP"
+            : "Unknown",
+        url_length: product.image_url?.length || 0,
+      })
+    })
+    console.log("Image Statistics:", imageStats)
+  }
+
   const handleAddToCart = () => {
     if (!currentItem) return
-
     if (currentItem.sizePrices.length > 1 && !itemSizeId) {
       alert("الرجاء اختيار الحجم")
       return
@@ -175,7 +340,7 @@ export default function SalesPageFixed() {
       const selectedSizePrice = currentItem.sizePrices.find((sp) => sp.size?.size_id === itemSizeId)
       const sizePrice = selectedSizePrice || currentItem.sizePrices[0]
       if (!sizePrice.product_size_id) {
-        alert("خطأ: معرف حجم ا��منتج غير متوفر")
+        alert("خطأ: معرف حجم المنتج غير متوفر")
         return
       }
       basePrice = Number.parseFloat(sizePrice.price)
@@ -201,6 +366,7 @@ export default function SalesPageFixed() {
       categoryId: currentItem.category?.category_id || "",
       productId: currentItem.product_id,
       productSizeId: productSizeId,
+      image_url: currentItem.image_url || "",
       extras: validExtras,
     }
 
@@ -244,7 +410,6 @@ export default function SalesPageFixed() {
       alert("لا يمكن حفظ طلب فارغ")
       return
     }
-
     if (isSaving) {
       console.log("⚠️ Save already in progress, preventing duplicate")
       return
@@ -260,7 +425,6 @@ export default function SalesPageFixed() {
     try {
       setIsSaving(true)
       setLoading(true)
-
       // Generate a unique order ID
       const uniqueOrderId = `order_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`
       console.log(`💾 Starting save process for order: ${uniqueOrderId}`)
@@ -290,9 +454,11 @@ export default function SalesPageFixed() {
           notes: item.notes || null,
           product_name: item.name,
           size_name: item.size,
+          image_url: item.image_url || "",
           product: {
             product_id: item.productId,
             name: item.name,
+            image_url: item.image_url || "",
             category: {
               category_id: item.categoryId,
               name: item.category,
@@ -327,7 +493,6 @@ export default function SalesPageFixed() {
 
       try {
         console.log("🌐 Step 1: Saving to API...")
-
         const validOrderTypes = ["dine-in", "takeaway", "delivery"]
         if (!validOrderTypes.includes(orderType)) {
           throw new Error(`Invalid order type: ${orderType}`)
@@ -387,7 +552,6 @@ export default function SalesPageFixed() {
 
       // STEP 2: Save to localStorage (using API order ID if available)
       console.log("💾 Step 2: Saving to localStorage...")
-
       const finalOrderData = {
         ...orderData,
         order_id: apiOrderId, // Use API order ID if available
@@ -524,7 +688,6 @@ export default function SalesPageFixed() {
 
   // Add a single print ref for both receipts
   const bothReceiptsRef = useRef<HTMLDivElement>(null)
-
   const handlePrintBothReceipts = useReactToPrint({
     contentRef: bothReceiptsRef,
     documentTitle: `Receipts - Order #${orderId}`,
@@ -553,8 +716,7 @@ export default function SalesPageFixed() {
   }
 
   // Simple Receipt Print Styles
-  const simpleReceiptPrintStyles = `
-@media print {
+  const simpleReceiptPrintStyles = `@media print {
   @page {
     size: 80mm auto;
     margin: 0;
@@ -652,8 +814,7 @@ export default function SalesPageFixed() {
     border-top: 1px dashed #000;
     font-size: 10px;
   }
-}
-`
+}`
 
   // Replace the complex style injection with this simple one
   if (typeof document !== "undefined") {
@@ -686,7 +847,6 @@ export default function SalesPageFixed() {
                   ))}
                 </TabsList>
               </ScrollArea>
-
               {categories.map((category) => (
                 <TabsContent key={category.category_id} value={category.category_id} className="m-0">
                   <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
@@ -694,13 +854,10 @@ export default function SalesPageFixed() {
                       <motion.div key={item.product_id} whileHover={{ scale: 1.03 }} whileTap={{ scale: 0.97 }}>
                         <Card className="cursor-pointer overflow-hidden" onClick={() => handleSelectItem(item)}>
                           <div className="aspect-square relative">
-                            <Image
-                              src="/placeholder.svg?height=200&width=200"
-                              alt={item.name}
-                              width={200}
-                              height={200}
+                            <ProductImage
+                              product={item}
                               className="object-cover w-full h-full"
-                              priority
+                              showDebugInfo={showImageDebug}
                             />
                           </div>
                           <CardContent className="p-3">
@@ -708,6 +865,12 @@ export default function SalesPageFixed() {
                             <div className="text-sm text-muted-foreground">
                               {item.sizePrices.length > 0 ? `من ${getMinPrice(item)} ج.م` : "السعر غير محدد"}
                             </div>
+                            {showImageDebug && (
+                              <div className="mt-2 p-2 bg-gray-100 rounded text-xs">
+                                <div>صورة: {item.image_url ? "✅" : "❌"}</div>
+                                {item.image_url && <div className="truncate">{item.image_url.substring(0, 50)}...</div>}
+                              </div>
+                            )}
                             {item.sizePrices.length > 1 && (
                               <div className="mt-2">
                                 <div className="text-xs text-gray-500 mb-1">الأحجام المتاحة:</div>
@@ -750,7 +913,6 @@ export default function SalesPageFixed() {
             <p className="text-sm text-gray-600">123 Main Street, City</p>
             <p className="text-sm text-gray-600">Tel: +123 456 7890</p>
           </div>
-
           <div className="w-full mb-2">
             <div className="flex justify-between mb-1 text-sm">
               <span className="font-medium">طلب #:</span>
@@ -783,7 +945,6 @@ export default function SalesPageFixed() {
               <span>{cashierName}</span>
             </div>
           </div>
-
           <div className="w-full mt-2 mb-2">
             <div className="flex font-semibold border-b pb-1 text-sm">
               <div className="w-2/5">الصنف</div>
@@ -837,14 +998,12 @@ export default function SalesPageFixed() {
               ))
             )}
           </div>
-
           <div className="w-full border-t pt-2 mt-2">
             <div className="flex justify-between text-lg font-bold">
               <span>الإجمالي</span>
               <span>ج.م{calculateTotal().toFixed(2)}</span>
             </div>
           </div>
-
           {/* Customer Type Selection */}
           {cart.length > 0 && (
             <div className="w-full border-t pt-2 mt-2">
@@ -865,7 +1024,6 @@ export default function SalesPageFixed() {
                     <option value="delivery">توصيل</option>
                   </select>
                 </div>
-
                 <div className="flex items-center gap-2">
                   <label className="text-sm font-medium">اسم العميل:</label>
                   <input
@@ -876,7 +1034,6 @@ export default function SalesPageFixed() {
                     className="text-sm border rounded px-2 py-1 flex-1"
                   />
                 </div>
-
                 {orderType === "delivery" && (
                   <div className="flex items-center gap-2">
                     <label className="text-sm font-medium">الهاتف:</label>
@@ -889,7 +1046,6 @@ export default function SalesPageFixed() {
                     />
                   </div>
                 )}
-
                 {/* Debug buttons */}
                 <div className="flex gap-2 mt-2">
                   <Button
@@ -914,7 +1070,6 @@ export default function SalesPageFixed() {
               </div>
             </div>
           )}
-
           <div className="text-center text-xs text-gray-600 mt-4">
             <p>شكراً لطلبكم!</p>
             <p>نتطلع لرؤيتكم مرة أخرى</p>
@@ -935,7 +1090,6 @@ export default function SalesPageFixed() {
             </div>
           </div>
         </div>
-
         <div className="flex gap-2 mt-4 print:hidden">
           <Button
             onClick={handlePrintBothReceipts}
@@ -945,7 +1099,6 @@ export default function SalesPageFixed() {
             <Printer className="w-4 h-4 mr-2" />
             طباعة الفاتورة
           </Button>
-
           <Button
             onClick={saveOrderToAPI}
             className="flex-1 bg-green-600 hover:bg-green-700"
@@ -955,7 +1108,6 @@ export default function SalesPageFixed() {
             {isSaving ? "جاري الحفظ..." : "حفظ الطلب"}
           </Button>
         </div>
-
         {/* Both Receipts Print Content */}
         <div ref={bothReceiptsRef} className="hidden print:block">
           {/* Print styles and content remain the same as in your original code */}
@@ -973,10 +1125,10 @@ export default function SalesPageFixed() {
                 font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
                 background: white;
               }
-              .receipt-print-page { 
-                page-break-after: always; 
-                break-after: page; 
-                width: 80mm;
+              .receipt-print-page {
+                 page-break-after: always;
+                 break-after: page;
+                 width: 80mm;
                 max-width: 80mm;
                 margin: 0 auto;
                 padding: 3mm;
@@ -984,10 +1136,10 @@ export default function SalesPageFixed() {
                 position: relative;
                 overflow: hidden;
               }
-              .receipt-print-page:last-child { 
-                page-break-after: auto; 
-                break-after: auto; 
-              }
+              .receipt-print-page:last-child {
+                 page-break-after: auto;
+                 break-after: auto;
+               }
               .receipt-print-page::before {
                 content: '';
                 position: absolute;
@@ -995,15 +1147,15 @@ export default function SalesPageFixed() {
                 left: 0;
                 right: 0;
                 bottom: 0;
-                background: 
+                background:
                   radial-gradient(circle at 20% 50%, rgba(59, 130, 246, 0.03) 0%, transparent 50%),
                   radial-gradient(circle at 80% 20%, rgba(16, 185, 129, 0.03) 0%, transparent 50%),
                   radial-gradient(circle at 40% 80%, rgba(245, 158, 11, 0.03) 0%, transparent 50%);
                 pointer-events: none;
                 z-index: -1;
               }
-              .receipt-header { 
-                text-align: center;
+              .receipt-header {
+                 text-align: center;
                 margin-bottom: 4mm;
                 position: relative;
                 background: linear-gradient(135deg, #f8fafc 0%, #e2e8f0 100%);
@@ -1022,10 +1174,10 @@ export default function SalesPageFixed() {
                 height: 1px;
                 background: linear-gradient(to right, transparent, #3b82f6, transparent);
               }
-              .receipt-title { 
-                font-size: 20px; 
-                font-weight: 800; 
-                margin: 2mm 0 1mm;
+              .receipt-title {
+                 font-size: 20px;
+                 font-weight: 800;
+                 margin: 2mm 0 1mm;
                 color: #1e293b;
                 text-shadow: 0 1px 2px rgba(0,0,0,0.1);
                 letter-spacing: 0.5px;
@@ -1044,18 +1196,18 @@ export default function SalesPageFixed() {
                 margin: 0.5mm 0;
                 font-weight: 400;
               }
-              .receipt-info { 
-                margin: 3mm 0; 
-                background: #f8fafc;
+              .receipt-info {
+                 margin: 3mm 0;
+                 background: #f8fafc;
                 border-radius: 2mm;
                 padding: 2mm;
                 border-left: 3px solid #3b82f6;
               }
-              .receipt-info-row { 
-                display: flex; 
-                justify-content: space-between; 
-                margin: 1.5mm 0; 
-                font-size: 11px;
+              .receipt-info-row {
+                 display: flex;
+                 justify-content: space-between;
+                 margin: 1.5mm 0;
+                 font-size: 11px;
                 align-items: center;
               }
               .receipt-info-label {
@@ -1078,9 +1230,9 @@ export default function SalesPageFixed() {
                 border-radius: 1mm;
                 border: 1px solid #e5e7eb;
               }
-              .receipt-items { 
-                margin: 4mm 0; 
-                background: white;
+              .receipt-items {
+                 margin: 4mm 0;
+                 background: white;
                 border-radius: 2mm;
                 overflow: hidden;
                 border: 1px solid #e5e7eb;
@@ -1097,8 +1249,8 @@ export default function SalesPageFixed() {
                 letter-spacing: 0.5px;
                 text-shadow: 0 1px 2px rgba(0,0,0,0.2);
               }
-              .receipt-item { 
-                margin: 0;
+              .receipt-item {
+                 margin: 0;
                 padding: 2mm;
                 font-size: 11px;
                 border-bottom: 1px solid #f1f5f9;
@@ -1121,10 +1273,10 @@ export default function SalesPageFixed() {
                 width: 2px;
                 background: linear-gradient(to bottom, #3b82f6, #10b981);
               }
-              .receipt-item-main { 
-                display: flex; 
-                justify-content: space-between; 
-                margin-bottom: 1mm;
+              .receipt-item-main {
+                 display: flex;
+                 justify-content: space-between;
+                 margin-bottom: 1mm;
                 font-weight: 600;
                 color: #1f2937;
                 align-items: center;
@@ -1160,8 +1312,8 @@ export default function SalesPageFixed() {
                 background: #fce7f3;
                 border-left: 2px solid #ec4899;
               }
-              .receipt-total { 
-                margin-top: 4mm;
+              .receipt-total {
+                 margin-top: 4mm;
                 padding: 3mm;
                 text-align: center;
                 background: linear-gradient(135deg, #1f2937 0%, #374151 100%);
@@ -1195,9 +1347,9 @@ export default function SalesPageFixed() {
                 text-shadow: 0 2px 4px rgba(0,0,0,0.3);
                 letter-spacing: 0.5px;
               }
-              .receipt-footer { 
-                text-align: center; 
-                margin-top: 4mm;
+              .receipt-footer {
+                 text-align: center;
+                 margin-top: 4mm;
                 padding: 3mm;
                 background: #f8fafc;
                 border-radius: 2mm;
@@ -1225,8 +1377,8 @@ export default function SalesPageFixed() {
                 margin-bottom: 3mm;
                 font-style: italic;
               }
-              .receipt-logo { 
-                width: 20mm;
+              .receipt-logo {
+                 width: 20mm;
                 height: 20mm;
                 margin: 0 auto 2mm;
                 display: block;
@@ -1236,29 +1388,29 @@ export default function SalesPageFixed() {
                 background: white;
                 padding: 1mm;
               }
-              .receipt-powered { 
-                display: flex; 
-                align-items: center; 
-                justify-content: center; 
-                gap: 2mm;
+              .receipt-powered {
+                 display: flex;
+                 align-items: center;
+                 justify-content: center;
+                 gap: 2mm;
                 background: white;
                 padding: 2mm;
                 border-radius: 1mm;
                 border: 1px solid #e2e8f0;
                 margin-top: 2mm;
               }
-              .receipt-powered img { 
-                width: 4mm;
+              .receipt-powered img {
+                 width: 4mm;
                 height: 4mm;
-                object-fit: contain; 
-                display: inline-block;
+                object-fit: contain;
+                 display: inline-block;
               }
-              .receipt-powered span { 
-                font-size: 8px; 
-                color: #2563eb; 
-                font-weight: 700; 
-                text-transform: uppercase; 
-                letter-spacing: 0.5px;
+              .receipt-powered span {
+                 font-size: 8px;
+                 color: #2563eb;
+                 font-weight: 700;
+                 text-transform: uppercase;
+                 letter-spacing: 0.5px;
               }
               .kitchen-receipt .receipt-header {
                 background: linear-gradient(135deg, #dc2626 0%, #991b1b 100%);
@@ -1304,7 +1456,6 @@ export default function SalesPageFixed() {
               }
             }
           `}</style>
-
           {/* Customer Receipt */}
           <div className="receipt-print-page">
             <div className="receipt-header">
@@ -1314,9 +1465,7 @@ export default function SalesPageFixed() {
               <div className="receipt-contact">123 Main Street, City</div>
               <div className="receipt-contact">Tel: +123 456 7890</div>
             </div>
-
             <div className="receipt-ornament"></div>
-
             <div className="receipt-info">
               <div className="receipt-info-row">
                 <span className="receipt-info-label">طلب #</span>
@@ -1349,7 +1498,6 @@ export default function SalesPageFixed() {
                 <span className="receipt-info-value">{cashierName}</span>
               </div>
             </div>
-
             <div className="receipt-items">
               <div className="receipt-items-header">تفاصيل الطلب</div>
               {cart.map((item, index) => (
@@ -1374,12 +1522,10 @@ export default function SalesPageFixed() {
                 </div>
               ))}
             </div>
-
             <div className="receipt-total">
               <div className="receipt-total-label">إجمالي المبلغ</div>
               <div className="receipt-total-amount">ج.م {calculateTotal().toFixed(2)}</div>
             </div>
-
             <div className="receipt-footer">
               <div className="receipt-thank-you">شكراً لطلبكم!</div>
               <div className="receipt-visit-again">نتطلع لرؤيتكم مرة أخرى</div>
@@ -1389,16 +1535,13 @@ export default function SalesPageFixed() {
               </div>
             </div>
           </div>
-
           {/* Kitchen Receipt */}
           <div className="receipt-print-page kitchen-receipt">
             <div className="receipt-header">
               <div className="receipt-title">🍳 فاتورة المطبخ</div>
               <div className="receipt-subtitle">Kitchen Order</div>
             </div>
-
             <div className="receipt-ornament"></div>
-
             <div className="receipt-info">
               <div className="receipt-info-row">
                 <span className="receipt-info-label">طلب #</span>
@@ -1417,7 +1560,6 @@ export default function SalesPageFixed() {
                 <span className="receipt-info-value">{customerName || "عميل عابر"}</span>
               </div>
             </div>
-
             <div className="receipt-items">
               <div className="receipt-items-header">🥘 قائمة الطبخ</div>
               {cart.map((item, index) => (
@@ -1441,12 +1583,10 @@ export default function SalesPageFixed() {
                 </div>
               ))}
             </div>
-
             <div className="receipt-total">
               <div className="receipt-total-label">⏱️ وقت التحضير المتوقع</div>
               <div className="receipt-total-amount">{cart.length * 5} دقيقة</div>
             </div>
-
             <div className="receipt-footer">
               <div className="receipt-thank-you">🔥 طبخ سعيد!</div>
               <div className="receipt-visit-again">تأكد من جودة الطعام قبل التقديم</div>
@@ -1455,7 +1595,7 @@ export default function SalesPageFixed() {
         </div>
       </div>
 
-      {/* Item Modal */}
+      {/* Item Modal with Enhanced Image Display */}
       <AnimatePresence>
         {showItemModal && currentItem && (
           <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
@@ -1471,6 +1611,16 @@ export default function SalesPageFixed() {
                   <X className="h-4 w-4" />
                 </Button>
               </div>
+
+              {/* Enhanced Product Image in Modal */}
+              <div className="p-4 flex justify-center">
+                <ProductImage
+                  product={currentItem}
+                  className="w-32 h-32 object-cover rounded-lg border"
+                  showDebugInfo={showImageDebug}
+                />
+              </div>
+
               <div className="p-4 space-y-4">
                 {currentItem && currentItem.sizePrices.length > 1 && (
                   <div>
