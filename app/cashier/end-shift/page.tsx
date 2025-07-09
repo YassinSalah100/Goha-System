@@ -2,14 +2,12 @@
 
 import { useState, useEffect, useRef } from "react"
 import { useRouter } from "next/navigation"
-import { Card, CardContent, CardFooter, CardHeader, CardTitle } from "@/components/ui/card"
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Textarea } from "@/components/ui/textarea"
-import { Separator } from "@/components/ui/separator"
 import { AlertCircle, CheckCircle2, Printer, RefreshCw, Users, Clock, DollarSign } from "lucide-react"
 import { motion } from "framer-motion"
 import { useReactToPrint } from "react-to-print"
-import Image from "next/image"
 
 const API_BASE_URL = "http://172.162.241.242:3000/api/v1"
 
@@ -397,6 +395,32 @@ export default function EndShiftPageFixed() {
     return shift
   }
 
+  const fetchShiftDetails = async (shiftId: string) => {
+    try {
+      console.log(`🔍 Fetching shift details for ${shiftId}`)
+      const response = await fetch(`${API_BASE_URL}/shifts/${shiftId}`, {
+        method: "GET",
+        headers: {
+          Authorization: `Bearer ${localStorage.getItem("authToken") || ""}`,
+          "Content-Type": "application/json",
+        },
+      })
+
+      if (response.ok) {
+        const result = await response.json()
+        if (result.success && result.data) {
+          console.log("✅ Shift details retrieved:", result.data)
+          return result.data
+        }
+      } else {
+        console.warn("❌ Failed to fetch shift details:", response.status)
+      }
+    } catch (error) {
+      console.error("❌ Error fetching shift details:", error)
+    }
+    return null
+  }
+
   const loadShiftData = async () => {
     if (typeof window !== "undefined") {
       const user = JSON.parse(localStorage.getItem("currentUser") || "{}")
@@ -405,6 +429,19 @@ export default function EndShiftPageFixed() {
 
       if (user.shift) {
         setCurrentShift(user.shift)
+
+        // Try to fetch additional shift details from API
+        const shiftId = getShiftId(user.shift)
+        if (shiftId) {
+          const shiftDetails = await fetchShiftDetails(shiftId)
+          if (shiftDetails) {
+            // Merge API shift details with local shift data
+            setCurrentShift({
+              ...user.shift,
+              ...shiftDetails,
+            })
+          }
+        }
       }
 
       const savedOrdersString = localStorage.getItem("savedOrders")
@@ -524,8 +561,33 @@ export default function EndShiftPageFixed() {
       const userId = currentUser.user_id || currentUser.id
 
       let apiSuccess = false
+      let shiftSummary = null
 
+      // Step 1: Get shift summary first
       try {
+        console.log(`🔍 Getting shift summary for shift ${shiftId}`)
+        const summaryResponse = await fetch(`${API_BASE_URL}/shifts/${shiftId}/summary`, {
+          method: "GET",
+          headers: {
+            Authorization: `Bearer ${localStorage.getItem("authToken") || ""}`,
+            "Content-Type": "application/json",
+          },
+        })
+
+        if (summaryResponse.ok) {
+          const summaryResult = await summaryResponse.json()
+          if (summaryResult.success) {
+            shiftSummary = summaryResult.data
+            console.log("✅ Shift summary retrieved:", shiftSummary)
+          }
+        }
+      } catch (summaryError) {
+        console.warn("⚠️ Failed to get shift summary:", summaryError)
+      }
+
+      // Step 2: Request shift close using the correct endpoint
+      try {
+        console.log(`🔒 Requesting shift close for shift ${shiftId}`)
         const response = await fetch(`${API_BASE_URL}/shifts/${shiftId}/request-close`, {
           method: "PATCH",
           headers: {
@@ -534,20 +596,38 @@ export default function EndShiftPageFixed() {
           },
           body: JSON.stringify({
             closed_by: userId,
+            notes: notes || null,
+            local_stats: {
+              totalOrders: shiftStats.totalOrders,
+              totalSales: shiftStats.totalSales,
+              cashSales: shiftStats.cashSales,
+              cardSales: shiftStats.cardSales,
+              avgOrderValue: shiftStats.avgOrderValue,
+              ordersPerHour: shiftStats.ordersPerHour,
+            },
           }),
         })
 
         const result = await response.json()
+        console.log("📡 Shift close request response:", result)
+
         if (response.ok && result.success) {
           apiSuccess = true
+          console.log("✅ Shift close request sent successfully")
+        } else {
+          console.warn("❌ Shift close request failed:", result.message || "Unknown error")
+          setError(result.message || "فشل في إرسال طلب إنهاء الوردية")
         }
       } catch (apiError) {
-        console.warn("API request failed, continuing with local storage:", apiError)
+        console.error("❌ API request failed:", apiError)
+        setError("فشل في الاتصال بالخادم")
       }
 
+      // Step 3: Save to local storage regardless of API result
       const endShiftRequest = {
         id: `shift-end-${Date.now()}`,
-        cashier: currentUser.name,
+        cashier: currentUser.full_name || currentUser.name || currentUser.username,
+        cashier_id: userId,
         shift: shiftId,
         shiftName: getShiftDisplayName(currentShift),
         startTime: currentUser.loginTime,
@@ -564,18 +644,27 @@ export default function EndShiftPageFixed() {
         timestamp: new Date().toISOString(),
         orders: savedOrders,
         apiSuccess: apiSuccess,
+        shiftSummary: shiftSummary,
       }
 
       const existingRequests = JSON.parse(localStorage.getItem("endShiftRequests") || "[]")
       existingRequests.push(endShiftRequest)
       localStorage.setItem("endShiftRequests", JSON.stringify(existingRequests))
 
-      setRequestSent(true)
-
-      setTimeout(() => {
-        localStorage.removeItem("currentUser")
-        router.push("/")
-      }, 3000)
+      if (apiSuccess) {
+        setRequestSent(true)
+        setTimeout(() => {
+          localStorage.removeItem("currentUser")
+          router.push("/")
+        }, 3000)
+      } else {
+        // If API failed, still allow local save but show warning
+        setRequestSent(true)
+        setTimeout(() => {
+          localStorage.removeItem("currentUser")
+          router.push("/")
+        }, 5000) // Longer delay to show the error
+      }
     } catch (error: any) {
       setError(error.message || "فشل في إرسال طلب إنهاء الوردية")
       console.error("Error ending shift:", error)
@@ -759,210 +848,36 @@ export default function EndShiftPageFixed() {
                       <span className="font-medium">{getShiftDisplayName(currentShift)}</span>
                     </div>
                     <div className="flex justify-between">
-                      <span className="text-muted-foreground">بدأت في:</span>
-                      <span className="font-medium">
-                        {new Date(currentUser.loginTime).toLocaleTimeString([], {
-                          hour: "2-digit",
-                          minute: "2-digit",
-                        })}
-                      </span>
+                      <span className="text-muted-foreground">وقت البدء:</span>
+                      <span className="font-medium">{new Date(currentUser.loginTime).toLocaleString()}</span>
                     </div>
                     <div className="flex justify-between">
-                      <span className="text-muted-foreground">المدة:</span>
-                      <span className="font-medium">{shiftDuration} ساعات</span>
+                      <span className="text-muted-foreground">وقت النهاية:</span>
+                      <span className="font-medium">{new Date().toLocaleString()}</span>
                     </div>
                   </div>
                 </div>
 
                 <div>
-                  <h3 className="font-medium mb-2">ملخص المبيعات</h3>
-                  <div className="bg-gray-50 p-4 rounded-lg space-y-2">
-                    <div className="flex justify-between">
-                      <span className="text-muted-foreground">عدد الطلبات:</span>
-                      <span className="font-medium">{shiftStats.totalOrders}</span>
-                    </div>
-                    <div className="flex justify-between">
-                      <span className="text-muted-foreground">إجمالي المبيعات:</span>
-                      <span className="font-medium text-green-600 text-lg">ج.م{shiftStats.totalSales.toFixed(2)}</span>
-                    </div>
-                    <Separator className="my-2" />
-                    <div className="flex justify-between">
-                      <span className="text-muted-foreground">مبيعات نقدية:</span>
-                      <span className="font-medium">ج.م{shiftStats.cashSales.toFixed(2)}</span>
-                    </div>
-                    <div className="flex justify-between">
-                      <span className="text-muted-foreground">مبيعات بالكارت:</span>
-                      <span className="font-medium">ج.م{shiftStats.cardSales.toFixed(2)}</span>
-                    </div>
-                  </div>
+                  <h3 className="font-medium mb-2">ملاحظات الوردية</h3>
+                  <Textarea
+                    value={notes}
+                    onChange={(e) => setNotes(e.target.value)}
+                    placeholder="أدخل أي ملاحظات هنا..."
+                    className="bg-gray-50"
+                  />
                 </div>
               </div>
 
-              <div>
-                <h3 className="font-medium mb-2">ملاحظات إضافية</h3>
-                <Textarea
-                  placeholder="أضف أي ملاحظات حول الوردية (اختياري)"
-                  value={notes}
-                  onChange={(e) => setNotes(e.target.value)}
-                  className="h-24"
-                />
+              <div className="mt-6">
+                <Button onClick={handleEndShiftRequest} className="bg-red-600 hover:bg-red-700" disabled={loading}>
+                  {loading ? "جاري إرسال الطلب..." : "إنهاء الوردية"}
+                </Button>
               </div>
             </>
           )}
         </CardContent>
-
-        {!requestSent && (
-          <CardFooter className="flex justify-end space-x-4">
-            <Button variant="outline" onClick={() => router.back()}>
-              إلغاء
-            </Button>
-            <Button className="bg-orange-600 hover:bg-orange-700" onClick={handleEndShiftRequest} disabled={loading}>
-              {loading ? "جاري الإرسال..." : "إرسال طلب إنهاء الوردية"}
-            </Button>
-          </CardFooter>
-        )}
       </Card>
-
-      {/* Clean Professional Shift Report for Printing */}
-      <div ref={shiftReportRef} className="hidden print:block advanced-shift-report" style={{ display: "none" }}>
-        <div className="report-header">
-          <div className="company-logo-container">
-            <img src="/images/logo.png" alt="Logo" width={40} height={40} className="company-logo" />
-            <div className="company-info">
-              <h1>دوار جحا</h1>
-              <p>Restaurant & Café</p>
-              <p>123 Main Street, City</p>
-              <p>Tel: +123 456 7890</p>
-            </div>
-          </div>
-          <div className="report-title">تقرير نهاية الوردية</div>
-          <div className="report-subtitle">Shift End Report</div>
-        </div>
-
-        {/* Updated Stats Grid - 3 columns instead of 4 */}
-        <div className="stats-grid">
-          <div className="stat-card orders">
-            <div className="stat-value">{shiftStats.totalOrders}</div>
-            <div className="stat-label">إجمالي الطلبات</div>
-          </div>
-          <div className="stat-card revenue">
-            <div className="stat-value">ج.م{shiftStats.totalSales.toFixed(2)}</div>
-            <div className="stat-label">إجمالي المبيعات</div>
-          </div>
-          <div className="stat-card time">
-            <div className="stat-value">{shiftDuration}س</div>
-            <div className="stat-label">مدة الوردية</div>
-          </div>
-        </div>
-
-        <div className="info-grid">
-          <div className="info-card">
-            <h4 className="section-title">معلومات الكاشير</h4>
-            <div className="info-row">
-              <span className="info-label">الاسم:</span>
-              <span className="info-value">{currentUser?.name}</span>
-            </div>
-            <div className="info-row">
-              <span className="info-label">نوع الوردية:</span>
-              <span className="info-value">{getShiftDisplayName(currentShift)}</span>
-            </div>
-            <div className="info-row">
-              <span className="info-label">بداية الوردية:</span>
-              <span className="info-value">{new Date(currentUser?.loginTime).toLocaleTimeString()}</span>
-            </div>
-          </div>
-
-          <div className="info-card">
-            <h4 className="section-title">معلومات التقرير</h4>
-            <div className="info-row">
-              <span className="info-label">تاريخ التقرير:</span>
-              <span className="info-value">{new Date().toLocaleDateString()}</span>
-            </div>
-            <div className="info-row">
-              <span className="info-label">وقت الطباعة:</span>
-              <span className="info-value">{new Date().toLocaleTimeString()}</span>
-            </div>
-            <div className="info-row">
-              <span className="info-label">مدة الوردية:</span>
-              <span className="info-value">{shiftDuration} ساعات</span>
-            </div>
-          </div>
-        </div>
-
-        {Object.entries(groupedItems).length > 0 && (
-          <>
-            <h3 className="section-title">تفصيل المنتجات حسب الفئة</h3>
-            {Object.entries(groupedItems)
-              .filter(([category, data]) => category && data.items.length > 0)
-              .map(([category, data]) => (
-                <div key={category} className="category-section">
-                  <div className="category-header">
-                    <span>{category}</span>
-                    <span>ج.م{data.total.toFixed(2)}</span>
-                  </div>
-                  <table className="category-table">
-                    <thead>
-                      <tr>
-                        <th>اسم المنتج</th>
-                        <th>الحجم</th>
-                        <th>الكمية</th>
-                        <th>السعر</th>
-                        <th>الإجمالي</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {data.items.map((item, index) => (
-                        <tr key={index}>
-                          <td>{item.name}</td>
-                          <td>{item.size !== "عادي" ? item.size : "-"}</td>
-                          <td>{item.quantity}</td>
-                          <td>ج.م{item.price.toFixed(2)}</td>
-                          <td>ج.م{item.total.toFixed(2)}</td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              ))}
-          </>
-        )}
-
-        <div className="total-section">
-          <div className="total-label">إجمالي مبيعات الوردية</div>
-          <div className="total-amount">ج.م{shiftStats.totalSales.toFixed(2)}</div>
-        </div>
-
-        {notes && (
-          <div className="notes-section">
-            <div className="notes-title">ملاحظات الكاشير:</div>
-            <div className="notes-content">{notes}</div>
-          </div>
-        )}
-
-        <div className="signature-section">
-          <div className="signature-box">
-            <div className="signature-line"></div>
-            <div className="signature-title">توقيع الكاشير</div>
-            <div className="signature-name">{currentUser?.name}</div>
-          </div>
-          <div className="signature-box">
-            <div className="signature-line"></div>
-            <div className="signature-title">توقيع المدير</div>
-            <div className="signature-name">التاريخ: ___________</div>
-          </div>
-        </div>
-
-        <div className="footer-section">
-          <div className="footer-content">
-            <p>تم إنشاء هذا التقرير بواسطة نظام نقاط البيع</p>
-            <p>تاريخ ووقت الطباعة: {new Date().toLocaleString()}</p>
-          </div>
-          <div className="powered-by">
-            <Image src="/images/eathrel.png" alt="Eathrel Logo" width={12} height={12} className="footer-logo" />
-            <span className="powered-text">POWERED BY ETHEREAL</span>
-          </div>
-        </div>
-      </div>
     </div>
   )
 }
