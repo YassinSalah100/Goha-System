@@ -441,28 +441,7 @@ export default function LoginPage() {
     toast.success("تم تسجيل الخروج بنجاح")
   }
 
-  const quickLogin = (role: string) => {
-    switch (role) {
-      case "cashier":
-        setUsername("abdo") // Use the working username
-        setPassword("123456")
-        break
-      case "admin":
-        setUsername("admin")
-        setPassword("123456")
-        break
-      case "owner":
-        setUsername("owner")
-        setPassword("123456")
-        break
-    }
 
-    setSelectedRole(role)
-    setShift("morning")
-    setError("")
-
-    console.log("Quick login attempt:", { role, username: username, shift: "morning" })
-  }
 
   return (
     <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-orange-50 via-amber-50 to-yellow-50 p-4 relative overflow-hidden">
@@ -497,7 +476,7 @@ export default function LoginPage() {
                   width={100}
                   height={100}
                   priority
-                  className="rounded-full relative z-10 border-4 border-white shadow-xl bg-white"
+                  className="rounded-full relative z-10 border-4 border-white shadow-xl object-cover"
                 />
               </div>
             </motion.div>
@@ -780,6 +759,8 @@ export default function LoginPage() {
                 </Button>
               </motion.div>
             </form>
+
+
           </CardContent>
 
           <CardFooter className="flex justify-center text-xs md:text-sm text-gray-500 pb-6">

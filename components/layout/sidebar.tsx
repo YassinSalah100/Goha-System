@@ -70,8 +70,10 @@ export function Sidebar({ role }: SidebarProps) {
       { name: "المراقبة المباشرة", icon: BarChart, path: "/owner/monitoring" },
       { name: "التقارير", icon: BarChart, path: "/owner/reports" },
       { name: "إدارة المنتجات", icon: Package, path: "/owner/products" },
+      { name: "إدارة المخزون", icon: Package, path: "/owner/stock" },
       { name: "الإعدادات", icon: Settings, path: "/owner/settings" },
       { name: "إدارة الحسابات", icon: Users, path: "/owner/accounts" },
+      { name: "الأذونات", icon: Settings, path: "/owner/permissions" },
     ],
   }
 

@@ -3,61 +3,323 @@
 import { useState, useEffect } from "react"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
-import { BarChart, DollarSign, TrendingUp, Package, Calendar } from "lucide-react"
-import { orders } from "@/mock-data/orders"
-import { inventory } from "@/mock-data/inventory"
-import { dailyReports } from "@/mock-data/daily-reports"
+import { BarChart, DollarSign, TrendingUp, Package, Calendar, Users, AlertTriangle } from "lucide-react"
 import { useRouter } from "next/navigation"
 import { motion } from "framer-motion"
+
+// Constants
+const API_BASE_URL = "http://172.162.241.242:3000/api/v1"
+
+// Types
+interface OrderStats {
+  totalOrders: number
+  totalRevenue: number
+  averageOrderValue: number
+  ordersByStatus: {
+    pending: number
+    active: number
+    completed: number
+    cancelled: number
+  }
+  ordersByType: {
+    "dine-in": number
+    takeaway: number
+    delivery: number
+  }
+}
+
+interface ShiftSummary {
+  shift_id: string
+  shift_name?: string
+  start_time: string
+  end_time?: string
+  status: string
+  cashier_name?: string
+  total_orders: number
+  total_revenue: number
+}
+
+interface StockItem {
+  stock_item_id: string
+  name: string
+  quantity: number
+  min_quantity: number
+  type: string
+  unit_price?: number
+}
+
+interface DashboardStats {
+  todayRevenue: number
+  weekRevenue: number
+  monthRevenue: number
+  totalOrders: number
+  activeShifts: number
+  lowStockItems: number
+  cancelledOrders: number
+  inventoryValue: number
+}
 
 export default function OwnerDashboard() {
   const router = useRouter()
   const [currentUser, setCurrentUser] = useState<any>(null)
-  const [stats, setStats] = useState({
-    totalSalesToday: 0,
-    totalSalesWeek: 0,
-    totalSalesMonth: 0,
+  const [loading, setLoading] = useState(true)
+  const [stats, setStats] = useState<DashboardStats>({
+    todayRevenue: 0,
+    weekRevenue: 0,
+    monthRevenue: 0,
+    totalOrders: 0,
+    activeShifts: 0,
+    lowStockItems: 0,
+    cancelledOrders: 0,
     inventoryValue: 0,
-    canceledOrders: 0,
-    netRevenue: 0,
   })
+  const [orderStats, setOrderStats] = useState<OrderStats | null>(null)
+  const [recentShifts, setRecentShifts] = useState<ShiftSummary[]>([])
+  const [lowStockItems, setLowStockItems] = useState<StockItem[]>([])
+
+  // Fetch order statistics
+  const fetchOrderStats = async () => {
+    try {
+      const response = await fetch(`${API_BASE_URL}/orders/stats`)
+      if (response.ok) {
+        const result = await response.json()
+        if (result.success && result.data) {
+          // Ensure ordersByStatus exists with default values
+          const ordersByStatus = result.data.ordersByStatus || {
+            pending: 0,
+            active: 0,
+            completed: 0,
+            cancelled: 0,
+          }
+
+          setOrderStats({
+            ...result.data,
+            ordersByStatus,
+            totalOrders: result.data.totalOrders || 0,
+            totalRevenue: result.data.totalRevenue || 0,
+            averageOrderValue: result.data.averageOrderValue || 0,
+          })
+        }
+      }
+    } catch (error) {
+      console.error("Failed to fetch order stats:", error)
+      // Set default values on error
+      setOrderStats({
+        totalOrders: 0,
+        totalRevenue: 0,
+        averageOrderValue: 0,
+        ordersByStatus: {
+          pending: 0,
+          active: 0,
+          completed: 0,
+          cancelled: 0,
+        },
+        ordersByType: {
+          "dine-in": 0,
+          takeaway: 0,
+          delivery: 0,
+        },
+      })
+    }
+  }
+
+  // Fetch orders by date range for revenue calculations
+  const fetchRevenueData = async () => {
+    try {
+      const today = new Date()
+      const weekAgo = new Date(today.getTime() - 7 * 24 * 60 * 60 * 1000)
+      const monthAgo = new Date(today.getTime() - 30 * 24 * 60 * 60 * 1000)
+
+      // Format dates for API
+      const formatDate = (date: Date) => date.toISOString().split("T")[0]
+
+      // Fetch today's orders
+      const todayResponse = await fetch(
+        `${API_BASE_URL}/orders/date-range?startDate=${formatDate(today)}&endDate=${formatDate(today)}`,
+      )
+
+      // Fetch week's orders
+      const weekResponse = await fetch(
+        `${API_BASE_URL}/orders/date-range?startDate=${formatDate(weekAgo)}&endDate=${formatDate(today)}`,
+      )
+
+      // Fetch month's orders
+      const monthResponse = await fetch(
+        `${API_BASE_URL}/orders/date-range?startDate=${formatDate(monthAgo)}&endDate=${formatDate(today)}`,
+      )
+
+      let todayRevenue = 0
+      let weekRevenue = 0
+      let monthRevenue = 0
+
+      if (todayResponse.ok) {
+        const todayResult = await todayResponse.json()
+        if (todayResult.success && todayResult.data) {
+          todayRevenue = todayResult.data.reduce(
+            (sum: number, order: any) => sum + Number.parseFloat(order.total_price || 0),
+            0,
+          )
+        }
+      }
+
+      if (weekResponse.ok) {
+        const weekResult = await weekResponse.json()
+        if (weekResult.success && weekResult.data) {
+          weekRevenue = weekResult.data.reduce(
+            (sum: number, order: any) => sum + Number.parseFloat(order.total_price || 0),
+            0,
+          )
+        }
+      }
+
+      if (monthResponse.ok) {
+        const monthResult = await monthResponse.json()
+        if (monthResult.success && monthResult.data) {
+          monthRevenue = monthResult.data.reduce(
+            (sum: number, order: any) => sum + Number.parseFloat(order.total_price || 0),
+            0,
+          )
+        }
+      }
+
+      return { todayRevenue, weekRevenue, monthRevenue }
+    } catch (error) {
+      console.error("Failed to fetch revenue data:", error)
+      return { todayRevenue: 0, weekRevenue: 0, monthRevenue: 0 }
+    }
+  }
+
+  // Fetch all shift summaries
+  const fetchShiftSummaries = async () => {
+    try {
+      const response = await fetch(`${API_BASE_URL}/shifts/summaries/all`)
+      if (response.ok) {
+        const result = await response.json()
+        if (result.success && result.data) {
+          setRecentShifts(result.data.slice(0, 5)) // Get latest 5 shifts
+
+          // Count active shifts
+          const activeShifts = result.data.filter((shift: any) => shift.status === "active").length
+          return activeShifts
+        }
+      }
+    } catch (error) {
+      console.error("Failed to fetch shift summaries:", error)
+    }
+    return 0
+  }
+
+  // Fetch low stock items
+  const fetchLowStockItems = async () => {
+    try {
+      const response = await fetch(`${API_BASE_URL}/stock-items/low-stock`)
+      if (response.ok) {
+        const result = await response.json()
+        if (result.success && result.data) {
+          setLowStockItems(result.data.slice(0, 5)) // Get first 5 low stock items
+          return result.data.length
+        }
+      }
+    } catch (error) {
+      console.error("Failed to fetch low stock items:", error)
+    }
+    return 0
+  }
+
+  // Fetch all stock items for inventory value
+  const fetchInventoryValue = async () => {
+    try {
+      const response = await fetch(`${API_BASE_URL}/stock-items`)
+      if (response.ok) {
+        const result = await response.json()
+        if (result.success && result.data) {
+          const inventoryValue = result.data.reduce((sum: number, item: any) => {
+            const unitPrice = Number.parseFloat(item.unit_price || 0)
+            const quantity = Number.parseInt(item.quantity || 0)
+            return sum + unitPrice * quantity
+          }, 0)
+          return inventoryValue
+        }
+      }
+    } catch (error) {
+      console.error("Failed to fetch inventory value:", error)
+    }
+    return 0
+  }
+
+  // Fetch cancelled orders count
+  const fetchCancelledOrders = async () => {
+    try {
+      const response = await fetch(`${API_BASE_URL}/orders/status/cancelled`)
+      if (response.ok) {
+        const result = await response.json()
+        if (result.success && result.data) {
+          return result.data.length
+        }
+      }
+    } catch (error) {
+      console.error("Failed to fetch cancelled orders:", error)
+    }
+    return 0
+  }
+
+  // Initialize dashboard data
+  const initializeDashboard = async () => {
+    setLoading(true)
+    try {
+      // Fetch all data in parallel
+      const [revenueData, activeShiftsCount, lowStockCount, inventoryValue, cancelledCount] = await Promise.all([
+        fetchRevenueData(),
+        fetchShiftSummaries(),
+        fetchLowStockItems(),
+        fetchInventoryValue(),
+        fetchCancelledOrders(),
+      ])
+
+      // Fetch order stats
+      await fetchOrderStats()
+
+      // Update stats
+      setStats({
+        todayRevenue: revenueData.todayRevenue,
+        weekRevenue: revenueData.weekRevenue,
+        monthRevenue: revenueData.monthRevenue,
+        totalOrders: orderStats?.totalOrders || 0,
+        activeShifts: activeShiftsCount,
+        lowStockItems: lowStockCount,
+        cancelledOrders: cancelledCount,
+        inventoryValue: inventoryValue,
+      })
+    } catch (error) {
+      console.error("Failed to initialize dashboard:", error)
+    } finally {
+      setLoading(false)
+    }
+  }
 
   useEffect(() => {
     if (typeof window !== "undefined") {
       const user = JSON.parse(localStorage.getItem("currentUser") || "{}")
       setCurrentUser(user)
 
-      // Calculate stats
-      const today = new Date().toDateString()
-      const todayOrders = orders.filter((order) => new Date(order.date).toDateString() === today)
-      const todaySales = todayOrders.reduce((sum, order) => sum + order.total, 0)
-
-      // Mock data for other stats
-      const weekSales = todaySales * 7 * (0.8 + Math.random() * 0.4) // Simulate week data
-      const monthSales = weekSales * 4 * (0.8 + Math.random() * 0.4) // Simulate month data
-
-      const inventoryValue = inventory.reduce((sum, item) => {
-        // Mock price per unit
-        const pricePerUnit = Math.floor(Math.random() * 10) + 1
-        return sum + item.quantity * pricePerUnit
-      }, 0)
-
-      const canceledOrders = orders.filter((order) => order.status === "canceled").length
-
-      const netRevenue = dailyReports.reduce((sum, report) => sum + report.netRevenue, 0)
-
-      setStats({
-        totalSalesToday: todaySales,
-        totalSalesWeek: weekSales,
-        totalSalesMonth: monthSales,
-        inventoryValue,
-        canceledOrders,
-        netRevenue,
-      })
+      if (user && user.role === "owner") {
+        initializeDashboard()
+      }
     }
   }, [])
 
   if (!currentUser) return null
+
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center min-h-screen">
+        <div className="text-center">
+          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-orange-600 mx-auto mb-4"></div>
+          <p>Loading dashboard...</p>
+        </div>
+      </div>
+    )
+  }
 
   const containerVariants = {
     hidden: { opacity: 0 },
@@ -81,11 +343,11 @@ export default function OwnerDashboard() {
     <div className="space-y-6">
       <div>
         <h2 className="text-3xl font-bold tracking-tight">Owner Dashboard</h2>
-        <p className="text-muted-foreground">Welcome back, {currentUser.name}</p>
+        <p className="text-muted-foreground">Welcome back, {currentUser.full_name || currentUser.name}</p>
       </div>
 
       <motion.div
-        className="grid gap-4 md:grid-cols-2 lg:grid-cols-3"
+        className="grid gap-4 md:grid-cols-2 lg:grid-cols-4"
         variants={containerVariants}
         initial="hidden"
         animate="visible"
@@ -93,13 +355,13 @@ export default function OwnerDashboard() {
         <motion.div variants={itemVariants}>
           <Card>
             <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-              <CardTitle className="text-sm font-medium">Today's Sales</CardTitle>
+              <CardTitle className="text-sm font-medium">Today's Revenue</CardTitle>
               <DollarSign className="h-4 w-4 text-muted-foreground" />
             </CardHeader>
             <CardContent>
-              <div className="text-2xl font-bold">${stats.totalSalesToday.toFixed(2)}</div>
+              <div className="text-2xl font-bold">{stats.todayRevenue.toFixed(2)} ج.م</div>
               <p className="text-xs text-muted-foreground">
-                {stats.totalSalesToday > 1000 ? "+12% from yesterday" : "-8% from yesterday"}
+                {stats.todayRevenue > 1000 ? "+12% from yesterday" : "Below average"}
               </p>
             </CardContent>
           </Card>
@@ -108,13 +370,13 @@ export default function OwnerDashboard() {
         <motion.div variants={itemVariants}>
           <Card>
             <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-              <CardTitle className="text-sm font-medium">Weekly Sales</CardTitle>
+              <CardTitle className="text-sm font-medium">Weekly Revenue</CardTitle>
               <TrendingUp className="h-4 w-4 text-muted-foreground" />
             </CardHeader>
             <CardContent>
-              <div className="text-2xl font-bold">${stats.totalSalesWeek.toFixed(2)}</div>
+              <div className="text-2xl font-bold">{stats.weekRevenue.toFixed(2)} ج.م</div>
               <p className="text-xs text-muted-foreground">
-                {stats.totalSalesWeek > 7000 ? "+8% from last week" : "-5% from last week"}
+                {stats.weekRevenue > 7000 ? "+8% from last week" : "Below target"}
               </p>
             </CardContent>
           </Card>
@@ -123,14 +385,27 @@ export default function OwnerDashboard() {
         <motion.div variants={itemVariants}>
           <Card>
             <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-              <CardTitle className="text-sm font-medium">Monthly Sales</CardTitle>
+              <CardTitle className="text-sm font-medium">Monthly Revenue</CardTitle>
               <BarChart className="h-4 w-4 text-muted-foreground" />
             </CardHeader>
             <CardContent>
-              <div className="text-2xl font-bold">${stats.totalSalesMonth.toFixed(2)}</div>
+              <div className="text-2xl font-bold">{stats.monthRevenue.toFixed(2)} ج.م</div>
               <p className="text-xs text-muted-foreground">
-                {stats.totalSalesMonth > 28000 ? "+15% from last month" : "-3% from last month"}
+                {stats.monthRevenue > 28000 ? "+15% from last month" : "Needs improvement"}
               </p>
+            </CardContent>
+          </Card>
+        </motion.div>
+
+        <motion.div variants={itemVariants}>
+          <Card>
+            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+              <CardTitle className="text-sm font-medium">Active Shifts</CardTitle>
+              <Users className="h-4 w-4 text-muted-foreground" />
+            </CardHeader>
+            <CardContent>
+              <div className="text-2xl font-bold">{stats.activeShifts}</div>
+              <p className="text-xs text-muted-foreground">Currently working</p>
             </CardContent>
           </Card>
         </motion.div>
@@ -142,10 +417,8 @@ export default function OwnerDashboard() {
               <Package className="h-4 w-4 text-muted-foreground" />
             </CardHeader>
             <CardContent>
-              <div className="text-2xl font-bold">${stats.inventoryValue.toFixed(2)}</div>
-              <p className="text-xs text-muted-foreground">
-                {inventory.filter((item) => item.quantity <= item.minQuantity).length} items low on stock
-              </p>
+              <div className="text-2xl font-bold">{stats.inventoryValue.toFixed(2)} ج.م</div>
+              <p className="text-xs text-muted-foreground">{stats.lowStockItems} items low on stock</p>
             </CardContent>
           </Card>
         </motion.div>
@@ -153,13 +426,13 @@ export default function OwnerDashboard() {
         <motion.div variants={itemVariants}>
           <Card>
             <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-              <CardTitle className="text-sm font-medium">Canceled Orders</CardTitle>
+              <CardTitle className="text-sm font-medium">Cancelled Orders</CardTitle>
               <Calendar className="h-4 w-4 text-muted-foreground" />
             </CardHeader>
             <CardContent>
-              <div className="text-2xl font-bold">{stats.canceledOrders}</div>
+              <div className="text-2xl font-bold">{stats.cancelledOrders}</div>
               <p className="text-xs text-muted-foreground">
-                {stats.canceledOrders > 5 ? "Above average" : "Below average"}
+                {stats.cancelledOrders > 5 ? "Above average" : "Below average"}
               </p>
             </CardContent>
           </Card>
@@ -168,12 +441,25 @@ export default function OwnerDashboard() {
         <motion.div variants={itemVariants}>
           <Card>
             <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-              <CardTitle className="text-sm font-medium">Net Revenue</CardTitle>
+              <CardTitle className="text-sm font-medium">Total Orders</CardTitle>
+              <BarChart className="h-4 w-4 text-muted-foreground" />
+            </CardHeader>
+            <CardContent>
+              <div className="text-2xl font-bold">{orderStats?.totalOrders || 0}</div>
+              <p className="text-xs text-muted-foreground">All time orders</p>
+            </CardContent>
+          </Card>
+        </motion.div>
+
+        <motion.div variants={itemVariants}>
+          <Card>
+            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+              <CardTitle className="text-sm font-medium">Average Order</CardTitle>
               <DollarSign className="h-4 w-4 text-muted-foreground" />
             </CardHeader>
             <CardContent>
-              <div className="text-2xl font-bold">${stats.netRevenue.toFixed(2)}</div>
-              <p className="text-xs text-muted-foreground">After expenses and wages</p>
+              <div className="text-2xl font-bold">{(orderStats?.averageOrderValue || 0).toFixed(2)} ج.م</div>
+              <p className="text-xs text-muted-foreground">Per order value</p>
             </CardContent>
           </Card>
         </motion.div>
@@ -182,132 +468,119 @@ export default function OwnerDashboard() {
       <div className="grid gap-4 md:grid-cols-2">
         <Card>
           <CardHeader>
-            <CardTitle>Live Monitoring</CardTitle>
+            <CardTitle>Recent Shifts</CardTitle>
           </CardHeader>
           <CardContent>
             <div className="space-y-4">
-              <div className="bg-orange-50 border border-orange-200 rounded-lg p-4">
-                <h3 className="font-medium text-orange-800 mb-2">Current Active Cashiers</h3>
-                <div className="space-y-3">
-                  <div className="flex items-center justify-between">
-                    <div className="flex items-center gap-2">
-                      <div className="rounded-full bg-green-500 h-2 w-2"></div>
-                      <span>Ahmed Cashier</span>
+              {recentShifts.length > 0 ? (
+                recentShifts.map((shift) => (
+                  <div key={shift.shift_id} className="flex items-center justify-between bg-gray-50 p-3 rounded">
+                    <div>
+                      <p className="text-sm font-medium">{shift.shift_name || `Shift #${shift.shift_id.slice(-6)}`}</p>
+                      <p className="text-xs text-muted-foreground">{shift.cashier_name || "Unknown Cashier"}</p>
+                      <p className="text-xs text-muted-foreground">
+                        {new Date(shift.start_time).toLocaleDateString()} -
+                        {shift.end_time ? new Date(shift.end_time).toLocaleDateString() : "Active"}
+                      </p>
                     </div>
-                    <span className="text-sm text-muted-foreground">Morning Shift</span>
+                    <div className="text-right">
+                      <p className="text-sm font-medium">{shift.total_revenue?.toFixed(2) || "0.00"} ج.م</p>
+                      <p className="text-xs text-muted-foreground">{shift.total_orders || 0} orders</p>
+                      <span
+                        className={`inline-flex items-center px-2 py-1 rounded-full text-xs font-medium ${
+                          shift.status === "active" ? "bg-green-100 text-green-800" : "bg-gray-100 text-gray-800"
+                        }`}
+                      >
+                        {shift.status}
+                      </span>
+                    </div>
                   </div>
-                  <div className="flex items-center justify-between">
-                    <div className="flex items-center gap-2">
-                      <div className="rounded-full bg-green-500 h-2 w-2"></div>
-                      <span>Sara Cashier</span>
-                    </div>
-                    <span className="text-sm text-muted-foreground">Evening Shift</span>
-                  </div>
-                </div>
-              </div>
-
-              <div>
-                <h3 className="font-medium mb-2">Recent Orders</h3>
-                <div className="space-y-2">
-                  {orders.slice(0, 3).map((order) => (
-                    <div key={order.id} className="flex items-center justify-between bg-gray-50 p-2 rounded">
-                      <div>
-                        <p className="text-sm font-medium">Order #{order.id}</p>
-                        <p className="text-xs text-muted-foreground">
-                          {new Date(order.date).toLocaleTimeString([], {
-                            hour: "2-digit",
-                            minute: "2-digit",
-                          })}
-                        </p>
-                      </div>
-                      <div className="text-right">
-                        <p className="text-sm font-medium">${order.total.toFixed(2)}</p>
-                        <p className="text-xs capitalize">{order.orderType}</p>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-                <Button
-                  variant="link"
-                  className="w-full text-orange-600 mt-2"
-                  onClick={() => router.push("/owner/monitoring")}
-                >
-                  View all activity
-                </Button>
-              </div>
+                ))
+              ) : (
+                <p className="text-sm text-muted-foreground">No recent shifts found</p>
+              )}
+              <Button
+                variant="link"
+                className="w-full text-orange-600 mt-2"
+                onClick={() => router.push("/owner/shifts")}
+              >
+                View all shifts
+              </Button>
             </div>
           </CardContent>
         </Card>
 
         <Card>
           <CardHeader>
-            <CardTitle>Performance Overview</CardTitle>
+            <CardTitle className="flex items-center gap-2">
+              <AlertTriangle className="h-4 w-4 text-orange-500" />
+              Low Stock Alert
+            </CardTitle>
           </CardHeader>
           <CardContent>
             <div className="space-y-4">
-              <div>
-                <h3 className="font-medium mb-2">Sales by Cashier</h3>
-                <div className="space-y-2">
-                  <div className="flex items-center">
-                    <span className="w-24 text-sm">Ahmed</span>
-                    <div className="flex-1 h-2 bg-gray-100 rounded-full overflow-hidden">
-                      <div className="bg-orange-500 h-full rounded-full" style={{ width: "65%" }}></div>
+              {lowStockItems.length > 0 ? (
+                <div className="space-y-3">
+                  {lowStockItems.map((item) => (
+                    <div
+                      key={item.stock_item_id}
+                      className="flex items-center justify-between bg-red-50 border border-red-200 p-3 rounded"
+                    >
+                      <div>
+                        <p className="text-sm font-medium text-red-800">{item.name}</p>
+                        <p className="text-xs text-red-600">Type: {item.type}</p>
+                      </div>
+                      <div className="text-right">
+                        <p className="text-sm font-medium text-red-800">{item.quantity} left</p>
+                        <p className="text-xs text-red-600">Min: {item.min_quantity}</p>
+                      </div>
                     </div>
-                    <span className="w-16 text-right text-sm">65%</span>
-                  </div>
-                  <div className="flex items-center">
-                    <span className="w-24 text-sm">Sara</span>
-                    <div className="flex-1 h-2 bg-gray-100 rounded-full overflow-hidden">
-                      <div className="bg-orange-500 h-full rounded-full" style={{ width: "35%" }}></div>
-                    </div>
-                    <span className="w-16 text-right text-sm">35%</span>
-                  </div>
+                  ))}
                 </div>
-              </div>
+              ) : (
+                <div className="bg-green-50 border border-green-200 rounded-lg p-4">
+                  <p className="text-sm text-green-800">All items are well stocked!</p>
+                </div>
+              )}
 
-              <div>
-                <h3 className="font-medium mb-2">Popular Categories</h3>
-                <div className="space-y-2">
-                  <div className="flex items-center">
-                    <span className="w-24 text-sm">Pizza</span>
-                    <div className="flex-1 h-2 bg-gray-100 rounded-full overflow-hidden">
-                      <div className="bg-orange-500 h-full rounded-full" style={{ width: "40%" }}></div>
+              {orderStats && orderStats.ordersByStatus && (
+                <div className="mt-4">
+                  <h3 className="font-medium mb-2">Order Statistics</h3>
+                  <div className="space-y-2">
+                    <div className="flex items-center justify-between text-sm">
+                      <span>Completed:</span>
+                      <span className="font-medium">{orderStats.ordersByStatus.completed || 0}</span>
                     </div>
-                    <span className="w-16 text-right text-sm">40%</span>
-                  </div>
-                  <div className="flex items-center">
-                    <span className="w-24 text-sm">Feteer</span>
-                    <div className="flex-1 h-2 bg-gray-100 rounded-full overflow-hidden">
-                      <div className="bg-orange-500 h-full rounded-full" style={{ width: "25%" }}></div>
+                    <div className="flex items-center justify-between text-sm">
+                      <span>Pending:</span>
+                      <span className="font-medium">{orderStats.ordersByStatus.pending || 0}</span>
                     </div>
-                    <span className="w-16 text-right text-sm">25%</span>
-                  </div>
-                  <div className="flex items-center">
-                    <span className="w-24 text-sm">Grilled</span>
-                    <div className="flex-1 h-2 bg-gray-100 rounded-full overflow-hidden">
-                      <div className="bg-orange-500 h-full rounded-full" style={{ width: "20%" }}></div>
+                    <div className="flex items-center justify-between text-sm">
+                      <span>Cancelled:</span>
+                      <span className="font-medium">{orderStats.ordersByStatus.cancelled || 0}</span>
                     </div>
-                    <span className="w-16 text-right text-sm">20%</span>
-                  </div>
-                  <div className="flex items-center">
-                    <span className="w-24 text-sm">Other</span>
-                    <div className="flex-1 h-2 bg-gray-100 rounded-full overflow-hidden">
-                      <div className="bg-orange-500 h-full rounded-full" style={{ width: "15%" }}></div>
-                    </div>
-                    <span className="w-16 text-right text-sm">15%</span>
                   </div>
                 </div>
-              </div>
+              )}
 
               <Button
                 className="w-full bg-orange-600 hover:bg-orange-700"
-                onClick={() => router.push("/owner/reports")}
+                onClick={() => router.push("/owner/inventory")}
               >
-                View Detailed Reports
+                Manage Inventory
               </Button>
             </div>
           </CardContent>
         </Card>
+      </div>
+
+      <div className="flex gap-4">
+        <Button className="bg-orange-600 hover:bg-orange-700" onClick={() => router.push("/owner/reports")}>
+          View Detailed Reports
+        </Button>
+        <Button variant="outline" onClick={() => initializeDashboard()}>
+          Refresh Data
+        </Button>
       </div>
     </div>
   )

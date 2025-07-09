@@ -1,4 +1,5 @@
 "use client"
+
 import { useState, useEffect } from "react"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
@@ -8,23 +9,7 @@ import { Alert, AlertDescription } from "@/components/ui/alert"
 import { Badge } from "@/components/ui/badge"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
-import {
-  Loader2,
-  CheckCircle,
-  AlertCircle,
-  Plus,
-  Edit,
-  Trash2,
-  Search,
-  Package,
-  Tag,
-  Ruler,
-  DollarSign,
-  BarChart3,
-  Filter,
-  TrendingUp,
-  X,
-} from "lucide-react"
+import { Loader2, CheckCircle, AlertCircle, Plus, Edit, Trash2, Search, Package, Tag, Ruler, DollarSign, BarChart3, Filter, TrendingUp, X } from 'lucide-react'
 
 const API_BASE_URL = "http://172.162.241.242:3000/api/v1"
 
@@ -40,6 +25,7 @@ interface Product {
   name: string
   price: number
   category_id: string
+  image_url?: string
   category?: Category | null
   sizePrices?: ProductSizePrice[]
   created_at?: string
@@ -149,11 +135,17 @@ export default function IntegratedProductManagement() {
     id: "",
     name: "",
     category_id: "",
+    image_url: "",
     pricing: [] as ProductPricing[],
   })
 
   const [editingCategory, setEditingCategory] = useState<Category | null>(null)
   const [editingProduct, setEditingProduct] = useState<Product | null>(null)
+
+  const [imageFile, setImageFile] = useState<File | null>(null)
+  const [imagePreview, setImagePreview] = useState<string>("")
+  const [imageUploading, setImageUploading] = useState(false)
+  const [dragActive, setDragActive] = useState(false)
 
   // Fetch all data on component mount
   useEffect(() => {
@@ -234,6 +226,7 @@ export default function IntegratedProductManagement() {
           .map((product: any) => ({
             id: product.product_id,
             name: product.name,
+            image_url: product.image_url || "",
             price:
               product.sizePrices && product.sizePrices.length > 0 ? Number.parseFloat(product.sizePrices[0].price) : 0,
             category_id: product.category ? product.category.category_id : "",
@@ -322,7 +315,6 @@ export default function IntegratedProductManagement() {
       if (response.ok) {
         const data = await response.json()
         let extrasArray: any[] = []
-
         // Handle the new API response structure for extras
         if (data.success && data.data && data.data.extras && Array.isArray(data.data.extras)) {
           extrasArray = data.data.extras
@@ -365,22 +357,16 @@ export default function IntegratedProductManagement() {
   const fetchAllData = async () => {
     try {
       console.log("Starting fetchAllData...")
-
       // First fetch categories
       await fetchCategories()
-
       // Wait longer for categories to be properly set
       await new Promise((resolve) => setTimeout(resolve, 1000))
-
       // Then fetch everything else in sequence (not parallel) to avoid race conditions
       await fetchSizes()
       await new Promise((resolve) => setTimeout(resolve, 300))
-
       await fetchExtras()
       await new Promise((resolve) => setTimeout(resolve, 300))
-
       await fetchProducts()
-
       console.log("fetchAllData completed")
     } catch (error) {
       console.error("Error in fetchAllData:", error)
@@ -400,7 +386,6 @@ export default function IntegratedProductManagement() {
       setEditingCategory(category)
       const categorySizes = sizes.filter((s) => s.category_id === category.id)
       const categoryExtras = extras.filter((e) => e.category_id === category.id)
-
       setCategoryForm({
         id: category.id,
         name: category.name,
@@ -552,6 +537,7 @@ export default function IntegratedProductManagement() {
                 headers: { "Content-Type": "application/json" },
                 body: JSON.stringify(sizeData),
               })
+
               if (!sizeResponse.ok) {
                 const errorText = await sizeResponse.text()
                 console.error("Failed to update size:", errorText)
@@ -566,6 +552,7 @@ export default function IntegratedProductManagement() {
                 headers: { "Content-Type": "application/json" },
                 body: JSON.stringify(sizeData),
               })
+
               if (!sizeResponse.ok) {
                 const errorText = await sizeResponse.text()
                 console.error("Failed to create size:", errorText)
@@ -601,6 +588,7 @@ export default function IntegratedProductManagement() {
                 headers: { "Content-Type": "application/json" },
                 body: JSON.stringify(extraData),
               })
+
               if (!extraResponse.ok) {
                 const errorText = await extraResponse.text()
                 console.error("Failed to update extra:", errorText)
@@ -615,6 +603,7 @@ export default function IntegratedProductManagement() {
                 headers: { "Content-Type": "application/json" },
                 body: JSON.stringify(extraData),
               })
+
               if (!extraResponse.ok) {
                 const errorText = await extraResponse.text()
                 console.error("Failed to create extra:", errorText)
@@ -661,27 +650,38 @@ export default function IntegratedProductManagement() {
         id: product.id,
         name: product.name,
         category_id: product.category_id,
+        image_url: product.image_url || "",
         pricing: productPricing,
       })
-    } else {
-      setEditingProduct(null)
-      setProductForm({
-        id: "",
-        name: "",
-        category_id: "",
-        pricing: [],
-      })
-    }
-    setProductDialog(true)
-  }
-
-  const closeProductDialog = () => {
-    setProductDialog(false)
+    
+    // Reset image upload states
+    setImageFile(null)
+    setImagePreview("")
+  } else {
     setEditingProduct(null)
+    setImageFile(null)
+    setImagePreview("")
     setProductForm({
       id: "",
       name: "",
       category_id: "",
+      image_url: "",
+      pricing: [],
+    })
+  }
+  setProductDialog(true)
+}
+
+  const closeProductDialog = () => {
+    setProductDialog(false)
+    setEditingProduct(null)
+    setImageFile(null)
+    setImagePreview("")
+    setProductForm({
+      id: "",
+      name: "",
+      category_id: "",
+      image_url: "",
       pricing: [],
     })
   }
@@ -714,91 +714,204 @@ export default function IntegratedProductManagement() {
     }))
   }
 
+  // Advanced Image Upload Functions
+const handleImageSelect = (file: File) => {
+  // Validate file type
+  const validTypes = ['image/jpeg', 'image/jpg', 'image/png', 'image/webp', 'image/gif']
+  if (!validTypes.includes(file.type)) {
+    showMessage("error", "نوع الملف غير مدعوم. يرجى اختيار صورة (JPG, PNG, WebP, GIF)")
+    return
+  }
+
+  // Validate file size (max 5MB)
+  const maxSize = 5 * 1024 * 1024 // 5MB
+  if (file.size > maxSize) {
+    showMessage("error", "حجم الملف كبير جداً. الحد الأقصى 5 ميجابايت")
+    return
+  }
+
+  setImageFile(file)
+  
+  // Create preview
+  const reader = new FileReader()
+  reader.onload = (e) => {
+    const result = e.target?.result as string
+    setImagePreview(result)
+  }
+  reader.readAsDataURL(file)
+}
+
+const compressImage = (file: File, maxWidth: number = 800, quality: number = 0.8): Promise<string> => {
+  return new Promise((resolve) => {
+    const canvas = document.createElement('canvas')
+    const ctx = canvas.getContext('2d')
+    const img = new Image()
+    
+    img.onload = () => {
+      // Calculate new dimensions
+      let { width, height } = img
+      if (width > maxWidth) {
+        height = (height * maxWidth) / width
+        width = maxWidth
+      }
+      
+      canvas.width = width
+      canvas.height = height
+      
+      // Draw and compress
+      ctx?.drawImage(img, 0, 0, width, height)
+      const compressedDataUrl = canvas.toDataURL('image/jpeg', quality)
+      resolve(compressedDataUrl)
+    }
+    
+    img.src = URL.createObjectURL(file)
+  })
+}
+
+const handleImageUpload = async () => {
+  if (!imageFile) return ""
+  
+  setImageUploading(true)
+  try {
+    // Compress image
+    const compressedImage = await compressImage(imageFile, 800, 0.8)
+    
+    // Update form with base64 image
+    setProductForm(prev => ({
+      ...prev,
+      image_url: compressedImage
+    }))
+    
+    showMessage("success", "تم رفع الصورة بنجاح")
+    return compressedImage
+  } catch (error) {
+    console.error("Error uploading image:", error)
+    showMessage("error", "فشل في رفع الصورة")
+    return ""
+  } finally {
+    setImageUploading(false)
+  }
+}
+
+const handleDrag = (e: React.DragEvent) => {
+  e.preventDefault()
+  e.stopPropagation()
+  if (e.type === "dragenter" || e.type === "dragover") {
+    setDragActive(true)
+  } else if (e.type === "dragleave") {
+    setDragActive(false)
+  }
+}
+
+const handleDrop = (e: React.DragEvent) => {
+  e.preventDefault()
+  e.stopPropagation()
+  setDragActive(false)
+  
+  if (e.dataTransfer.files && e.dataTransfer.files[0]) {
+    handleImageSelect(e.dataTransfer.files[0])
+  }
+}
+
+const removeImage = () => {
+  setImageFile(null)
+  setImagePreview("")
+  setProductForm(prev => ({
+    ...prev,
+    image_url: ""
+  }))
+}
+
   const handleProductSubmit = async () => {
-    if (!productForm.name.trim()) {
-      showMessage("error", "اسم المنتج مطلوب")
+  if (!productForm.name.trim()) {
+    showMessage("error", "اسم المنتج مطلوب")
+    return
+  }
+  if (!productForm.category_id) {
+    showMessage("error", "يجب اختيار فئة للمنتج")
+    return
+  }
+
+  // Validate pricing
+  for (const pricing of productForm.pricing) {
+    if (pricing.price < 0) {
+      showMessage("error", "جميع الأسعار يجب أن تكون أكبر من أو تساوي صفر")
       return
-    }
-
-    if (!productForm.category_id) {
-      showMessage("error", "يجب اختيار فئة للمنتج")
-      return
-    }
-
-    // Validate pricing
-    for (const pricing of productForm.pricing) {
-      if (pricing.price < 0) {
-        showMessage("error", "جميع الأسعار يجب أن تكون أكبر من أو تساوي صفر")
-        return
-      }
-    }
-
-    setLoading(true)
-    try {
-      // Create or update product
-      const productData = {
-        name: productForm.name,
-        category_id: productForm.category_id,
-        price: productForm.pricing.length > 0 ? productForm.pricing[0].price : 0, // Base price
-      }
-
-      const productUrl = editingProduct ? `${API_BASE_URL}/products/${productForm.id}` : `${API_BASE_URL}/products`
-
-      const productResponse = await fetch(productUrl, {
-        method: editingProduct ? "PUT" : "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(productData),
-      })
-
-      if (!productResponse.ok) {
-        throw new Error("فشل في حفظ المنتج")
-      }
-
-      const productResult = await productResponse.json()
-      const productId = editingProduct ? productForm.id : productResult.data?.product_id || productResult.id
-
-      // Handle product size pricing
-      for (const pricing of productForm.pricing) {
-        const pricingData = {
-          product_id: productId,
-          size_id: pricing.size_id,
-          price: pricing.price,
-        }
-
-        // Check if pricing already exists
-        const existingPricing = productSizePrices.find(
-          (psp) => psp.product_id === productId && psp.size_id === pricing.size_id,
-        )
-
-        if (existingPricing) {
-          // Update existing pricing
-          await fetch(`${API_BASE_URL}/product-size-prices/${existingPricing.id}`, {
-            method: "PUT",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify(pricingData),
-          })
-        } else {
-          // Create new pricing
-          await fetch(`${API_BASE_URL}/product-size-prices`, {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify(pricingData),
-          })
-        }
-      }
-
-      showMessage("success", `تم ${editingProduct ? "تحديث" : "إنشاء"} المنتج بنجاح`)
-      closeProductDialog()
-      setTimeout(() => fetchAllData(), 100)
-    } catch (error) {
-      console.error("Error submitting product:", error)
-      showMessage("error", "خطأ في حفظ المنتج")
-    } finally {
-      setLoading(false)
     }
   }
 
-  // Delete functions
+  setLoading(true)
+  try {
+    // Handle image upload if file is selected
+    let finalImageUrl = productForm.image_url
+    if (imageFile && !productForm.image_url.startsWith('data:')) {
+      finalImageUrl = await handleImageUpload()
+    }
+
+    // Create or update product
+    const productData = {
+      name: productForm.name,
+      category_id: productForm.category_id,
+      image_url: finalImageUrl,
+      price: productForm.pricing.length > 0 ? productForm.pricing[0].price : 0, // Base price
+    }
+
+    const productUrl = editingProduct ? `${API_BASE_URL}/products/${productForm.id}` : `${API_BASE_URL}/products`
+
+    const productResponse = await fetch(productUrl, {
+      method: editingProduct ? "PUT" : "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(productData),
+    })
+
+    if (!productResponse.ok) {
+      throw new Error("فشل في حفظ المنتج")
+    }
+
+    const productResult = await productResponse.json()
+    const productId = editingProduct ? productForm.id : productResult.data?.product_id || productResult.id
+
+    // Handle product size pricing
+    for (const pricing of productForm.pricing) {
+      const pricingData = {
+        product_id: productId,
+        size_id: pricing.size_id,
+        price: pricing.price,
+      }
+
+      // Check if pricing already exists
+      const existingPricing = productSizePrices.find(
+        (psp) => psp.product_id === productId && psp.size_id === pricing.size_id,
+      )
+
+      if (existingPricing) {
+        // Update existing pricing
+        await fetch(`${API_BASE_URL}/product-size-prices/${existingPricing.id}`, {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(pricingData),
+        })
+      } else {
+        // Create new pricing
+        await fetch(`${API_BASE_URL}/product-size-prices`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(pricingData),
+        })
+      }
+    }
+
+    showMessage("success", `تم ${editingProduct ? "تحديث" : "إنشاء"} المنتج بنجاح`)
+    closeProductDialog()
+    setTimeout(() => fetchAllData(), 100)
+  } catch (error) {
+    console.error("Error submitting product:", error)
+    showMessage("error", "خطأ في حفظ المنتج")
+  } finally {
+    setLoading(false)
+  }
+}
+
   // Delete functions with proper cascade handling
   const handleDeleteSize = async (sizeId: string, sizeName: string) => {
     if (!confirm(`هل أنت متأكد من حذف الحجم "${sizeName}"؟\nسيتم حذف جميع أسعار المنتجات المرتبطة بهذا الحجم.`)) return
@@ -806,14 +919,12 @@ export default function IntegratedProductManagement() {
     setLoading(true)
     try {
       console.log("Deleting size and related data:", sizeId)
-
       // Step 1: Delete all product-size-prices for this size
       try {
         const productSizePricesResponse = await fetch(`${API_BASE_URL}/product-size-prices?size_id=${sizeId}`)
         if (productSizePricesResponse.ok) {
           const pricingData = await productSizePricesResponse.json()
           const pricingArray = Array.isArray(pricingData) ? pricingData : pricingData.data || []
-
           // Delete each pricing record
           for (const pricing of pricingArray) {
             await fetch(`${API_BASE_URL}/product-size-prices/${pricing.id || pricing.product_size_id}`, {
@@ -879,7 +990,6 @@ export default function IntegratedProductManagement() {
     const categoryProducts = products.filter((p) => p.category_id === id)
 
     let confirmMessage = `هل أنت متأكد من حذف فئة "${category?.name}"؟\n\n`
-
     if (categoryProducts.length > 0) {
       confirmMessage += `⚠️ تحتوي على ${categoryProducts.length} منتج(ات)\n`
     }
@@ -889,7 +999,6 @@ export default function IntegratedProductManagement() {
     if (categoryExtras.length > 0) {
       confirmMessage += `⚠️ تحتوي على ${categoryExtras.length} إضافة/إضافات\n`
     }
-
     confirmMessage += `\nسيتم حذف جميع البيانات المرتبطة بهذه الفئة نهائياً.`
 
     if (!confirm(confirmMessage)) return
@@ -905,7 +1014,6 @@ export default function IntegratedProductManagement() {
           if (productSizePricesResponse.ok) {
             const pricingData = await productSizePricesResponse.json()
             const pricingArray = Array.isArray(pricingData) ? pricingData : pricingData.data || []
-
             // Delete each pricing record
             for (const pricing of pricingArray) {
               await fetch(`${API_BASE_URL}/product-size-prices/${pricing.id || pricing.product_size_id}`, {
@@ -925,7 +1033,6 @@ export default function IntegratedProductManagement() {
           if (productSizePricesResponse.ok) {
             const pricingData = await productSizePricesResponse.json()
             const pricingArray = Array.isArray(pricingData) ? pricingData : pricingData.data || []
-
             // Delete each pricing record
             for (const pricing of pricingArray) {
               await fetch(`${API_BASE_URL}/product-size-prices/${pricing.id || pricing.product_size_id}`, {
@@ -991,7 +1098,6 @@ export default function IntegratedProductManagement() {
       } else {
         const errorText = await response.text()
         console.error("Category delete failed:", response.status, errorText)
-
         // Try to parse error message
         let errorMessage = `خطأ في حذف الفئة: ${response.status}`
         try {
@@ -1002,7 +1108,6 @@ export default function IntegratedProductManagement() {
         } catch (e) {
           // Use default message
         }
-
         showMessage("error", errorMessage)
       }
     } catch (error) {
@@ -1015,20 +1120,17 @@ export default function IntegratedProductManagement() {
 
   const handleDeleteProduct = async (id: string) => {
     const product = products.find((p) => p.id === id)
-
     if (!confirm(`هل أنت متأكد من حذف منتج "${product?.name}"؟\nسيتم حذف جميع أسعار الأحجام المرتبطة به.`)) return
 
     setLoading(true)
     try {
       console.log("Deleting product and related pricing:", id)
-
       // Step 1: Delete all product-size-prices for this product
       try {
         const productSizePricesResponse = await fetch(`${API_BASE_URL}/product-size-prices?product_id=${id}`)
         if (productSizePricesResponse.ok) {
           const pricingData = await productSizePricesResponse.json()
           const pricingArray = Array.isArray(pricingData) ? pricingData : pricingData.data || []
-
           // Delete each pricing record
           for (const pricing of pricingArray) {
             await fetch(`${API_BASE_URL}/product-size-prices/${pricing.id || pricing.product_size_id}`, {
@@ -1225,9 +1327,25 @@ export default function IntegratedProductManagement() {
                   <div className="space-y-3">
                     {products.slice(0, 5).map((product) => (
                       <div key={product.id} className="flex items-center justify-between p-3 bg-gray-50 rounded-lg">
-                        <div>
-                          <p className="font-medium">{product.name}</p>
-                          <p className="text-sm text-gray-600">{product.category?.name || "غير مرتبط بفئة"}</p>
+                        <div className="flex items-center gap-3">
+                          {product.image_url ? (
+                            <img
+                              src={product.image_url || "/placeholder.svg"}
+                              alt={product.name}
+                              className="w-10 h-10 object-cover rounded-lg"
+                              onError={(e) => {
+                                e.currentTarget.style.display = "none"
+                              }}
+                            />
+                          ) : (
+                            <div className="w-10 h-10 bg-gray-200 rounded-lg flex items-center justify-center">
+                              <Package className="w-5 h-5 text-gray-400" />
+                            </div>
+                          )}
+                          <div>
+                            <p className="font-medium">{product.name}</p>
+                            <p className="text-sm text-gray-600">{product.category?.name || "غير مرتبط بفئة"}</p>
+                          </div>
                         </div>
                         <Badge variant="secondary">{product.price} ج.م</Badge>
                       </div>
@@ -1392,6 +1510,7 @@ export default function IntegratedProductManagement() {
                 <Table>
                   <TableHeader>
                     <TableRow>
+                      <TableHead>الصورة</TableHead>
                       <TableHead>اسم المنتج</TableHead>
                       <TableHead>الفئة</TableHead>
                       <TableHead>أسعار الأحجام</TableHead>
@@ -1401,20 +1520,36 @@ export default function IntegratedProductManagement() {
                   <TableBody>
                     {loadingStates.products ? (
                       <TableRow>
-                        <TableCell colSpan={4} className="text-center py-8">
+                        <TableCell colSpan={5} className="text-center py-8">
                           <Loader2 className="w-6 h-6 animate-spin mx-auto" />
                           <p className="mt-2">جاري تحميل المنتجات...</p>
                         </TableCell>
                       </TableRow>
                     ) : filteredProducts.length === 0 ? (
                       <TableRow>
-                        <TableCell colSpan={4} className="text-center py-8 text-gray-500">
+                        <TableCell colSpan={5} className="text-center py-8 text-gray-500">
                           لا توجد منتجات متاحة
                         </TableCell>
                       </TableRow>
                     ) : (
                       filteredProducts.map((product) => (
                         <TableRow key={product.id}>
+                          <TableCell>
+                            {product.image_url ? (
+                              <img
+                                src={product.image_url || "/placeholder.svg"}
+                                alt={product.name}
+                                className="w-12 h-12 object-cover rounded-lg"
+                                onError={(e) => {
+                                  e.currentTarget.style.display = "none"
+                                }}
+                              />
+                            ) : (
+                              <div className="w-12 h-12 bg-gray-200 rounded-lg flex items-center justify-center">
+                                <Package className="w-6 h-6 text-gray-400" />
+                              </div>
+                            )}
+                          </TableCell>
                           <TableCell className="font-medium">{product.name}</TableCell>
                           <TableCell>
                             {product.category?.name ? (
@@ -1657,6 +1792,147 @@ export default function IntegratedProductManagement() {
                       </Select>
                     </div>
                   </div>
+
+                  {/* Advanced Image Upload */}
+<div>
+  <label className="block text-sm font-medium text-gray-700 mb-2">صورة المنتج</label>
+  
+  {/* Upload Area */}
+  <div
+    className={`relative border-2 border-dashed rounded-lg p-6 text-center transition-colors ${
+      dragActive 
+        ? "border-blue-500 bg-blue-50" 
+        : "border-gray-300 hover:border-gray-400"
+    }`}
+    onDragEnter={handleDrag}
+    onDragLeave={handleDrag}
+    onDragOver={handleDrag}
+    onDrop={handleDrop}
+  >
+    {imagePreview || productForm.image_url ? (
+      <div className="space-y-4">
+        {/* Image Preview */}
+        <div className="relative inline-block">
+          <img
+            src={imagePreview || productForm.image_url || "/placeholder.svg"}
+            alt="معاينة الصورة"
+            className="w-32 h-32 object-cover rounded-lg border shadow-sm"
+            onError={(e) => {
+              e.currentTarget.src = "/placeholder.svg"
+            }}
+          />
+          <Button
+            type="button"
+            variant="destructive"
+            size="sm"
+            className="absolute -top-2 -right-2 w-6 h-6 rounded-full p-0"
+            onClick={removeImage}
+          >
+            <X className="w-3 h-3" />
+          </Button>
+        </div>
+        
+        {/* Upload New Image Button */}
+        <div>
+          <input
+            type="file"
+            id="image-upload-replace"
+            className="hidden"
+            accept="image/*"
+            onChange={(e) => {
+              if (e.target.files && e.target.files[0]) {
+                handleImageSelect(e.target.files[0])
+              }
+            }}
+          />
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            onClick={() => document.getElementById('image-upload-replace')?.click()}
+          >
+            <Edit className="w-4 h-4 mr-2" />
+            تغيير الصورة
+          </Button>
+        </div>
+      </div>
+    ) : (
+      <div className="space-y-4">
+        {/* Upload Icon and Text */}
+        <div className="mx-auto w-12 h-12 bg-gray-100 rounded-lg flex items-center justify-center">
+          <Package className="w-6 h-6 text-gray-400" />
+        </div>
+        
+        <div>
+          <p className="text-sm text-gray-600 mb-2">
+            اسحب وأفلت الصورة هنا، أو اضغط لاختيار ملف
+          </p>
+          <p className="text-xs text-gray-500">
+            JPG, PNG, WebP, GIF حتى 5MB
+          </p>
+        </div>
+        
+        {/* File Input */}
+        <input
+          type="file"
+          id="image-upload"
+          className="hidden"
+          accept="image/*"
+          onChange={(e) => {
+            if (e.target.files && e.target.files[0]) {
+              handleImageSelect(e.target.files[0])
+            }
+          }}
+        />
+        <Button
+          type="button"
+          variant="outline"
+          onClick={() => document.getElementById('image-upload')?.click()}
+          disabled={imageUploading}
+        >
+          {imageUploading ? (
+            <>
+              <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+              جاري الرفع...
+            </>
+          ) : (
+            <>
+              <Plus className="w-4 h-4 mr-2" />
+              اختيار صورة
+            </>
+          )}
+        </Button>
+      </div>
+    )}
+  </div>
+  
+  {/* Alternative URL Input */}
+  <div className="mt-4">
+    <details className="group">
+      <summary className="cursor-pointer text-sm text-gray-600 hover:text-gray-800">
+        أو أدخل رابط الصورة يدوياً
+      </summary>
+      <div className="mt-2 space-y-2">
+        <Input
+          placeholder="https://example.com/image.jpg"
+          value={productForm.image_url}
+          onChange={(e) => {
+            setProductForm(prev => ({ ...prev, image_url: e.target.value }))
+            if (e.target.value) {
+              setImagePreview("")
+              setImageFile(null)
+            }
+          }}
+          type="url"
+          className="text-sm"
+        />
+        <p className="text-xs text-gray-500">
+          يمكنك إدخال رابط صورة من الإنترنت بدلاً من رفع ملف
+        </p>
+      </div>
+    </details>
+  </div>
+</div>
 
                   {/* Category Details */}
                   {productForm.category_id && (
