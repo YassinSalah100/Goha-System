@@ -835,7 +835,7 @@ export default function LoginPage() {
             </motion.div>
           </motion.div>
         )}
-      </AnimatePresence>
+      </AnimatePresence>؛
     </div>
   )
 }

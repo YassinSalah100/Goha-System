@@ -184,10 +184,10 @@ const normalizeOrderItem = (item: any): OrderItem => {
   // Better extras handling
   let processedExtras = []
   if (Array.isArray(item.extras) && item.extras.length > 0) {
-    processedExtras = item.extras.map((extra) => {
+    processedExtras = item.extras.map((extra: any) => {
       let extraName = extra.name || extra.extra_name || extra.extraName
       if (!extraName && extra.extra) {
-        extraName = extra.extra.name || extra.extra.extra_name
+        extraName = extra.extra.name || (typeof extra.extra === "object" && extra.extra !== null && Object.prototype.hasOwnProperty.call(extra.extra, "extra_name") ? (extra.extra as any).extra_name : undefined)
       }
       if (!extraName && extra.extra_id) {
         extraName = `إضافة ${extra.extra_id.slice(-4)}`
@@ -319,60 +319,43 @@ const fetchOrderItems = async (orderId: string): Promise<OrderItem[]> => {
   return []
 }
 
-// SHIFT-AWARE FETCH FUNCTION
+// SHIFT-AWARE FETCH FUNCTION (now uses except-cafe endpoint)
 const fetchFromAPI = async (shiftId: string): Promise<Order[]> => {
-  // If already fetching, return the existing promise
   if (globalFetchInProgress && globalFetchPromise) {
     console.log("🔄 Reusing existing fetch promise...")
     return await globalFetchPromise
   }
-
-  // Set global flag and create new promise
   globalFetchInProgress = true
   globalFetchPromise = (async () => {
     try {
-      console.log(`🌐 Starting SHIFT-AWARE API fetch for shift: ${shiftId}`)
-      // Fetch orders for specific shift
-      const response = await fetch(`${API_BASE_URL}/orders/shift/${shiftId}`)
+      console.log(`🌐 Fetching all non-cafe orders from except-cafe endpoint`)
+      // Use the new endpoint
+      const response = await fetch(`${API_BASE_URL}/orders/except-cafe`, {
+        headers: {
+          Authorization: `Bearer ${localStorage.getItem("authToken") || ""}`,
+        },
+      })
       let orders = []
-
       if (response.ok) {
         const result = await response.json()
-        console.log(`📊 Shift orders response:`, result)
+        console.log(`📊 except-cafe orders response:`, result)
         if (result.success && result.data) {
           orders = Array.isArray(result.data.orders)
             ? result.data.orders
             : Array.isArray(result.data)
-              ? result.data
-              : []
-          console.log(`✅ Found ${orders.length} orders for shift ${shiftId}`)
+            ? result.data
+            : []
+          console.log(`✅ Found ${orders.length} non-cafe orders`)
         }
       } else {
-        console.warn(`❌ Shift orders endpoint failed with status:`, response.status)
-        // Fallback: try to get all orders and filter by shift_id
-        try {
-          const fallbackResponse = await fetch(`${API_BASE_URL}/orders?page=1&limit=100`)
-          if (fallbackResponse.ok) {
-            const fallbackResult = await fallbackResponse.json()
-            if (fallbackResult.success && fallbackResult.data) {
-              const allOrders = Array.isArray(fallbackResult.data.orders) ? fallbackResult.data.orders : []
-              orders = allOrders.filter((order: any) => order.shift_id === shiftId)
-              console.log(`✅ Fallback: Found ${orders.length} orders for shift ${shiftId}`)
-            }
-          }
-        } catch (fallbackError) {
-          console.warn("❌ Fallback also failed:", fallbackError)
-        }
+        console.warn(`❌ except-cafe endpoint failed with status:`, response.status)
       }
-
-      console.log(`📈 Total orders before processing: ${orders.length}`)
-
-      // Fetch items for each order
+      // Filter by shiftId on the frontend
+      const filteredOrders = orders.filter((order: any) => order.shift?.shift_id === shiftId || order.shift_id === shiftId)
+      // Fetch items for each order (if needed)
       const ordersWithItems = await Promise.all(
-        orders.map(async (order: any) => {
+        filteredOrders.map(async (order: any) => {
           const orderId = order.order_id || order.id
-          console.log(`🔍 Fetching items for order ${orderId}`)
-
           try {
             const orderItems = await fetchOrderItems(orderId)
             return {
@@ -380,28 +363,23 @@ const fetchFromAPI = async (shiftId: string): Promise<Order[]> => {
               items: orderItems,
             }
           } catch (error) {
-            console.error(`❌ Failed to fetch items for order ${orderId}:`, error)
             return {
               ...order,
               items: [],
             }
           }
-        }),
+        })
       )
-
       const finalOrders = ordersWithItems.filter((order) => order && order.order_id).map(normalizeOrder)
-      console.log(`🎯 Final processed orders for shift ${shiftId}: ${finalOrders.length}`)
       return finalOrders
     } catch (error) {
       console.error("❌ API fetch failed:", error)
       return []
     } finally {
-      // Reset global flags
       globalFetchInProgress = false
       globalFetchPromise = null
     }
   })()
-
   return await globalFetchPromise
 }
 
@@ -466,8 +444,15 @@ const getCategoryName = (item: OrderItem): string => {
   }
 
   // Method 2: Check product_size.category.name
-  if (item.product_size?.category?.name) {
-    return item.product_size.category.name
+  if (
+    item.product_size &&
+    typeof item.product_size === "object" &&
+    "category" in item.product_size &&
+    (item.product_size as any).category &&
+    typeof (item.product_size as any).category === "object" &&
+    "name" in (item.product_size as any).category
+  ) {
+    return (item.product_size as any).category.name
   }
 
   // Method 3: Enhanced product name analysis with specific restaurant categories

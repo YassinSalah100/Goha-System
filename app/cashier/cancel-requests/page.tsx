@@ -20,7 +20,7 @@ export default function CashierCancelRequestsPage() {
 
       // Load cancel requests from localStorage and filter by current cashier
       const storedRequests = JSON.parse(localStorage.getItem("cancelRequests") || "[]")
-      const userRequests = storedRequests.filter((req) => req.cashier === user.name)
+      const userRequests = storedRequests.filter((req: any) => req.cashier === user.name)
       setRequests(userRequests)
     }
   }, [])
@@ -184,7 +184,7 @@ export default function CashierCancelRequestsPage() {
                               <div className="w-1/4 text-right">Price</div>
                               <div className="w-1/4 text-right">Total</div>
                             </div>
-                            {order.items.map((item) => (
+                            {order.items.map((item: any) => (
                               <div key={item.id} className="flex flex-col border-b last:border-0 py-1 text-xs">
                                 <div className="flex">
                                   <div className="w-1/3 truncate">
@@ -209,7 +209,7 @@ export default function CashierCancelRequestsPage() {
                                 </div>
                                 {item.extras && item.extras.length > 0 && (
                                   <div className="w-full text-[10px] text-gray-500 pl-1 pt-0.5">
-                                    {item.extras.map((extra) => (
+                                    {item.extras.map((extra: any) => (
                                       <div key={extra.name} className="flex justify-between">
                                         <span>+ {extra.name}</span>
                                         <span>ج.م{extra.price.toFixed(2)}</span>

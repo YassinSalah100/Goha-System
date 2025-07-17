@@ -15,6 +15,7 @@ import {
   ChevronRight,
   Menu,
   AlertTriangle,
+  Coffee,
 } from "lucide-react"
 import Image from "next/image"
 import { cn } from "@/lib/utils"
@@ -53,6 +54,7 @@ export function Sidebar({ role }: SidebarProps) {
     cashier: [
       { name: "لوحة التحكم", icon: Home, path: "/cashier" },
       { name: "المبيعات والطلبات", icon: ShoppingCart, path: "/cashier/sales" },
+      { name: "طلبات الكافية", icon: Coffee, path: "/cashier/cafe-orders" },
       { name: "الطلبات المحفوظة", icon: Package, path: "/cashier/orders" },
       { name: "طلبات الإلغاء", icon: AlertTriangle, path: "/cashier/cancel-requests" },
       { name: "إنهاء الوردية", icon: LogOut, path: "/cashier/end-shift" },

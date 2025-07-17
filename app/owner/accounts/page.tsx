@@ -1,6 +1,6 @@
 "use client"
 
-import React, { useState, useEffect } from "react"
+import React, { useState, useEffect, useMemo } from "react"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
@@ -12,6 +12,11 @@ import { toast } from "sonner"
 import { Eye, EyeOff, Plus, Users, UserPlus, Trash2, Save, X, Phone, Lock, DollarSign, Settings, Shield, ChevronDown, ChevronUp, Key } from "lucide-react"
 import { motion, AnimatePresence } from "framer-motion"
 import { User } from "lucide-react"
+import { Pie } from "react-chartjs-2"
+import { Chart as ChartJS, ArcElement, Tooltip as ChartTooltip, Legend } from "chart.js"
+import { Avatar } from "@/components/ui/avatar"
+import { Tooltip } from "@/components/ui/tooltip"
+ChartJS.register(ArcElement, ChartTooltip, Legend)
 
 const API_BASE_URL = "http://172.162.241.242:3000/api/v1"
 
@@ -19,13 +24,13 @@ interface Account {
   id: string
   username: string
   fullName: string
-  phone?: string
-  hourRate?: number
   isActive: boolean
   createdAt: string
   userPermissions?: string[]
   worker_id?: string
   permissions?: Permission[]
+  phone?: string
+  hourRate?: number
 }
 
 interface Permission {
@@ -758,8 +763,6 @@ export default function AccountsPageFixed() {
                       <TableRow>
                         <TableHead className="text-right font-bold">اسم المستخدم</TableHead>
                         <TableHead className="text-right font-bold">الاسم الكامل</TableHead>
-                        <TableHead className="text-right font-bold">رقم الهاتف</TableHead>
-                        <TableHead className="text-right font-bold">معدل الساعة</TableHead>
                         <TableHead className="text-right font-bold">الحالة</TableHead>
                         <TableHead className="text-right font-bold">الأذونات</TableHead>
                         <TableHead className="text-right font-bold">تاريخ الإنشاء</TableHead>
@@ -776,8 +779,6 @@ export default function AccountsPageFixed() {
                             <TableRow className="hover:bg-blue-50/50">
                               <TableCell className="font-medium">{account.username}</TableCell>
                               <TableCell>{account.fullName}</TableCell>
-                              <TableCell>{account.phone || "غير محدد"}</TableCell>
-                              <TableCell>{account.hourRate ? `${account.hourRate} ج.م` : "غير محدد"}</TableCell>
                               <TableCell>
                                 <Badge variant={account.isActive ? "default" : "secondary"}>
                                   {account.isActive ? "نشط" : "معطل"}
@@ -829,7 +830,7 @@ export default function AccountsPageFixed() {
                             {/* Expanded Permissions Row */}
                             {isExpanded && (
                               <TableRow>
-                                <TableCell colSpan={8} className="p-0">
+                                <TableCell colSpan={6} className="p-0">
                                   <motion.div
                                     initial={{ opacity: 0, height: 0 }}
                                     animate={{ opacity: 1, height: "auto" }}
