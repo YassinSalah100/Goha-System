@@ -71,6 +71,7 @@ interface CartItem {
     id: string
     name: string
     price: number
+    quantity: number
   }>
 }
 
@@ -194,6 +195,9 @@ export default function SalesPage() {
     httpImages: 0,
     emptyImages: 0,
   })
+
+  // Add state for extra quantities
+  const [extraQuantities, setExtraQuantities] = useState<{ [extraId: string]: number }>({})
 
   const combinedReceiptRef = useRef<HTMLDivElement>(null)
   const customerReceiptRef = useRef<HTMLDivElement>(null)
@@ -349,8 +353,14 @@ export default function SalesPage() {
       setItemSizeId(sizePrice.size?.size_id || "")
     }
 
-    const validExtras = selectedExtras.filter((extra) => extra.id)
-    const extrasPrice = validExtras.reduce((sum, extra) => sum + extra.price, 0)
+    const validExtras = Object.entries(extraQuantities)
+      .filter(([_, qty]) => qty > 0)
+      .map(([id, qty]) => {
+        const extra = extras.find((e) => e.extra_id === id)
+        return extra ? { id: extra.extra_id, name: extra.name, price: Number.parseFloat(extra.price), quantity: qty } : null
+      })
+      .filter(Boolean)
+    const extrasPrice = validExtras.reduce((sum, extra) => sum + (extra!.price * extra!.quantity), 0)
     const totalItemPrice = basePrice + extrasPrice
 
     const newItem: CartItem = {
@@ -367,7 +377,7 @@ export default function SalesPage() {
       productId: currentItem.product_id,
       productSizeId: productSizeId,
       image_url: currentItem.image_url || "",
-      extras: validExtras,
+      extras: validExtras as any[],
     }
 
     setCart([...cart, newItem])
@@ -382,6 +392,7 @@ export default function SalesPage() {
     setItemSizeId("")
     setItemQuantity(1)
     setSelectedExtras([])
+    setExtraQuantities({})
   }
 
   const handleRemoveFromCart = (id: string) => {
@@ -479,7 +490,7 @@ export default function SalesPage() {
             extra_id: extra.id,
             name: extra.name,
             price: extra.price.toString(),
-            quantity: 1,
+            quantity: extra.quantity,
           })),
           total_price: item.price * item.quantity,
         })),
@@ -512,7 +523,7 @@ export default function SalesPage() {
             special_instructions: item.notes || "",
             extras: item.extras.map((extra) => ({
               extra_id: extra.id,
-              quantity: 1,
+              quantity: extra.quantity,
               price: extra.price,
             })),
           })),
@@ -973,9 +984,9 @@ export default function SalesPage() {
                       {item.extras.map((extra) => (
                         <div key={extra.id} className="flex">
                           <div className="w-2/5 truncate italic">+ {extra.name}</div>
-                          <div className="w-1/5 text-center">{item.quantity}</div>
+                          <div className="w-1/5 text-center">{extra.quantity}</div>
                           <div className="w-1/5 text-right">ج.م{extra.price.toFixed(2)}</div>
-                          <div className="w-1/5 text-right">ج.م{(extra.price * item.quantity).toFixed(2)}</div>
+                          <div className="w-1/5 text-right">ج.م{(extra.price * extra.quantity).toFixed(2)}</div>
                         </div>
                       ))}
                     </div>
@@ -1674,29 +1685,14 @@ export default function SalesPage() {
                     <label className="text-sm font-medium mb-1 block">الإضافات</label>
                     <div className="flex flex-wrap gap-2">
                       {getExtrasForCategory(currentItem.category.category_id).map((extra) => {
-                        const isSelected = selectedExtras.some((e) => e.id === extra.extra_id)
+                        const qty = extraQuantities[extra.extra_id] || 0
                         return (
-                          <Badge
-                            key={extra.extra_id}
-                            variant={isSelected ? "default" : "outline"}
-                            className={`cursor-pointer ${isSelected ? "bg-orange-600 hover:bg-orange-700" : ""}`}
-                            onClick={() => {
-                              if (isSelected) {
-                                setSelectedExtras(selectedExtras.filter((e) => e.id !== extra.extra_id))
-                              } else {
-                                setSelectedExtras([
-                                  ...selectedExtras,
-                                  {
-                                    id: extra.extra_id,
-                                    name: extra.name,
-                                    price: Number.parseFloat(extra.price),
-                                  },
-                                ])
-                              }
-                            }}
-                          >
-                            {extra.name} - ج.م{Number.parseFloat(extra.price).toFixed(2)}
-                          </Badge>
+                          <div key={extra.extra_id} className="flex items-center gap-1 border rounded px-2 py-1 bg-gray-50">
+                            <span>{extra.name} - ج.م{Number.parseFloat(extra.price).toFixed(2)}</span>
+                            <button type="button" className="px-1" onClick={() => setExtraQuantities((q) => ({ ...q, [extra.extra_id]: Math.max((q[extra.extra_id] || 0) - 1, 0) }))}>-</button>
+                            <span className="w-6 text-center">{qty}</span>
+                            <button type="button" className="px-1" onClick={() => setExtraQuantities((q) => ({ ...q, [extra.extra_id]: (q[extra.extra_id] || 0) + 1 }))}>+</button>
+                          </div>
                         )
                       })}
                     </div>

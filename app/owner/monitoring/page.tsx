@@ -5,7 +5,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Separator } from "@/components/ui/separator"
-import { User, Package, RefreshCw, Eye, DollarSign, Users, AlertTriangle, TrendingUp } from "lucide-react"
+import { User, Package, RefreshCw, Eye, DollarSign, Users, AlertTriangle, TrendingUp, Coffee } from "lucide-react"
 import { motion } from "framer-motion"
 import { Button } from "@/components/ui/button"
 
@@ -30,7 +30,7 @@ interface OrderItem {
 interface Order {
   order_id: string
   customer_name: string
-  order_type: "dine-in" | "takeaway" | "delivery"
+  order_type: "dine-in" | "takeaway" | "delivery" | "cafe"
   phone_number?: string
   total_price: string | number
   status: "pending" | "active" | "completed" | "cancelled"
@@ -58,6 +58,7 @@ interface Order {
   created_by?: string
   employee_name?: string
   staff_name?: string
+  table_number?: string
 }
 
 interface CancelledOrder {
@@ -141,6 +142,87 @@ export default function MonitoringPageAPIFixed() {
   const formatPrice = (price: string | number): string => {
     return `ج.م${normalizePrice(price).toFixed(2)}`
   }
+
+  const normalizeOrderItem = (item: any) => {
+    let productName = "منتج غير محدد";
+    let sizeName = "عادي";
+    let unitPrice = 0;
+
+    try {
+      // 1. product_size (API response structure)
+      if (item.product_size) {
+        productName = item.product_size.product_name || productName;
+        if (item.product_size.size && item.product_size.size.size_name) {
+          sizeName = item.product_size.size.size_name;
+        } else if (item.product_size.size_name) {
+          sizeName = item.product_size.size_name;
+        }
+        unitPrice = parseFloat(item.product_size.price || item.unit_price || 0);
+      }
+      // 2. product object with productSize
+      else if (item.product && item.product.name) {
+        productName = item.product.name;
+        if (item.productSize?.size?.size_name) {
+          sizeName = item.productSize.size.size_name;
+          unitPrice = parseFloat(item.productSize.price || item.unit_price || 0);
+        } else {
+          unitPrice = parseFloat(item.unit_price || 0);
+        }
+      }
+      // 3. Direct fields
+      else if (item.product_name) {
+        productName = item.product_name;
+        sizeName = item.size_name || sizeName;
+        unitPrice = parseFloat(item.unit_price || item.price || 0);
+      }
+      // 4. Try to extract from any available data
+      else {
+        const possibleNames = [item.name, item.product?.name, item.productName].filter(Boolean);
+        if (possibleNames.length > 0) {
+          productName = possibleNames[0];
+        }
+        unitPrice = parseFloat(item.unit_price || item.price || 0);
+      }
+    } catch (error) {
+      productName = item.product_name || item.name || "منتج غير محدد";
+      sizeName = item.size_name || "عادي";
+      unitPrice = parseFloat(item.unit_price || item.price || 0);
+    }
+
+    // Extras normalization
+    let processedExtras = [];
+    if (Array.isArray(item.extras) && item.extras.length > 0) {
+      processedExtras = item.extras.map((extra: any) => {
+        let extraName = extra.name || extra.extra_name || extra.extraName;
+        if (!extraName && extra.extra) {
+          extraName = extra.extra.name || (typeof extra.extra === "object" && extra.extra !== null && Object.prototype.hasOwnProperty.call(extra.extra, "extra_name") ? (extra.extra as any).extra_name : undefined);
+        }
+        if (!extraName && extra.extra_id) {
+          extraName = `إضافة ${extra.extra_id.slice(-4)}`;
+        }
+        if (!extraName) {
+          extraName = "[إضافة غير معروفة]";
+        }
+        return {
+          extra_id: extra.extra_id || extra.id || `extra_${Date.now()}_${Math.random().toString(36).substr(2, 5)}`,
+          name: extraName,
+          price: typeof extra.price === "string" ? Number.parseFloat(extra.price) : extra.price || 0,
+          quantity: extra.quantity || 1,
+        };
+      });
+    }
+
+    return {
+      ...item,
+      order_item_id: item.order_item_id || item.id || `item_${Date.now()}`,
+      productName,
+      sizeName,
+      unitPrice,
+      quantity: item.quantity || 0,
+      notes: item.notes || '',
+      extras: processedExtras,
+    };
+  };
 
   // Fetch orders from API
   const fetchOrders = async (): Promise<Order[]> => {
@@ -562,6 +644,7 @@ export default function MonitoringPageAPIFixed() {
           <TabsTrigger value="cashiers">نشاط الكاشيرز</TabsTrigger>
           <TabsTrigger value="cancelled">الطلبات الملغاة</TabsTrigger>
           <TabsTrigger value="inventory">المخزون</TabsTrigger>
+          <TabsTrigger value="cafe-orders">طلبات الكافية</TabsTrigger>
         </TabsList>
 
         <TabsContent value="live" className="m-0 space-y-6">
@@ -907,6 +990,129 @@ export default function MonitoringPageAPIFixed() {
                   ))}
                 </div>
               )}
+            </CardContent>
+          </Card>
+        </TabsContent>
+
+        <TabsContent value="cafe-orders" className="m-0 space-y-6">
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <Coffee className="w-5 h-5 text-amber-600" />
+                طلبات الكافية
+              </CardTitle>
+            </CardHeader>
+            <CardContent>
+              {(() => {
+                // Filter cafe orders: order_type === 'cafe' or has table_number
+                const cafeOrders = liveOrders.filter(
+                  (order) =>
+                    order.order_type === "cafe" ||
+                    (order.table_number && order.table_number !== "" && order.table_number !== null)
+                )
+                if (cafeOrders.length === 0) {
+                  return (
+                    <div className="text-center py-6 text-muted-foreground">
+                      لا توجد طلبات كافية اليوم
+                    </div>
+                  )
+                }
+                // Group by shift
+                const grouped = { morning: [], night: [] } as { morning: Order[]; night: Order[] }
+                cafeOrders.forEach((order) => {
+                  let shiftType = "morning"
+                  const shiftName = order.shift?.shift_name || order.shift?.shift_id || ""
+                  if (
+                    shiftName.includes("night") ||
+                    shiftName.includes("مسائية") ||
+                    shiftName.toLowerCase().includes("evening")
+                  ) {
+                    shiftType = "night"
+                  }
+                  grouped[shiftType].push(order)
+                })
+                const shiftLabels = { morning: "وردية صباحية", night: "وردية مسائية" }
+                return (
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    {["morning", "night"].map((shiftKey) => (
+                      <div key={shiftKey}>
+                        <div className="font-bold text-lg mb-2 text-amber-700 flex items-center gap-2">
+                          <span className="w-2 h-5 bg-amber-500 rounded-full inline-block"></span>
+                          {shiftLabels[shiftKey]} ({grouped[shiftKey].length} طلب)
+                        </div>
+                        {grouped[shiftKey].length === 0 ? (
+                          <div className="text-center text-muted-foreground py-4">لا توجد طلبات في هذه الوردية</div>
+                        ) : (
+                          <div className="space-y-4">
+                            {grouped[shiftKey]
+                              .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())
+                              .map((order) => (
+                                <Card key={order.order_id} className="border-l-4 border-l-amber-500">
+                                  <CardContent className="p-4">
+                                    <div className="flex justify-between items-start mb-2">
+                                      <div className="flex items-center gap-3">
+                                        <h3 className="font-semibold text-lg font-mono">#{order.order_id.slice(-6)}</h3>
+                                        {getStatusBadge(order.status)}
+                                      </div>
+                                      <div className="text-right">
+                                        <div className="font-bold text-lg text-amber-700">{formatPrice(order.total_price)}</div>
+                                        <div className="text-xs text-gray-500">
+                                          {new Date(order.created_at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
+                                        </div>
+                                      </div>
+                                    </div>
+                                    <div className="flex items-center gap-2 mb-2 text-sm text-gray-600">
+                                      <User className="w-4 h-4" />
+                                      <span>{order.customer_name || order.staff_name || "-"}</span>
+                                    </div>
+                                    <div className="space-y-2 mb-2">
+                                      <h4 className="font-medium text-sm text-gray-700">عناصر الطلب ({order.items?.length || 0}):</h4>
+                                      {order.items && order.items.length > 0 ? (
+                                        order.items.map((itemRaw, idx) => {
+                                          const item = normalizeOrderItem(itemRaw);
+                                          return (
+                                            <div
+                                              key={item.order_item_id || idx}
+                                              className="flex flex-col md:flex-row md:items-center md:justify-between bg-amber-50 p-2 rounded border mb-1"
+                                            >
+                                              <div className="flex-1 flex flex-col md:flex-row md:items-center gap-2">
+                                                <span className="font-medium">{item.productName}</span>
+                                                {item.sizeName && item.sizeName !== 'عادي' && (
+                                                  <span className="text-gray-500 text-xs">({item.sizeName})</span>
+                                                )}
+                                                <span className="text-gray-500 text-xs">x{item.quantity}</span>
+                                                {item.notes && (
+                                                  <span className="text-xs italic text-gray-500">ملاحظة: {item.notes}</span>
+                                                )}
+                                              </div>
+                                              <div className="flex flex-col items-end min-w-[100px]">
+                                                <span className="font-bold text-amber-700">{formatPrice(item.unitPrice)}</span>
+                                                {item.extras && item.extras.length > 0 && (
+                                                  <div className="text-xs text-blue-600 mt-1 text-right">
+                                                    إضافات: {item.extras.map((extra) => `${extra.name || '[إضافة]' }${extra.price ? ` (${formatPrice(extra.price)})` : ''}`).join(', ')}
+                                                  </div>
+                                                )}
+                                              </div>
+                                            </div>
+                                          );
+                                        })
+                                      ) : (
+                                        <div className="text-muted-foreground">لا توجد أصناف في هذا الطلب</div>
+                                      )}
+                                    </div>
+                                  </CardContent>
+                                </Card>
+                              ))}
+                          </div>
+                        )}
+                        <div className="text-right font-bold text-amber-800 mt-2">
+                          إجمالي الوردية: {formatPrice(grouped[shiftKey].reduce((sum, o) => sum + normalizePrice(o.total_price), 0))}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )
+              })()}
             </CardContent>
           </Card>
         </TabsContent>
