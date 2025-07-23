@@ -81,6 +81,7 @@ interface CashierActivity {
     "dine-in": number
     takeaway: number
     delivery: number
+    cafe: number
   }
 }
 
@@ -114,6 +115,34 @@ interface OrderStats {
   }
 }
 
+interface ShiftSummary {
+  shift_id: string
+  shift_name: string
+  cashier_name: string
+  start_time: string
+  end_time: string | null
+  total_orders: number
+  total_sales: number
+  orders_by_type: {
+    "dine-in": number
+    takeaway: number
+    delivery: number
+    cafe: number
+  }
+  orders_by_status: {
+    pending: number
+    completed: number
+    cancelled: number
+  }
+  orders_by_payment: {
+    cash: number
+    card: number
+  }
+  average_order_value: number
+  is_active: boolean
+  orders?: Order[] // Optional array of orders for this shift
+}
+
 export default function MonitoringPageAPIFixed() {
   const [currentUser, setCurrentUser] = useState<any>(null)
   const [activeTab, setActiveTab] = useState("live")
@@ -122,6 +151,7 @@ export default function MonitoringPageAPIFixed() {
   const [cashierActivities, setCashierActivities] = useState<CashierActivity[]>([])
   const [lowStockItems, setLowStockItems] = useState<StockItem[]>([])
   const [orderStats, setOrderStats] = useState<OrderStats | null>(null)
+  const [shiftSummaries, setShiftSummaries] = useState<ShiftSummary[]>([])
   const [todayStats, setTodayStats] = useState({
     totalOrders: 0,
     totalSales: 0,
@@ -395,6 +425,351 @@ export default function MonitoringPageAPIFixed() {
     return []
   }
 
+  // Fetch shift summaries
+  const fetchShiftSummaries = async (): Promise<ShiftSummary[]> => {
+    try {
+      console.log("📊 Fetching shift summaries...")
+      const today = new Date().toISOString().split('T')[0]
+      
+      // Try multiple endpoints to find shifts
+      let shifts: any[] = []
+      
+      // Try 1: Get shifts by date
+      try {
+        const response1 = await fetch(`${API_BASE_URL}/shifts/by-date?date=${today}`, {
+          headers: { Authorization: `Bearer ${localStorage.getItem("authToken") || ""}` },
+        })
+        if (response1.ok) {
+          const result = await response1.json()
+          shifts = result.success ? (result.data || []) : (Array.isArray(result) ? result : [])
+          console.log(`📊 Method 1: Found ${shifts.length} shifts`)
+        }
+      } catch (e) { console.warn("Method 1 failed:", e) }
+      
+      // Try 2: Get all shifts and filter
+      if (shifts.length === 0) {
+        try {
+          const response2 = await fetch(`${API_BASE_URL}/shifts`, {
+            headers: { Authorization: `Bearer ${localStorage.getItem("authToken") || ""}` },
+          })
+          if (response2.ok) {
+            const result = await response2.json()
+            const allShifts = result.success ? (result.data || []) : (Array.isArray(result) ? result : [])
+            shifts = allShifts.filter((shift: any) => {
+              const shiftDate = new Date(shift.start_time || shift.created_at).toDateString()
+              return shiftDate === new Date().toDateString()
+            })
+            console.log(`📊 Method 2: Found ${shifts.length} shifts for today`)
+          }
+        } catch (e) { console.warn("Method 2 failed:", e) }
+      }
+      
+      // Try 3: Generate shifts from cashier activities if no actual shifts found
+      if (shifts.length === 0) {
+        console.log("📊 No shifts found in API, generating from cashier activities...")
+        const orders = await fetchOrders()
+        return generateShiftsFromOrders(orders)
+      }
+
+      // Process actual shifts
+      return await processShiftsToSummaries(shifts)
+      
+    } catch (error) {
+      console.error("❌ Error fetching shift summaries:", error)
+      // Fallback to generating from orders
+      try {
+        const orders = await fetchOrders()
+        return generateShiftsFromOrders(orders)
+      } catch (fallbackError) {
+        console.error("❌ Fallback also failed:", fallbackError)
+        return []
+      }
+    }
+  }
+
+  // Generate shift summaries from orders when no shifts API is available
+  const generateShiftsFromOrders = async (orders: Order[]): Promise<ShiftSummary[]> => {
+    console.log("🔄 Generating shift summaries from orders...")
+    console.log(`📊 Processing ${orders.length} orders for shift generation`)
+    
+    if (orders.length === 0) {
+      console.log("📊 No orders found, cannot generate shifts")
+      return []
+    }
+
+    // Debug: Log sample order structure
+    if (orders.length > 0) {
+      console.log("🔍 Sample order structure:", {
+        order_id: orders[0].order_id,
+        cashier: orders[0].cashier,
+        cashier_name: orders[0].cashier_name,
+        user: orders[0].user,
+        created_by: orders[0].created_by,
+        created_at: orders[0].created_at,
+        total_price: orders[0].total_price,
+        order_type: orders[0].order_type,
+        status: orders[0].status,
+        payment_method: orders[0].payment_method,
+      })
+    }
+
+    // Group orders by cashier and time periods
+    const cashierGroups = new Map<string, Order[]>()
+    
+    orders.forEach(order => {
+      let cashierKey = "مستخدم غير معروف"
+      
+      // Enhanced cashier identifier extraction with debugging
+      if (order.cashier?.full_name) {
+        cashierKey = order.cashier.full_name
+        console.log(`✅ Found cashier from order.cashier.full_name: ${cashierKey}`)
+      } else if (order.cashier?.fullName) {
+        cashierKey = order.cashier.fullName
+        console.log(`✅ Found cashier from order.cashier.fullName: ${cashierKey}`)
+      } else if (order.cashier_name) {
+        cashierKey = order.cashier_name
+        console.log(`✅ Found cashier from order.cashier_name: ${cashierKey}`)
+      } else if (order.user?.full_name) {
+        cashierKey = order.user.full_name
+        console.log(`✅ Found cashier from order.user.full_name: ${cashierKey}`)
+      } else if (order.user?.name) {
+        cashierKey = order.user.name
+        console.log(`✅ Found cashier from order.user.name: ${cashierKey}`)
+      } else if (order.user?.username) {
+        cashierKey = order.user.username
+        console.log(`✅ Found cashier from order.user.username: ${cashierKey}`)
+      } else if (order.created_by) {
+        cashierKey = order.created_by
+        console.log(`✅ Found cashier from order.created_by: ${cashierKey}`)
+      } else if (order.employee_name) {
+        cashierKey = order.employee_name
+        console.log(`✅ Found cashier from order.employee_name: ${cashierKey}`)
+      } else {
+        console.warn(`⚠️ No cashier found for order ${order.order_id}. Available fields:`, {
+          cashier: order.cashier,
+          cashier_name: order.cashier_name,
+          user: order.user,
+          created_by: order.created_by,
+          employee_name: order.employee_name
+        })
+      }
+      
+      if (!cashierGroups.has(cashierKey)) {
+        cashierGroups.set(cashierKey, [])
+      }
+      cashierGroups.get(cashierKey)!.push(order)
+    })
+
+    // Debug: Log final cashier groups
+    console.log("👥 Final cashier groups:", Array.from(cashierGroups.entries()).map(([name, orders]) => ({
+      cashierName: name,
+      orderCount: orders.length,
+      sampleOrder: orders[0] ? {
+        order_id: orders[0].order_id,
+        created_at: orders[0].created_at,
+        total_price: orders[0].total_price
+      } : null
+    })))
+
+    const summaries: ShiftSummary[] = []
+    let shiftCounter = 1
+
+    // Create a shift summary for each cashier
+    cashierGroups.forEach((cashierOrders, cashierName) => {
+      if (cashierOrders.length === 0) return
+
+      // Sort orders by time to get shift start/end
+      const sortedOrders = cashierOrders.sort((a, b) => 
+        new Date(a.created_at).getTime() - new Date(b.created_at).getTime()
+      )
+
+      const firstOrder = sortedOrders[0]
+      const lastOrder = sortedOrders[sortedOrders.length - 1]
+      
+      // Determine shift type based on time
+      const startHour = new Date(firstOrder.created_at).getHours()
+      let shiftType = 'morning'
+      if (startHour >= 14 && startHour < 22) {
+        shiftType = 'evening'
+      } else if (startHour >= 22 || startHour < 6) {
+        shiftType = 'night'
+      }
+
+      const summary: ShiftSummary = {
+        shift_id: `generated_${cashierName.replace(/\s+/g, '_')}_${Date.now()}`,
+        shift_name: getShiftTypeName(shiftType),
+        cashier_name: cashierName,
+        start_time: firstOrder.created_at,
+        end_time: lastOrder.created_at,
+        total_orders: cashierOrders.length,
+        total_sales: cashierOrders.reduce((sum, order) => sum + Number(order.total_price || 0), 0),
+        orders_by_type: {
+          "dine-in": cashierOrders.filter(o => o.order_type === "dine-in").length,
+          takeaway: cashierOrders.filter(o => o.order_type === "takeaway").length,
+          delivery: cashierOrders.filter(o => o.order_type === "delivery").length,
+          cafe: cashierOrders.filter(o => o.order_type === "cafe").length,
+        },
+        orders_by_status: {
+          pending: cashierOrders.filter(o => o.status === "pending").length,
+          completed: cashierOrders.filter(o => o.status === "completed").length,
+          cancelled: cashierOrders.filter(o => o.status === "cancelled").length,
+        },
+        orders_by_payment: {
+          cash: cashierOrders.filter(o => o.payment_method === "cash").length,
+          card: cashierOrders.filter(o => o.payment_method === "card").length,
+        },
+        average_order_value: cashierOrders.length > 0 ? 
+          cashierOrders.reduce((sum, order) => sum + Number(order.total_price || 0), 0) / cashierOrders.length : 0,
+        is_active: true, // Assume all generated shifts are active for today
+        orders: cashierOrders // Store the actual orders for display
+      }
+      
+      summaries.push(summary)
+      shiftCounter++
+    })
+
+    console.log(`✅ Generated ${summaries.length} shift summaries from orders`)
+    
+    // Debug: Log generated summaries
+    summaries.forEach((summary, index) => {
+      console.log(`📊 Shift ${index + 1}:`, {
+        shift_id: summary.shift_id,
+        cashier_name: summary.cashier_name,
+        total_orders: summary.total_orders,
+        total_sales: summary.total_sales,
+        orders_by_type: summary.orders_by_type,
+        orders_by_status: summary.orders_by_status,
+        orders_by_payment: summary.orders_by_payment,
+      })
+    })
+    
+    return summaries
+  }
+
+  // Helper function to process shifts into summaries
+  const processShiftsToSummaries = async (shifts: any[]): Promise<ShiftSummary[]> => {
+    const summaries: ShiftSummary[] = []
+    
+    for (const shift of shifts) {
+      try {
+        // Try to get detailed summary from backend first
+        const summaryResponse = await fetch(`${API_BASE_URL}/shifts/summary/${shift.shift_id}`, {
+          headers: {
+            Authorization: `Bearer ${localStorage.getItem("authToken") || ""}`,
+          },
+        })
+
+        if (summaryResponse.ok) {
+          const summaryResult = await summaryResponse.json()
+          if (summaryResult.success && summaryResult.data) {
+            // Map backend summary to frontend format
+            const backendSummary = summaryResult.data
+            const summary: ShiftSummary = {
+              shift_id: backendSummary.shift_id,
+              shift_name: getShiftTypeName(backendSummary.shift_type),
+              cashier_name: backendSummary.cashiers?.map((c: any) => c.username).join(', ') || 'غير محدد',
+              start_time: backendSummary.start_time,
+              end_time: backendSummary.end_time,
+              total_orders: backendSummary.total_orders || 0,
+              total_sales: backendSummary.total_revenue || 0,
+              orders_by_type: {
+                "dine-in": 0, // Will be calculated from orders if not provided
+                takeaway: 0,
+                delivery: 0,
+                cafe: backendSummary.cafe_revenue ? Math.round(backendSummary.cafe_revenue / (backendSummary.total_revenue / backendSummary.total_orders || 1)) : 0,
+              },
+              orders_by_status: {
+                pending: 0, // Will be calculated from orders if not provided
+                completed: backendSummary.total_orders || 0,
+                cancelled: 0,
+              },
+              orders_by_payment: {
+                cash: 0, // Will be calculated from orders if not provided
+                card: 0,
+              },
+              average_order_value: backendSummary.total_orders > 0 ? 
+                backendSummary.total_revenue / backendSummary.total_orders : 0,
+              is_active: !backendSummary.end_time || !shift.is_closed
+            }
+            summaries.push(summary)
+            continue
+          }
+        }
+
+        // Fallback: create summary from basic shift data and orders
+        console.log(`📊 Creating manual summary for shift ${shift.shift_id}`)
+        
+        const orders = await fetchOrders()
+        const shiftOrders = orders.filter(order => 
+          order.shift?.shift_id === shift.shift_id ||
+          (order.created_at && new Date(order.created_at).toDateString() === new Date(shift.start_time || shift.created_at).toDateString())
+        )
+
+        const summary: ShiftSummary = {
+          shift_id: shift.shift_id,
+          shift_name: getShiftTypeName(shift.shift_type) || `وردية ${shift.shift_id.slice(-4)}`,
+          cashier_name: getCashierName(shift) || 'غير محدد',
+          start_time: shift.start_time || shift.created_at,
+          end_time: shift.end_time,
+          total_orders: shiftOrders.length,
+          total_sales: shiftOrders.reduce((sum, order) => sum + normalizePrice(order.total_price), 0),
+          orders_by_type: {
+            "dine-in": shiftOrders.filter(o => o.order_type === "dine-in").length,
+            takeaway: shiftOrders.filter(o => o.order_type === "takeaway").length,
+            delivery: shiftOrders.filter(o => o.order_type === "delivery").length,
+            cafe: shiftOrders.filter(o => o.order_type === "cafe").length,
+          },
+          orders_by_status: {
+            pending: shiftOrders.filter(o => o.status === "pending").length,
+            completed: shiftOrders.filter(o => o.status === "completed").length,
+            cancelled: shiftOrders.filter(o => o.status === "cancelled").length,
+          },
+          orders_by_payment: {
+            cash: shiftOrders.filter(o => o.payment_method === "cash").length,
+            card: shiftOrders.filter(o => o.payment_method === "card").length,
+          },
+          average_order_value: shiftOrders.length > 0 ? 
+            shiftOrders.reduce((sum, order) => sum + normalizePrice(order.total_price), 0) / shiftOrders.length : 0,
+          is_active: !shift.end_time && !shift.is_closed
+        }
+        summaries.push(summary)
+        
+      } catch (error) {
+        console.warn(`⚠️ Failed to get summary for shift ${shift.shift_id}:`, error)
+      }
+    }
+
+    console.log(`✅ Processed ${summaries.length} shift summaries`)
+    return summaries
+  }
+
+  // Helper function to get shift type name in Arabic
+  const getShiftTypeName = (shiftType: string): string => {
+    switch (shiftType?.toLowerCase()) {
+      case 'morning':
+        return 'وردية صباحية'
+      case 'evening':
+      case 'night':
+        return 'وردية مسائية'
+      case 'full_day':
+        return 'وردية كاملة'
+      default:
+        return shiftType || 'وردية غير محددة'
+    }
+  }
+
+  // Helper function to get cashier name from shift
+  const getCashierName = (shift: any): string => {
+    if (shift.opened_by_user?.username) return shift.opened_by_user.username
+    if (shift.opened_by_user?.full_name) return shift.opened_by_user.full_name
+    if (shift.cashier?.username) return shift.cashier.username
+    if (shift.cashier?.full_name) return shift.cashier.full_name
+    if (shift.workers?.length > 0) {
+      return shift.workers.map((w: any) => w.username || w.full_name || w.name).filter(Boolean).join(', ')
+    }
+    return 'غير محدد'
+  }
+
   // Calculate cashier activities from orders
   const calculateCashierActivities = (orders: Order[]): CashierActivity[] => {
     const cashierMap = new Map<string, CashierActivity>()
@@ -452,6 +827,7 @@ export default function MonitoringPageAPIFixed() {
             "dine-in": 0,
             takeaway: 0,
             delivery: 0,
+            cafe: 0,
           },
         })
       }
@@ -459,7 +835,12 @@ export default function MonitoringPageAPIFixed() {
       const activity = cashierMap.get(cashierId)!
       activity.ordersToday += 1
       activity.totalSales += normalizePrice(order.total_price)
-      activity.orderTypes[order.order_type] += 1
+      
+      // Safely handle order type assignment
+      if (order.order_type === "dine-in" || order.order_type === "takeaway" || 
+          order.order_type === "delivery" || order.order_type === "cafe") {
+        activity.orderTypes[order.order_type] += 1
+      }
 
       // Update last order time if this order is more recent
       if (new Date(order.created_at) > new Date(activity.lastOrderTime)) {
@@ -485,11 +866,12 @@ export default function MonitoringPageAPIFixed() {
       console.log("🚀 Loading all monitoring data from API...")
 
       // Fetch all data in parallel
-      const [orders, stats, cancelled, lowStock] = await Promise.all([
+      const [orders, stats, cancelled, lowStock, shifts] = await Promise.all([
         fetchOrders(),
         fetchOrderStats(),
         fetchCancelledOrders(),
         fetchLowStockItems(),
+        fetchShiftSummaries(),
       ])
 
       // Set orders
@@ -504,6 +886,9 @@ export default function MonitoringPageAPIFixed() {
 
       // Set low stock items
       setLowStockItems(lowStock)
+
+      // Set shift summaries
+      setShiftSummaries(shifts)
 
       // Calculate cashier activities
       const activities = calculateCashierActivities(orders)
@@ -642,6 +1027,7 @@ export default function MonitoringPageAPIFixed() {
         <TabsList className="mb-4">
           <TabsTrigger value="live">المراقبة المباشرة</TabsTrigger>
           <TabsTrigger value="cashiers">نشاط الكاشيرز</TabsTrigger>
+          <TabsTrigger value="shift-summary">ملخص الورديات</TabsTrigger>
           <TabsTrigger value="cancelled">الطلبات الملغاة</TabsTrigger>
           <TabsTrigger value="inventory">المخزون</TabsTrigger>
           <TabsTrigger value="cafe-orders">طلبات الكافية</TabsTrigger>
@@ -879,7 +1265,7 @@ export default function MonitoringPageAPIFixed() {
 
                       <Separator className="my-3" />
 
-                      <div className="grid grid-cols-3 gap-4 text-center">
+                      <div className="grid grid-cols-4 gap-4 text-center">
                         <div key="dine-in">
                           <div className="text-lg font-semibold text-blue-600">{activity.orderTypes["dine-in"]}</div>
                           <p className="text-xs text-muted-foreground">تناول في المطعم</p>
@@ -892,7 +1278,318 @@ export default function MonitoringPageAPIFixed() {
                           <div className="text-lg font-semibold text-purple-600">{activity.orderTypes.delivery}</div>
                           <p className="text-xs text-muted-foreground">توصيل</p>
                         </div>
+                        <div key="cafe">
+                          <div className="text-lg font-semibold text-orange-600">{activity.orderTypes.cafe}</div>
+                          <p className="text-xs text-muted-foreground">كافية</p>
+                        </div>
                       </div>
+                    </motion.div>
+                  ))}
+                </div>
+              )}
+            </CardContent>
+          </Card>
+        </TabsContent>
+
+        <TabsContent value="shift-summary" className="m-0 space-y-6">
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <Coffee className="w-6 h-6" />
+                ملخص الورديات اليوم
+              </CardTitle>
+            </CardHeader>
+            <CardContent>
+              {loading ? (
+                <div className="text-center py-8 text-muted-foreground">
+                  <RefreshCw className="w-8 h-8 mx-auto mb-4 animate-spin opacity-50" />
+                  <p>جاري تحميل ملخصات الورديات...</p>
+                </div>
+              ) : shiftSummaries.length === 0 ? (
+                <div className="text-center py-8 text-muted-foreground">
+                  <Coffee className="w-12 h-12 mx-auto mb-4 opacity-50" />
+                  <p>لا توجد ورديات نشطة اليوم</p>
+                </div>
+              ) : (
+                <div className="space-y-6">
+                  {shiftSummaries.map((shift, index) => (
+                    <motion.div
+                      key={shift.shift_id}
+                      initial={{ opacity: 0, y: 20 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      transition={{ delay: index * 0.1 }}
+                      className={`border rounded-lg p-6 ${
+                        shift.is_active 
+                          ? "bg-gradient-to-r from-green-50 to-blue-50 border-green-200" 
+                          : "bg-gradient-to-r from-gray-50 to-slate-50 border-gray-200"
+                      }`}
+                    >
+                      {/* Shift Header */}
+                      <div className="flex items-center justify-between mb-4">
+                        <div className="flex items-center gap-3">
+                          <div className={`h-12 w-12 rounded-full flex items-center justify-center ${
+                            shift.is_active ? "bg-green-100" : "bg-gray-100"
+                          }`}>
+                            <Coffee className={`h-6 w-6 ${
+                              shift.is_active ? "text-green-600" : "text-gray-600"
+                            }`} />
+                          </div>
+                          <div>
+                            <h3 className="font-bold text-lg">{shift.shift_name}</h3>
+                            <p className="text-sm text-muted-foreground">
+                              الكاشير: {shift.cashier_name}
+                            </p>
+                            <p className="text-xs text-muted-foreground">
+                              بدأت: {new Date(shift.start_time).toLocaleTimeString('ar-EG', {
+                                hour: '2-digit',
+                                minute: '2-digit',
+                              })}
+                              {shift.end_time && (
+                                <> - انتهت: {new Date(shift.end_time).toLocaleTimeString('ar-EG', {
+                                  hour: '2-digit',
+                                  minute: '2-digit',
+                                })}</>
+                              )}
+                            </p>
+                          </div>
+                        </div>
+                        <div className="text-right">
+                          <div className="text-2xl font-bold text-green-600">
+                            {formatPrice(shift.total_sales)}
+                          </div>
+                          <p className="text-sm text-muted-foreground">
+                            {shift.total_orders} طلب
+                          </p>
+                          <Badge variant={shift.is_active ? "default" : "secondary"} className="mt-1">
+                            {shift.is_active ? "نشطة" : "منتهية"}
+                          </Badge>
+                        </div>
+                      </div>
+
+                      <Separator className="my-4" />
+
+                      {/* Statistics Grid */}
+                      <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-4">
+                        <div className="text-center">
+                          <div className="text-lg font-bold text-blue-600">
+                            {shift.orders_by_type["dine-in"]}
+                          </div>
+                          <p className="text-xs text-muted-foreground">تناول في المطعم</p>
+                        </div>
+                        <div className="text-center">
+                          <div className="text-lg font-bold text-green-600">
+                            {shift.orders_by_type.takeaway}
+                          </div>
+                          <p className="text-xs text-muted-foreground">تيك اواي</p>
+                        </div>
+                        <div className="text-center">
+                          <div className="text-lg font-bold text-purple-600">
+                            {shift.orders_by_type.delivery}
+                          </div>
+                          <p className="text-xs text-muted-foreground">توصيل</p>
+                        </div>
+                        <div className="text-center">
+                          <div className="text-lg font-bold text-orange-600">
+                            {shift.orders_by_type.cafe}
+                          </div>
+                          <p className="text-xs text-muted-foreground">كافية</p>
+                        </div>
+                      </div>
+
+                      {/* Payment & Status Summary */}
+                      <div className="grid grid-cols-2 md:grid-cols-3 gap-4 mb-4">
+                        <div className="bg-white p-3 rounded-lg border">
+                          <h4 className="font-medium text-sm mb-2">طرق الدفع</h4>
+                          <div className="space-y-1">
+                            <div className="flex justify-between">
+                              <span className="text-xs text-muted-foreground">نقدي:</span>
+                              <span className="text-xs font-medium">{shift.orders_by_payment.cash}</span>
+                            </div>
+                            <div className="flex justify-between">
+                              <span className="text-xs text-muted-foreground">كارت:</span>
+                              <span className="text-xs font-medium">{shift.orders_by_payment.card}</span>
+                            </div>
+                          </div>
+                        </div>
+                        <div className="bg-white p-3 rounded-lg border">
+                          <h4 className="font-medium text-sm mb-2">حالة الطلبات</h4>
+                          <div className="space-y-1">
+                            <div className="flex justify-between">
+                              <span className="text-xs text-muted-foreground">مكتملة:</span>
+                              <span className="text-xs font-medium text-green-600">{shift.orders_by_status.completed}</span>
+                            </div>
+                            <div className="flex justify-between">
+                              <span className="text-xs text-muted-foreground">قيد التنفيذ:</span>
+                              <span className="text-xs font-medium text-yellow-600">{shift.orders_by_status.pending}</span>
+                            </div>
+                            <div className="flex justify-between">
+                              <span className="text-xs text-muted-foreground">ملغاة:</span>
+                              <span className="text-xs font-medium text-red-600">{shift.orders_by_status.cancelled}</span>
+                            </div>
+                          </div>
+                        </div>
+                        <div className="bg-white p-3 rounded-lg border">
+                          <h4 className="font-medium text-sm mb-2">الأداء</h4>
+                          <div className="space-y-1">
+                            <div className="flex justify-between">
+                              <span className="text-xs text-muted-foreground">متوسط الطلب:</span>
+                              <span className="text-xs font-medium">{formatPrice(shift.average_order_value)}</span>
+                            </div>
+                            <div className="flex justify-between">
+                              <span className="text-xs text-muted-foreground">معدل الإكمال:</span>
+                              <span className="text-xs font-medium">
+                                {shift.total_orders > 0 
+                                  ? Math.round((shift.orders_by_status.completed / shift.total_orders) * 100)
+                                  : 0}%
+                              </span>
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* Orders Summary */}
+                      {(() => {
+                        // Get orders for this shift - use stored orders if available, otherwise filter liveOrders
+                        let shiftOrders: Order[] = []
+                        
+                        if (shift.orders && shift.orders.length > 0) {
+                          // Use stored orders from generated shift
+                          shiftOrders = shift.orders
+                        } else {
+                          // Fallback to filtering liveOrders by cashier name and time range
+                          shiftOrders = liveOrders.filter(order => {
+                            const orderCashier = order.cashier?.full_name || order.cashier_name || order.user?.full_name || "مستخدم غير معروف"
+                            const orderTime = new Date(order.created_at)
+                            const shiftStart = new Date(shift.start_time)
+                            const shiftEnd = shift.end_time ? new Date(shift.end_time) : new Date()
+                            
+                            return orderCashier === shift.cashier_name && 
+                                   orderTime >= shiftStart && orderTime <= shiftEnd
+                          })
+                        }
+
+                        // Calculate item summaries
+                        const itemSummary = new Map<string, {
+                          name: string,
+                          quantity: number,
+                          totalPrice: number,
+                          orders: number
+                        }>()
+
+                        shiftOrders.forEach(order => {
+                          if (order.items && Array.isArray(order.items)) {
+                            order.items.forEach(item => {
+                              const normalizedItem = normalizeOrderItem(item)
+                              const itemKey = `${normalizedItem.productName}-${normalizedItem.sizeName}`
+                              
+                              if (!itemSummary.has(itemKey)) {
+                                itemSummary.set(itemKey, {
+                                  name: `${normalizedItem.productName} (${normalizedItem.sizeName})`,
+                                  quantity: 0,
+                                  totalPrice: 0,
+                                  orders: 0
+                                })
+                              }
+                              
+                              const summary = itemSummary.get(itemKey)!
+                              summary.quantity += normalizedItem.quantity
+                              summary.totalPrice += normalizedItem.quantity * normalizedItem.unitPrice
+                              summary.orders += 1
+                            })
+                          }
+                        })
+
+                        const topItems = Array.from(itemSummary.values())
+                          .sort((a, b) => b.quantity - a.quantity)
+                          .slice(0, 5) // Top 5 items
+
+                        return (
+                          <div className="space-y-4">
+                            {/* Items Summary */}
+                            {topItems.length > 0 && (
+                              <div className="bg-white p-4 rounded-lg border">
+                                <h4 className="font-medium text-sm mb-3 flex items-center gap-2">
+                                  <Package className="w-4 h-4" />
+                                  أكثر الأصناف طلباً
+                                </h4>
+                                <div className="space-y-2">
+                                  {topItems.map((item, idx) => (
+                                    <div key={idx} className="flex items-center justify-between p-2 bg-gray-50 rounded">
+                                      <div className="flex-1">
+                                        <p className="text-sm font-medium">{item.name}</p>
+                                        <p className="text-xs text-muted-foreground">
+                                          {item.quantity} قطعة في {item.orders} طلب
+                                        </p>
+                                      </div>
+                                      <div className="text-right">
+                                        <p className="text-sm font-bold text-green-600">
+                                          {formatPrice(item.totalPrice)}
+                                        </p>
+                                      </div>
+                                    </div>
+                                  ))}
+                                </div>
+                              </div>
+                            )}
+
+                            {/* Recent Orders */}
+                            {shiftOrders.length > 0 && (
+                              <div className="bg-white p-4 rounded-lg border">
+                                <h4 className="font-medium text-sm mb-3 flex items-center gap-2">
+                                  <Eye className="w-4 h-4" />
+                                  طلبات الوردية ({shiftOrders.length})
+                                </h4>
+                                <div className="space-y-2 max-h-60 overflow-y-auto">
+                                  {shiftOrders
+                                    .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())
+                                    .map((order) => (
+                                      <div key={order.order_id} className="flex items-center justify-between p-2 bg-gray-50 rounded text-sm">
+                                        <div className="flex-1">
+                                          <div className="flex items-center gap-2">
+                                            <span className="font-mono text-xs">#{order.order_id.slice(-6)}</span>
+                                            {getOrderTypeBadge(order.order_type)}
+                                            {getStatusBadge(order.status)}
+                                          </div>
+                                          <p className="text-xs text-muted-foreground mt-1">
+                                            {order.customer_name} • {new Date(order.created_at).toLocaleTimeString('ar-EG', {
+                                              hour: '2-digit',
+                                              minute: '2-digit'
+                                            })}
+                                          </p>
+                                        </div>
+                                        <div className="text-right">
+                                          <p className="font-bold text-green-600">{formatPrice(order.total_price)}</p>
+                                          {order.items && (
+                                            <p className="text-xs text-muted-foreground">
+                                              {order.items.length} صنف
+                                            </p>
+                                          )}
+                                        </div>
+                                      </div>
+                                    ))}
+                                </div>
+                              </div>
+                            )}
+                          </div>
+                        )
+                      })()}
+
+                      {/* Quick Actions for Active Shifts */}
+                      {shift.is_active && (
+                        <div className="flex gap-2 mt-4">
+                          <Button 
+                            variant="outline" 
+                            size="sm"
+                            onClick={() => {
+                              // Navigate to cashier dashboard or shift details
+                              console.log("View shift details:", shift.shift_id)
+                            }}
+                          >
+                            <Eye className="w-4 h-4 mr-2" />
+                            عرض التفاصيل
+                          </Button>
+                        </div>
+                      )}
                     </motion.div>
                   ))}
                 </div>

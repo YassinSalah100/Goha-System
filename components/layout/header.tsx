@@ -65,34 +65,46 @@ export function Header({ title }: HeaderProps) {
   }
 
   return (
-    <header className="border-b bg-white p-4">
+    <header className="border-b bg-gradient-to-r from-white via-orange-50/30 to-white p-4 shadow-lg backdrop-blur-sm">
       <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-2xl font-bold text-orange-700">{title}</h1>
-          <div className="flex items-center gap-2 text-sm text-muted-foreground">
-            <span>{formatDate(currentTime)}</span>
-            <span>•</span>
-            <span>{formatTime(currentTime)}</span>
-            <Badge variant="outline" className="capitalize mr-2">
-              {getShiftText(currentUser.shift)}
-            </Badge>
+        {/* Logo and Title Section */}
+        <div className="flex items-center gap-3 md:gap-4">
+          <div className="flex items-center gap-3 md:gap-4">
+            {/* Title and Info */}
+            <div>
+              <div className="flex items-center gap-2 md:gap-3 mb-1">
+                <h1 className="text-lg md:text-2xl font-bold bg-gradient-to-r from-orange-700 to-red-600 bg-clip-text text-transparent">
+                  {title}
+                </h1>
+                <div className="w-2 h-2 bg-green-500 rounded-full animate-pulse shadow-lg"></div>
+              </div>
+              <div className="flex items-center gap-1 md:gap-2 text-xs md:text-sm">
+                <span className="font-medium text-gray-600">{formatDate(currentTime)}</span>
+                <span className="text-orange-500 font-bold">•</span>
+                <span className="font-medium text-gray-600">{formatTime(currentTime)}</span>
+                <Badge variant="outline" className="capitalize ml-1 md:mr-2 bg-orange-50 text-orange-700 border-orange-200 hover:bg-orange-100 transition-colors font-medium text-xs">
+                  {getShiftText(currentUser.shift)}
+                </Badge>
+              </div>
+            </div>
           </div>
         </div>
 
-        <div className="flex items-center gap-4">
-          <div className="relative hidden md:block">
+        {/* Right Side - Search, Notifications, and User Menu */}
+        <div className="flex items-center gap-2 md:gap-4">
+          <div className="relative hidden lg:block">
             <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
-            <Input type="search" placeholder="البحث..." className="w-[200px] pl-8" />
+            <Input type="search" placeholder="البحث..." className="w-[180px] lg:w-[200px] pl-8" />
           </div>
 
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
-              <Button variant="outline" size="icon" className="relative">
+              <Button variant="outline" size="icon" className="relative hover:bg-orange-50 hover:border-orange-300 transition-colors">
                 <Bell className="h-4 w-4" />
                 <motion.span
                   initial={{ scale: 0 }}
                   animate={{ scale: 1 }}
-                  className="absolute -top-1 -right-1 flex h-4 w-4 items-center justify-center rounded-full bg-red-500 text-[10px] text-white"
+                  className="absolute -top-1 -right-1 flex h-4 w-4 items-center justify-center rounded-full bg-red-500 text-[10px] text-white font-bold shadow-lg"
                 >
                   3
                 </motion.span>

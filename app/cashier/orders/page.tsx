@@ -22,6 +22,7 @@ interface OrderItem {
   quantity: number
   unit_price: string | number
   notes?: string
+  special_instructions?: string
   product?: {
     product_id: string
     name: string
@@ -181,26 +182,24 @@ const normalizeOrderItem = (item: any): OrderItem => {
     unitPrice = String(item.unit_price || item.price || 0)
   }
 
-  // Better extras handling
+  // Robust extras handling for both flat and nested structures
   let processedExtras = []
   if (Array.isArray(item.extras) && item.extras.length > 0) {
     processedExtras = item.extras.map((extra: any) => {
-      let extraName = extra.name || extra.extra_name || extra.extraName
-      if (!extraName && extra.extra) {
-        extraName = extra.extra.name || (typeof extra.extra === "object" && extra.extra !== null && Object.prototype.hasOwnProperty.call(extra.extra, "extra_name") ? (extra.extra as any).extra_name : undefined)
-      }
-      if (!extraName && extra.extra_id) {
-        extraName = `إضافة ${extra.extra_id.slice(-4)}`
+      // Support both flat and nested (extra.extra) structures
+      const extraObj = extra.extra || extra
+      let extraName = extraObj.name || extraObj.extra_name || extraObj.extraName
+      if (!extraName && extraObj.extra_id) {
+        extraName = `إضافة ${extraObj.extra_id.slice(-4)}`
       }
       if (!extraName) {
         extraName = "[إضافة غير معروفة]"
       }
-
       return {
-        extra_id: extra.extra_id || extra.id || `extra_${Date.now()}_${Math.random().toString(36).substr(2, 5)}`,
+        extra_id: extraObj.extra_id || extraObj.id || `extra_${Date.now()}_${Math.random().toString(36).substr(2, 5)}`,
         name: extraName,
-        price: typeof extra.price === "string" ? Number.parseFloat(extra.price) : extra.price || 0,
-        quantity: extra.quantity || 1,
+        price: typeof extraObj.price === "string" ? Number.parseFloat(extraObj.price) : extraObj.price || 0,
+        quantity: extraObj.quantity ?? 1,
       }
     })
   }
@@ -213,6 +212,7 @@ const normalizeOrderItem = (item: any): OrderItem => {
     unit_price: unitPrice,
     quantity: item.quantity || 0,
     extras: processedExtras,
+    extrasCount: processedExtras.length,
   }
 }
 
@@ -343,8 +343,8 @@ const fetchFromAPI = async (shiftId: string): Promise<Order[]> => {
           orders = Array.isArray(result.data.orders)
             ? result.data.orders
             : Array.isArray(result.data)
-            ? result.data
-            : []
+              ? result.data
+              : []
           console.log(`✅ Found ${orders.length} non-cafe orders`)
         }
       } else {
@@ -983,7 +983,18 @@ export default function ShiftAwareOrdersPage() {
                           {getOrderTypeBadge(order.order_type)}
                         </div>
                         <div className="text-right">
-                          <p className="font-bold text-lg text-green-600">{formatPrice(order.total_price)}</p>
+                          <p className="font-bold text-lg text-green-600">
+                            {formatPrice(
+                              order.items.reduce(
+                                (sum, item) =>
+                                  sum +
+                                  ((normalizePrice(item.unit_price) +
+                                    (item.extras?.reduce((eSum, extra) => eSum + normalizePrice(extra.price ?? 0), 0) || 0)) *
+                                    item.quantity),
+                                0
+                              )
+                            )}
+                          </p>
                           <p className="text-sm text-gray-500">
                             {new Date(order.created_at).toLocaleDateString()} -{" "}
                             {new Date(order.created_at).toLocaleTimeString()}
@@ -1005,44 +1016,128 @@ export default function ShiftAwareOrdersPage() {
                         )}
                       </div>
 
-                      {/* Order Items */}
-                      <div className="space-y-2 mb-3">
-                        <h4 className="font-medium text-sm text-gray-700">عناصر الطلب ({order.items?.length || 0}):</h4>
+                      {/* Order Details Section */}
+                      <div className="mb-3 border rounded-lg bg-gray-50 p-3">
+                        <h4 className="font-bold text-base text-blue-900 mb-2 border-b pb-1">تفاصيل الطلب</h4>
+                        <div className="w-full overflow-x-auto">
+                          <table className="min-w-full text-sm text-right">
+                            <thead>
+                              <tr className="bg-blue-100">
+                                <th className="py-1 px-2 font-semibold">المنتج</th>
+                                <th className="py-1 px-2 font-semibold">الحجم</th>
+                                <th className="py-1 px-2 font-semibold">الكمية</th>
+                                <th className="py-1 px-2 font-semibold">سعر الوحدة</th>
+                                <th className="py-1 px-2 font-semibold">إجمالي العناصر</th>
+                                <th className="py-1 px-2 font-semibold">الإضافات</th>
+                                <th className="py-1 px-2 font-semibold">ملاحظات خاصة</th>
+                              </tr>
+                            </thead>
+                            <tbody>
                         {order.items && order.items.length > 0 ? (
-                          order.items.map((item, index) => (
-                            <div
-                              key={`${order.order_id}-${item.order_item_id || index}`}
-                              className="flex justify-between items-center text-sm bg-gray-50 p-2 rounded"
-                            >
-                              <div className="flex-1">
-                                <span className="font-medium">{item.product_name}</span>
-                                {item.size_name && item.size_name !== "عادي" && (
-                                  <span className="text-gray-500 ml-2">({item.size_name})</span>
-                                )}
-                                <span className="text-gray-500 ml-2">x{item.quantity}</span>
-                                {item.extras && item.extras.length > 0 && (
-                                  <div className="text-blue-500 text-xs mt-1">
-                                    +{" "}
-                                    {item.extras
-                                      .map((extra) => {
-                                        const extraName = extra?.name || extra?.extra_name || "[إضافة غير معروفة]"
-                                        const extraPrice = extra?.price ? ` (${formatPrice(extra.price)})` : ""
-                                        return `${extraName}${extraPrice}`
-                                      })
-                                      .join(", ")}
+                                order.items.map((item, index) => {
+                                  const itemBaseTotal = normalizePrice(item.unit_price) * item.quantity;
+                                  const extrasTotal = (item.extras?.reduce((sum, extra) => sum + normalizePrice(extra.price ?? 0), 0) || 0) * item.quantity;
+                                  return (
+                                    <tr key={`${order.order_id}-${item.order_item_id || index}`} className="border-b last:border-b-0">
+                                      <td className="py-1 px-2 font-medium">{item.product_name}</td>
+                                      <td className="py-1 px-2">{item.size_name && item.size_name !== "عادي" ? item.size_name : "-"}</td>
+                                      <td className="py-1 px-2">{item.quantity}</td>
+                                      <td className="py-1 px-2">{formatPrice(item.unit_price)}</td>
+                                      <td className="py-1 px-2 text-blue-700 font-semibold">{formatPrice(itemBaseTotal)}</td>
+                                      <td className="py-1 px-2">
+                                        {item.extras && item.extras.length > 0 ? (
+                                          <div>
+                                            <table className="min-w-[120px] w-full text-xs border border-blue-100 rounded">
+                                              <thead>
+                                                <tr className="bg-blue-50">
+                                                  <th className="px-1 py-0.5">الإضافة</th>
+                                                  <th className="px-1 py-0.5">سعر الوحدة</th>
+                                                  <th className="px-1 py-0.5">الكمية</th>
+                                                  <th className="px-1 py-0.5">الإجمالي</th>
+                                                </tr>
+                                              </thead>
+                                              <tbody>
+                                                {item.extras.map((extra, i) => (
+                                                  <tr key={i}>
+                                                    <td className="px-1 py-0.5">{extra.name}</td>
+                                                    <td className="px-1 py-0.5">{formatPrice(extra.price ?? 0)}</td>
+                                                    <td className="px-1 py-0.5">{extra.quantity ?? 1}</td>
+                                                    <td className="px-1 py-0.5 text-blue-700 font-semibold">{formatPrice(normalizePrice(extra.price ?? 0) * (extra.quantity ?? 1))}</td>
+                                                  </tr>
+                                                ))}
+                                              </tbody>
+                                            </table>
+                                            <div className="text-xs text-blue-700 font-semibold mt-1">المجموع: {formatPrice(item.extras.reduce((sum, extra) => sum + (normalizePrice(extra.price ?? 0) * (extra.quantity ?? 1)), 0))}</div>
+                                          </div>
+                                        ) : (
+                                          <span className="text-gray-400">لا يوجد</span>
+                                        )}
+                                      </td>
+                                      <td className="py-1 px-2">
+                                        <div className="text-xs text-yellow-700 bg-yellow-50 rounded px-2 py-1 border border-yellow-200 min-w-[80px]">
+                                          {(item.notes && item.notes.trim() !== "") ? (
+                                            <span>{item.notes}</span>
+                                          ) : (item.special_instructions && item.special_instructions.trim() !== "") ? (
+                                            <span>{item.special_instructions}</span>
+                                          ) : (
+                                            <span className="text-gray-400">لا يوجد</span>
+                                          )}
                                   </div>
-                                )}
+                                      </td>
+                                    </tr>
+                                  );
+                                })
+                              ) : (
+                                <tr>
+                                  <td colSpan={7} className="text-center text-gray-500 py-2">لا توجد عناصر في هذا الطلب</td>
+                                </tr>
+                              )}
+                            </tbody>
+                          </table>
                               </div>
-                              <span className="font-medium">
-                                {formatPrice(normalizePrice(item.unit_price) * item.quantity)}
+                      </div>
+
+                      {/* Summary Section */}
+                      <div className="mt-4 border-t pt-3 grid grid-cols-1 gap-1 text-sm bg-gray-50 rounded-lg p-3">
+                        <div className="flex justify-between">
+                          <span className="font-semibold">إجمالي العناصر (بدون الإضافات):</span>
+                          <span>
+                            {formatPrice(order.items.reduce((sum, item) => sum + normalizePrice(item.unit_price) * item.quantity, 0))}
                               </span>
                             </div>
-                          ))
-                        ) : (
-                          <div className="text-gray-500 text-sm bg-yellow-50 p-2 rounded">
-                            لا توجد عناصر في هذا الطلب
+                        <div className="flex justify-between">
+                          <span className="font-semibold">إجمالي الإضافات:</span>
+                          <span>
+                            {formatPrice(order.items.reduce((sum, item) => sum + (item.extras?.reduce((eSum, extra) => eSum + normalizePrice(extra.price ?? 0) * (extra.quantity ?? 1), 0) || 0), 0))}
+                          </span>
                           </div>
-                        )}
+                        <div className="flex justify-between text-base border-t pt-2 mt-2">
+                          <span className="font-bold text-green-700">الإجمالي الكلي:</span>
+                          <span className="font-bold text-green-700">
+                            {formatPrice(
+                              order.items.reduce(
+                                (sum, item) =>
+                                  sum +
+                                  ((normalizePrice(item.unit_price) +
+                                    (item.extras?.reduce((eSum, extra) => eSum + normalizePrice(extra.price ?? 0), 0) || 0)) *
+                                    item.quantity),
+                                0
+                              )
+                            )}
+                          </span>
+                        </div>
+                        <div className="flex justify-between">
+                          <span className="font-semibold">طريقة الدفع:</span>
+                          <span>{order.payment_method === "cash" ? "نقدي" : "كارت"}</span>
+                        </div>
+                        <div className="flex justify-between">
+                          <span className="font-semibold">الكاشير:</span>
+                          <span>{order.cashier_name || currentCashier}</span>
+                        </div>
+                        <div className="flex justify-between">
+                          <span className="font-semibold">تاريخ الطلب:</span>
+                          <span>{new Date(order.created_at).toLocaleDateString()} - {new Date(order.created_at).toLocaleTimeString()}</span>
+                        </div>
                       </div>
 
                       {/* Footer */}

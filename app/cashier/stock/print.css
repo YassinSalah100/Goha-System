@@ -1,0 +1,166 @@
+/* Print styles for stock report table */
+@media print {
+  /* Basic print settings */
+  @page {
+    size: portrait;
+    margin: 1cm;
+  }
+  
+  /* Font for Arabic */
+  @import url('https://fonts.googleapis.com/css2?family=Tajawal:wght@400;700&display=swap');
+  
+  /* Reset all elements */
+  * {
+    box-sizing: border-box !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    font-family: 'Tajawal', Arial, sans-serif !important;
+    font-size: 10pt !important;
+    line-height: 1.2 !important;
+    color: black !important;
+    text-shadow: none !important;
+    filter: none !important;
+    -ms-filter: none !important;
+    transition: none !important;
+  }
+  
+  /* Hide all elements except the report */
+  body > *:not(.print-container) {
+    display: none !important;
+  }
+  
+  /* Show and position report */
+  .print-container {
+    display: block !important;
+    width: 100% !important;
+    position: relative !important;
+    background-color: white !important;
+    box-shadow: none !important;
+    float: none !important;
+    overflow: visible !important;
+  }
+  
+  /* Card styling */
+  .card {
+    box-shadow: none !important;
+    border: none !important;
+  }
+  
+  /* Header styles */
+  .card-header {
+    background: white !important;
+    border-bottom: 2px solid black !important;
+    margin-bottom: 10px !important;
+    padding-bottom: 10px !important;
+    text-align: center !important;
+  }
+  
+  /* Title styles */
+  .card-title {
+    font-size: 16pt !important;
+    font-weight: bold !important;
+    margin-bottom: 5px !important;
+    text-align: center !important;
+  }
+  
+  /* Hide SVG icons */
+  svg {
+    display: none !important;
+  }
+  
+  /* Date info styling */
+  .print-date, .print-shift {
+    font-size: 10pt !important;
+    display: inline-block !important;
+    margin: 0 5px !important;
+  }
+  
+  /* Hide UI elements */
+  button, .print\\:hidden {
+    display: none !important;
+  }
+  
+  /* Table core styles */
+  table {
+    width: 100% !important;
+    border-collapse: collapse !important;
+    page-break-inside: auto !important;
+    margin-bottom: 15px !important;
+  }
+  
+  tr {
+    page-break-inside: avoid !important;
+    page-break-after: auto !important;
+  }
+  
+  th, td {
+    border: 1px solid black !important;
+    padding: 4px !important;
+    text-align: center !important;
+    vertical-align: middle !important;
+    font-size: 9pt !important;
+  }
+  
+  /* Headers */
+  th {
+    background-color: #eee !important;
+    font-weight: bold !important;
+    -webkit-print-color-adjust: exact !important;
+    color-adjust: exact !important;
+    print-color-adjust: exact !important;
+  }
+  
+  /* Title row */
+  .report-title-row th {
+    font-size: 12pt !important;
+    padding: 8px !important;
+    background-color: #ddd !important;
+    -webkit-print-color-adjust: exact !important;
+    print-color-adjust: exact !important;
+  }
+  
+  /* Summary row */
+  .summary-grid {
+    display: grid !important;
+    grid-template-columns: 1fr 1fr 1fr 1fr 1fr !important;
+    width: 100% !important;
+  }
+  
+  .summary-item {
+    text-align: center !important;
+    padding: 3px !important;
+  }
+  
+  .summary-item span:first-child {
+    font-weight: bold !important;
+    display: block !important;
+    margin-bottom: 2px !important;
+  }
+  
+  /* Special rows */
+  tr td[colspan] {
+    font-weight: bold !important;
+    background-color: #f5f5f5 !important;
+    -webkit-print-color-adjust: exact !important;
+    print-color-adjust: exact !important;
+  }
+  
+  /* Zebra striping */
+  tbody tr:nth-child(even) {
+    background-color: #f9f9f9 !important;
+    -webkit-print-color-adjust: exact !important;
+    print-color-adjust: exact !important;
+  }
+  
+  /* Logo */
+  .print-container::before {
+    content: "" !important;
+    display: block !important;
+    background-image: url('/images/eathrel.png') !important;
+    background-repeat: no-repeat !important;
+    background-position: center top !important;
+    background-size: 150px auto !important;
+    height: 80px !important;
+    margin-bottom: 10px !important;
+  }
+}

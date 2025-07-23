@@ -17,6 +17,7 @@ import {
   AlertTriangle,
   Coffee,
   BookOpen,
+  Receipt,
 } from "lucide-react"
 import Image from "next/image"
 import { cn } from "@/lib/utils"
@@ -57,7 +58,9 @@ export function Sidebar({ role }: SidebarProps) {
       { name: "المبيعات والطلبات", icon: ShoppingCart, path: "/cashier/sales" },
       { name: "طلبات الكافية", icon: Coffee, path: "/cashier/cafe-orders" },
       { name: "الطلبات المحفوظة", icon: Package, path: "/cashier/orders" },
+      { name: "إدارة المخزون", icon: Package, path: "/cashier/stock" },
       { name: "دفتر اليومية", icon: BookOpen, path: "/cashier/journal" },
+      { name: "حساب جحا", icon: Receipt, path: "/cashier/juha-balance" },
       { name: "طلبات الإلغاء", icon: AlertTriangle, path: "/cashier/cancel-requests" },
       { name: "إنهاء الوردية", icon: LogOut, path: "/cashier/end-shift" },
     ],

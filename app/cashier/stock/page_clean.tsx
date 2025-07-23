@@ -1,0 +1,603 @@
+"use client"
+import { useState, useEffect, useMemo } from "react"
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
+import { Button } from "@/components/ui/button"
+import { Input } from "@/components/ui/input"
+import { Badge } from "@/components/ui/badge"
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription } from "@/components/ui/dialog"
+import { Label } from "@/components/ui/label"
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
+import { Alert, AlertDescription } from "@/components/ui/alert"
+import {
+  Search,
+  AlertTriangle,
+  RefreshCw,
+  Edit,
+  Package,
+  TrendingDown,
+  TrendingUp,
+  Filter,
+  UtensilsCrossed,
+} from "lucide-react"
+import { useToast } from "@/hooks/use-toast"
+
+const API_BASE_URL = "http://172.162.241.242:3000/api/v1"
+
+interface StockItem {
+  stock_item_id: string
+  name: string
+  type: string
+  current_quantity: number
+  unit: string
+  minimum_value: number
+  last_updated_at: string
+  status: string
+  price?: number
+  supplier?: string
+}
+
+interface StockStats {
+  totalItems: number
+  lowStockItems: number
+  outOfStockItems: number
+  totalValue: number
+  criticalAlerts: number
+}
+
+// ENUMS for Stock
+export enum StockItemType {
+  INGREDIENT = 'مكونات',
+  EQUIPMENT = 'ادوات',
+  VEGETABLE = 'خضراوات',
+  FRUIT = 'فاكهة',
+  MEAT = 'لحم',
+  CHICKEN = 'فراخ',
+  FISH = 'سمك',
+  DRINK = 'مشروبات',
+  OTHER = 'اخري'
+}
+
+export enum StockItemStatus {
+  AVAILABLE = 'available',
+  LOWSTOCK = 'lowstock',
+  OUTOFSTOCK = 'outofstock'
+}
+
+const stockTypeOptions = [
+  { value: 'INGREDIENT', label: StockItemType.INGREDIENT },
+  { value: 'EQUIPMENT', label: StockItemType.EQUIPMENT },
+  { value: 'VEGETABLE', label: StockItemType.VEGETABLE },
+  { value: 'FRUIT', label: StockItemType.FRUIT },
+  { value: 'MEAT', label: StockItemType.MEAT },
+  { value: 'CHICKEN', label: StockItemType.CHICKEN },
+  { value: 'FISH', label: StockItemType.FISH },
+  { value: 'DRINK', label: StockItemType.DRINK },
+  { value: 'OTHER', label: StockItemType.OTHER },
+]
+
+const stockStatusLabels: Record<string, string> = {
+  [StockItemStatus.AVAILABLE]: 'متوفر',
+  [StockItemStatus.LOWSTOCK]: 'منخفض',
+  [StockItemStatus.OUTOFSTOCK]: 'نفذ المخزون',
+}
+
+export default function CashierStockPage() {
+  const [stockItems, setStockItems] = useState<StockItem[]>([])
+  const [lowStockItems, setLowStockItems] = useState<StockItem[]>([])
+  const [currentUser, setCurrentUser] = useState<any>(null)
+  const [searchQuery, setSearchQuery] = useState("")
+  const [loading, setLoading] = useState(true)
+  const [activeShiftId, setActiveShiftId] = useState<string | null>(null)
+
+  // Get current active shift ID - ONLY use stored user data to avoid API errors
+  const getCurrentActiveShift = (): string => {
+    try {
+      // ONLY use stored user's shift data - no API calls to avoid 500 errors
+      const storedUser = JSON.parse(localStorage.getItem("currentUser") || "{}")
+      
+      if (storedUser?.shift?.shift_id) {
+        console.log("📊 Using cashier's current shift ID:", storedUser.shift.shift_id)
+        setActiveShiftId(storedUser.shift.shift_id)
+        return storedUser.shift.shift_id
+      }
+      
+      // If no shift in stored user, use user ID as shift reference
+      if (storedUser?.user_id || storedUser?.id) {
+        const userId = storedUser.user_id || storedUser.id
+        console.log("📊 Using user ID as shift reference:", userId)
+        setActiveShiftId(userId)
+        return userId
+      }
+    } catch (error) {
+      console.warn("⚠️ Could not get user shift data:", error)
+    }
+    
+    // Final fallback - create a temporary shift ID based on current time
+    const tempShiftId = `cashier_shift_${Date.now()}`
+    setActiveShiftId(tempShiftId)
+    console.log("📊 Using temporary shift ID:", tempShiftId)
+    return tempShiftId
+  }
+
+  const [showUpdateDialog, setShowUpdateDialog] = useState(false)
+  const [selectedItem, setSelectedItem] = useState<StockItem | null>(null)
+  const [stockStats, setStockStats] = useState<StockStats>({
+    totalItems: 0,
+    lowStockItems: 0,
+    outOfStockItems: 0,
+    totalValue: 0,
+    criticalAlerts: 0,
+  })
+
+  const [updateQuantity, setUpdateQuantity] = useState(0)
+  const [updateType, setUpdateType] = useState<"add" | "reduce">("add")
+  const [typeFilter, setTypeFilter] = useState<string>("all")
+
+  const { toast } = useToast()
+
+  // Enhanced stock status calculation
+  const getStockStatus = (item: StockItem) => {
+    const currentQty = Number(item.current_quantity) || 0
+    const minQty = Number(item.minimum_value) || 0
+    if (currentQty <= 0) return StockItemStatus.OUTOFSTOCK
+    if (currentQty <= minQty) return StockItemStatus.LOWSTOCK
+    return StockItemStatus.AVAILABLE
+  }
+
+  // Enhanced stock status badge
+  const getStatusBadge = (item: StockItem) => {
+    const status = getStockStatus(item)
+    switch (status) {
+      case StockItemStatus.OUTOFSTOCK:
+        return (
+          <Badge variant="destructive" className="bg-red-100 text-red-800 border-red-300 font-medium">
+            <AlertTriangle className="w-3 h-3 mr-1" />
+            {stockStatusLabels[StockItemStatus.OUTOFSTOCK]}
+          </Badge>
+        )
+      case StockItemStatus.LOWSTOCK:
+        return (
+          <Badge variant="outline" className="bg-amber-100 text-amber-800 border-amber-300 font-medium">
+            <TrendingDown className="w-3 h-3 mr-1" />
+            {stockStatusLabels[StockItemStatus.LOWSTOCK]}
+          </Badge>
+        )
+      default:
+        return (
+          <Badge variant="default" className="bg-green-100 text-green-800 border-green-300 font-medium">
+            <TrendingUp className="w-3 h-3 mr-1" />
+            {stockStatusLabels[StockItemStatus.AVAILABLE]}
+          </Badge>
+        )
+    }
+  }
+
+  // Calculate comprehensive stock statistics
+  const calculateStockStats = (items: StockItem[]) => {
+    if (!Array.isArray(items)) {
+      setStockStats({
+        totalItems: 0,
+        lowStockItems: 0,
+        outOfStockItems: 0,
+        totalValue: 0,
+        criticalAlerts: 0,
+      })
+      return
+    }
+    
+    const stats = items.reduce(
+      (acc, item) => {
+        const status = getStockStatus(item)
+        const itemValue = (item.price || 0) * item.current_quantity
+
+        acc.totalItems += 1
+        acc.totalValue += itemValue
+
+        if (status === StockItemStatus.OUTOFSTOCK) acc.outOfStockItems += 1
+        if (status === StockItemStatus.LOWSTOCK || status === StockItemStatus.OUTOFSTOCK) acc.lowStockItems += 1
+        if (status === StockItemStatus.OUTOFSTOCK || status === StockItemStatus.LOWSTOCK) acc.criticalAlerts += 1
+
+        return acc
+      },
+      {
+        totalItems: 0,
+        lowStockItems: 0,
+        outOfStockItems: 0,
+        totalValue: 0,
+        criticalAlerts: 0,
+      },
+    )
+
+    setStockStats(stats)
+  }
+
+  useEffect(() => {
+    if (typeof window !== "undefined") {
+      const user = JSON.parse(localStorage.getItem("currentUser") || "{}")
+      setCurrentUser(user)
+    }
+    fetchStockItems()
+    fetchLowStockItems()
+    // Initialize active shift for transactions
+    getCurrentActiveShift()
+  }, [])
+
+  useEffect(() => {
+    calculateStockStats(stockItems)
+  }, [stockItems])
+
+  const fetchStockItems = async () => {
+    try {
+      setLoading(true)
+      const response = await fetch(`${API_BASE_URL}/stock-items`)
+      if (!response.ok) throw new Error("Failed to fetch stock items")
+      const result = await response.json()
+
+      const items = result.data?.stockItems || []
+      setStockItems(items)
+    } catch (error) {
+      console.error("Fetch error:", error)
+      setStockItems([])
+      toast({
+        title: "خطأ",
+        description: "فشل في تحميل عناصر المخزون",
+        variant: "destructive",
+      })
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  const fetchLowStockItems = async () => {
+    try {
+      const response = await fetch(`${API_BASE_URL}/stock-items/low-stock`)
+      if (!response.ok) throw new Error("Failed to fetch low stock items")
+      const result = await response.json()
+
+      const items = Array.isArray(result) ? result : result.data || []
+      setLowStockItems(items)
+    } catch (error) {
+      console.error("Error fetching low stock items:", error)
+      setLowStockItems([])
+    }
+  }
+
+  // Filtered items memoized
+  const filteredStockItems = useMemo(() => {
+    if (typeFilter === "all") return stockItems
+    return stockItems.filter(item => {
+      const enumValue = Object.entries(StockItemType).find(([key, value]) => key === typeFilter)?.[1]
+      return item.type === enumValue || item.type === typeFilter
+    })
+  }, [stockItems, typeFilter])
+
+  const handleUpdateQuantity = async () => {
+    if (!selectedItem) return
+
+    try {
+      const newQuantity =
+        updateType === "add"
+          ? selectedItem.current_quantity + updateQuantity
+          : Math.max(0, selectedItem.current_quantity - updateQuantity)
+
+      // First, update the stock item
+      const response = await fetch(`${API_BASE_URL}/stock-items/${selectedItem.stock_item_id}`, {
+        method: "PUT",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          name: selectedItem.name,
+          type: selectedItem.type,
+          unit: selectedItem.unit,
+          current_quantity: newQuantity,
+          minimum_value: selectedItem.minimum_value,
+          status: selectedItem.status || "available",
+        }),
+      })
+
+      if (!response.ok) throw new Error("Failed to update stock item")
+
+      const result = await response.json()
+      const updatedItem = result.data
+
+      // Try to create a transaction record (optional - don't fail if it doesn't work)
+      try {
+        const currentShiftId = getCurrentActiveShift()
+
+        const transactionData = {
+          stock_item_id: selectedItem.stock_item_id,
+          type: updateType === "add" ? "in" : "out",
+          quantity: updateQuantity,
+          user_id: currentUser?.id || currentUser?.user_id,
+          shift_id: currentShiftId,
+          notes: `Stock ${updateType === "add" ? "addition" : "reduction"} for ${selectedItem.name}`,
+        }
+
+        const transactionResponse = await fetch(`${API_BASE_URL}/stock-transactions`, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify(transactionData),
+        })
+
+        if (!transactionResponse.ok) {
+          console.warn("Failed to create transaction record, continuing without it")
+        } else {
+          console.log("Transaction recorded successfully")
+        }
+      } catch (transactionError) {
+        console.warn("Error creating transaction, continuing without it:", transactionError)
+        // Don't fail the main operation if transaction creation fails
+      }
+
+      setStockItems(stockItems.map((item) => (item.stock_item_id === selectedItem.stock_item_id ? updatedItem : item)))
+
+      setShowUpdateDialog(false)
+      setSelectedItem(null)
+      setUpdateQuantity(0)
+
+      toast({
+        title: "نجح",
+        description: "تم تحديث الكمية بنجاح",
+      })
+
+      fetchLowStockItems()
+    } catch (error) {
+      toast({
+        title: "خطأ",
+        description: "فشل في تحديث الكمية",
+        variant: "destructive",
+      })
+    }
+  }
+
+  const openUpdateDialog = (item: StockItem) => {
+    setSelectedItem(item)
+    setUpdateQuantity(0)
+    setUpdateType("add")
+    setShowUpdateDialog(true)
+  }
+
+  // Filter items based on search query
+  const searchFilteredItems = useMemo(() => {
+    if (!searchQuery) return filteredStockItems
+    return filteredStockItems.filter(item =>
+      item.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      item.type.toLowerCase().includes(searchQuery.toLowerCase())
+    )
+  }, [filteredStockItems, searchQuery])
+
+  if (!currentUser) return null
+
+  return (
+    <div className="min-h-screen w-full bg-gradient-to-br from-blue-50 via-white to-green-100 bg-fixed">
+      <div className="max-w-7xl mx-auto space-y-8 p-6">
+        {/* Header */}
+        <div className="text-center">
+          <h1 className="text-4xl font-bold text-gray-800 mb-2">إدارة المخزون - الكاشير</h1>
+          <p className="text-gray-600">متابعة وإدارة كميات المخزون</p>
+          {currentUser?.shift?.shift_name && (
+            <p className="text-sm text-blue-600 mt-2">
+              الوردية الحالية: {currentUser.shift.shift_name}
+            </p>
+          )}
+        </div>
+
+        {/* Stats Overview */}
+        <div className="grid grid-cols-1 md:grid-cols-5 gap-6">
+          <Card className="bg-gradient-to-br from-blue-500 to-blue-600 text-white">
+            <CardContent className="p-4">
+              <div className="flex items-center justify-between">
+                <div>
+                  <p className="text-blue-100 text-sm">إجمالي العناصر</p>
+                  <p className="text-2xl font-bold">{stockStats.totalItems}</p>
+                </div>
+                <Package className="w-8 h-8 text-blue-200" />
+              </div>
+            </CardContent>
+          </Card>
+
+          <Card className="bg-gradient-to-br from-amber-500 to-amber-600 text-white">
+            <CardContent className="p-4">
+              <div className="flex items-center justify-between">
+                <div>
+                  <p className="text-amber-100 text-sm">مخزون منخفض</p>
+                  <p className="text-2xl font-bold">{stockStats.lowStockItems}</p>
+                </div>
+                <TrendingDown className="w-8 h-8 text-amber-200" />
+              </div>
+            </CardContent>
+          </Card>
+
+          <Card className="bg-gradient-to-br from-red-500 to-red-600 text-white">
+            <CardContent className="p-4">
+              <div className="flex items-center justify-between">
+                <div>
+                  <p className="text-red-100 text-sm">نفذ المخزون</p>
+                  <p className="text-2xl font-bold">{stockStats.outOfStockItems}</p>
+                </div>
+                <AlertTriangle className="w-8 h-8 text-red-200" />
+              </div>
+            </CardContent>
+          </Card>
+
+          <Card className="bg-gradient-to-br from-green-500 to-green-600 text-white">
+            <CardContent className="p-4">
+              <div className="flex items-center justify-between">
+                <div>
+                  <p className="text-green-100 text-sm">القيمة الإجمالية</p>
+                  <p className="text-2xl font-bold">{stockStats.totalValue.toFixed(0)} ج.م</p>
+                </div>
+                <UtensilsCrossed className="w-8 h-8 text-green-200" />
+              </div>
+            </CardContent>
+          </Card>
+
+          <Card className="bg-gradient-to-br from-purple-500 to-purple-600 text-white">
+            <CardContent className="p-4">
+              <div className="flex items-center justify-between">
+                <div>
+                  <p className="text-purple-100 text-sm">تنبيهات حرجة</p>
+                  <p className="text-2xl font-bold">{stockStats.criticalAlerts}</p>
+                </div>
+                <AlertTriangle className="w-8 h-8 text-purple-200" />
+              </div>
+            </CardContent>
+          </Card>
+        </div>
+
+        {/* Filters and Search */}
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <Filter className="w-5 h-5 text-blue-600" />
+              البحث والتصفية
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+              <div className="relative">
+                <Search className="absolute left-3 top-3 h-4 w-4 text-gray-400" />
+                <Input
+                  placeholder="البحث عن عنصر..."
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                  className="pl-10"
+                />
+              </div>
+              <Select value={typeFilter} onValueChange={setTypeFilter}>
+                <SelectTrigger>
+                  <SelectValue placeholder="تصفية حسب النوع" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">جميع الأنواع</SelectItem>
+                  {stockTypeOptions.map(option => (
+                    <SelectItem key={option.value} value={option.value}>
+                      {option.label}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              <Button onClick={fetchStockItems} variant="outline">
+                <RefreshCw className="w-4 h-4 mr-2" />
+                تحديث
+              </Button>
+            </div>
+          </CardContent>
+        </Card>
+
+        {/* Stock Items Table */}
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <Package className="w-5 h-5 text-green-600" />
+              عناصر المخزون ({searchFilteredItems.length})
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            {loading ? (
+              <div className="flex items-center justify-center py-8">
+                <RefreshCw className="w-8 h-8 animate-spin text-blue-500" />
+                <span className="mr-2">جاري التحميل...</span>
+              </div>
+            ) : (
+              <div className="overflow-x-auto">
+                <table className="w-full border-collapse">
+                  <thead>
+                    <tr className="border-b">
+                      <th className="text-right p-3 font-semibold">العنصر</th>
+                      <th className="text-center p-3 font-semibold">النوع</th>
+                      <th className="text-center p-3 font-semibold">الكمية الحالية</th>
+                      <th className="text-center p-3 font-semibold">الحد الأدنى</th>
+                      <th className="text-center p-3 font-semibold">الوحدة</th>
+                      <th className="text-center p-3 font-semibold">الحالة</th>
+                      <th className="text-center p-3 font-semibold">الإجراءات</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {searchFilteredItems.map((item) => (
+                      <tr key={item.stock_item_id} className="border-b hover:bg-gray-50">
+                        <td className="p-3 font-medium">{item.name}</td>
+                        <td className="p-3 text-center">{item.type}</td>
+                        <td className="p-3 text-center">{item.current_quantity}</td>
+                        <td className="p-3 text-center">{item.minimum_value}</td>
+                        <td className="p-3 text-center">{item.unit}</td>
+                        <td className="p-3 text-center">{getStatusBadge(item)}</td>
+                        <td className="p-3 text-center">
+                          <div className="flex justify-center gap-2">
+                            <Button
+                              size="sm"
+                              onClick={() => openUpdateDialog(item)}
+                              className="bg-blue-500 hover:bg-blue-600"
+                            >
+                              <Edit className="w-4 h-4" />
+                            </Button>
+                          </div>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </CardContent>
+        </Card>
+
+        {/* Low Stock Alert */}
+        {lowStockItems.length > 0 && (
+          <Alert className="border-amber-200 bg-amber-50">
+            <AlertTriangle className="h-4 w-4 text-amber-600" />
+            <AlertDescription className="text-amber-800">
+              <strong>تنبيه:</strong> يوجد {lowStockItems.length} عناصر بمخزون منخفض تحتاج إلى إعادة تموين
+            </AlertDescription>
+          </Alert>
+        )}
+
+        {/* Update Quantity Dialog */}
+        <Dialog open={showUpdateDialog} onOpenChange={setShowUpdateDialog}>
+          <DialogContent>
+            <DialogHeader>
+              <DialogTitle>تحديث كمية المخزون</DialogTitle>
+              <DialogDescription>
+                {selectedItem?.name} - الكمية الحالية: {selectedItem?.current_quantity} {selectedItem?.unit}
+              </DialogDescription>
+            </DialogHeader>
+            <div className="space-y-4">
+              <div>
+                <Label>نوع العملية</Label>
+                <Select value={updateType} onValueChange={(value: "add" | "reduce") => setUpdateType(value)}>
+                  <SelectTrigger>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="add">إضافة</SelectItem>
+                    <SelectItem value="reduce">تقليل</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              <div>
+                <Label>الكمية</Label>
+                <Input
+                  type="number"
+                  value={updateQuantity}
+                  onChange={(e) => setUpdateQuantity(Number(e.target.value))}
+                  min="0"
+                />
+              </div>
+            </div>
+            <DialogFooter>
+              <Button onClick={handleUpdateQuantity} disabled={updateQuantity <= 0}>
+                تحديث
+              </Button>
+              <Button variant="outline" onClick={() => setShowUpdateDialog(false)}>
+                إلغاء
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+      </div>
+    </div>
+  )
+}

@@ -2,6 +2,7 @@ import type React from "react"
 import type { Metadata } from "next"
 import "./globals.css"
 import { ElectronMenuHandler } from "@/components/electron-menu-handler"
+import { SessionSync } from "@/components/SessionSync";
 
 export const metadata: Metadata = {
   title: "Restaurant Management System",
@@ -14,6 +15,11 @@ export default function RootLayout({
 }: {
   children: React.ReactNode
 }) {
+  // Add storage event listener to sync user session across tabs
+  // This useEffect is now only for the SessionSync component
+  // The main layout component does not need it.
+  // The SessionSync component will handle its own useEffect.
+
   return (
     <html lang="en" suppressHydrationWarning>
       <head>
@@ -24,6 +30,7 @@ export default function RootLayout({
       </head>
       <body suppressHydrationWarning>
         <ElectronMenuHandler />
+        <SessionSync />
         {children}
       </body>
     </html>

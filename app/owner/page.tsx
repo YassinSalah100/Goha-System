@@ -154,32 +154,41 @@ export default function OwnerDashboard() {
 
       if (todayResponse.ok) {
         const todayResult = await todayResponse.json()
-        if (todayResult.success && todayResult.data) {
-          todayRevenue = todayResult.data.reduce(
-            (sum: number, order: any) => sum + Number.parseFloat(order.total_price || 0),
-            0,
-          )
-        }
+        let todayOrders = Array.isArray(todayResult.data)
+          ? todayResult.data
+          : Array.isArray(todayResult.data.orders)
+            ? todayResult.data.orders
+            : []
+        todayRevenue = todayOrders.reduce(
+          (sum: number, order: any) => sum + Number.parseFloat(order.total_price || 0),
+          0,
+        )
       }
 
       if (weekResponse.ok) {
         const weekResult = await weekResponse.json()
-        if (weekResult.success && weekResult.data) {
-          weekRevenue = weekResult.data.reduce(
-            (sum: number, order: any) => sum + Number.parseFloat(order.total_price || 0),
-            0,
-          )
-        }
+        let weekOrders = Array.isArray(weekResult.data)
+          ? weekResult.data
+          : Array.isArray(weekResult.data.orders)
+            ? weekResult.data.orders
+            : []
+        weekRevenue = weekOrders.reduce(
+          (sum: number, order: any) => sum + Number.parseFloat(order.total_price || 0),
+          0,
+        )
       }
 
       if (monthResponse.ok) {
         const monthResult = await monthResponse.json()
-        if (monthResult.success && monthResult.data) {
-          monthRevenue = monthResult.data.reduce(
-            (sum: number, order: any) => sum + Number.parseFloat(order.total_price || 0),
-            0,
-          )
-        }
+        let monthOrders = Array.isArray(monthResult.data)
+          ? monthResult.data
+          : Array.isArray(monthResult.data.orders)
+            ? monthResult.data.orders
+            : []
+        monthRevenue = monthOrders.reduce(
+          (sum: number, order: any) => sum + Number.parseFloat(order.total_price || 0),
+          0,
+        )
       }
 
       return { todayRevenue, weekRevenue, monthRevenue }
@@ -196,10 +205,16 @@ export default function OwnerDashboard() {
       if (response.ok) {
         const result = await response.json()
         if (result.success && result.data) {
-          setRecentShifts(result.data.slice(0, 5)) // Get latest 5 shifts
+          // If result.data is an array, use it directly. If it's an object with a property, extract the array.
+          let shiftsArr = Array.isArray(result.data)
+            ? result.data
+            : Array.isArray(result.data.shifts)
+              ? result.data.shifts
+              : []
+          setRecentShifts(shiftsArr.slice(0, 5)) // Get latest 5 shifts
 
           // Count active shifts
-          const activeShifts = result.data.filter((shift: any) => shift.status === "active").length
+          const activeShifts = shiftsArr.filter((shift: any) => shift.status === "active").length
           return activeShifts
         }
       }
@@ -232,13 +247,21 @@ export default function OwnerDashboard() {
       const response = await fetch(`${API_BASE_URL}/stock-items`)
       if (response.ok) {
         const result = await response.json()
-        if (result.success && result.data) {
-          const inventoryValue = result.data.reduce((sum: number, item: any) => {
+        let itemsArr = Array.isArray(result.data)
+          ? result.data
+          : Array.isArray(result.data.stockItems)
+            ? result.data.stockItems
+            : []
+        if (itemsArr.length > 0) {
+          const inventoryValue = itemsArr.reduce((sum: number, item: any) => {
             const unitPrice = Number.parseFloat(item.unit_price || 0)
             const quantity = Number.parseInt(item.quantity || 0)
             return sum + unitPrice * quantity
           }, 0)
           return inventoryValue
+        } else {
+          console.error("fetchInventoryValue: result.data is not an array or stockItems is missing", result.data)
+          return 0
         }
       }
     } catch (error) {
@@ -466,49 +489,51 @@ export default function OwnerDashboard() {
       </motion.div>
 
       <div className="grid gap-4 md:grid-cols-2">
-        <Card>
-          <CardHeader>
-            <CardTitle>Recent Shifts</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="space-y-4">
-              {recentShifts.length > 0 ? (
-                recentShifts.map((shift) => (
-                  <div key={shift.shift_id} className="flex items-center justify-between bg-gray-50 p-3 rounded">
-                    <div>
-                      <p className="text-sm font-medium">{shift.shift_name || `Shift #${shift.shift_id.slice(-6)}`}</p>
-                      <p className="text-xs text-muted-foreground">{shift.cashier_name || "Unknown Cashier"}</p>
-                      <p className="text-xs text-muted-foreground">
-                        {new Date(shift.start_time).toLocaleDateString()} -
-                        {shift.end_time ? new Date(shift.end_time).toLocaleDateString() : "Active"}
-                      </p>
+        {currentUser?.role === "owner" && (
+          <Card>
+            <CardHeader>
+              <CardTitle>Recent Shifts</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <div className="space-y-4">
+                {recentShifts.length > 0 ? (
+                  recentShifts.map((shift) => (
+                    <div key={shift.shift_id} className="flex items-center justify-between bg-gray-50 p-3 rounded">
+                      <div>
+                        <p className="text-sm font-medium">{shift.shift_name || `Shift #${shift.shift_id.slice(-6)}`}</p>
+                        <p className="text-xs text-muted-foreground">{shift.cashier_name || "Unknown Cashier"}</p>
+                        <p className="text-xs text-muted-foreground">
+                          {new Date(shift.start_time).toLocaleDateString()} -
+                          {shift.end_time ? new Date(shift.end_time).toLocaleDateString() : "Active"}
+                        </p>
+                      </div>
+                      <div className="text-right">
+                        <p className="text-sm font-medium">{shift.total_revenue?.toFixed(2) || "0.00"} ج.م</p>
+                        <p className="text-xs text-muted-foreground">{shift.total_orders || 0} orders</p>
+                        <span
+                          className={`inline-flex items-center px-2 py-1 rounded-full text-xs font-medium ${
+                            shift.status === "active" ? "bg-green-100 text-green-800" : "bg-gray-100 text-gray-800"
+                          }`}
+                        >
+                          {shift.status}
+                        </span>
+                      </div>
                     </div>
-                    <div className="text-right">
-                      <p className="text-sm font-medium">{shift.total_revenue?.toFixed(2) || "0.00"} ج.م</p>
-                      <p className="text-xs text-muted-foreground">{shift.total_orders || 0} orders</p>
-                      <span
-                        className={`inline-flex items-center px-2 py-1 rounded-full text-xs font-medium ${
-                          shift.status === "active" ? "bg-green-100 text-green-800" : "bg-gray-100 text-gray-800"
-                        }`}
-                      >
-                        {shift.status}
-                      </span>
-                    </div>
-                  </div>
-                ))
-              ) : (
-                <p className="text-sm text-muted-foreground">No recent shifts found</p>
-              )}
-              <Button
-                variant="link"
-                className="w-full text-orange-600 mt-2"
-                onClick={() => router.push("/owner/shifts")}
-              >
-                View all shifts
-              </Button>
-            </div>
-          </CardContent>
-        </Card>
+                  ))
+                ) : (
+                  <p className="text-sm text-muted-foreground">No recent shifts found</p>
+                )}
+                <Button
+                  variant="link"
+                  className="w-full text-orange-600 mt-2"
+                  onClick={() => router.push("/owner/shifts")}
+                >
+                  View all shifts
+                </Button>
+              </div>
+            </CardContent>
+          </Card>
+        )}
 
         <Card>
           <CardHeader>

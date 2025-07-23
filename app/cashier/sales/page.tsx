@@ -361,12 +361,13 @@ export default function SalesPage() {
       })
       .filter(Boolean)
     const extrasPrice = validExtras.reduce((sum, extra) => sum + (extra!.price * extra!.quantity), 0)
-    const totalItemPrice = basePrice + extrasPrice
+    // FIX: Store only basePrice in item.price
+    // const totalItemPrice = basePrice + extrasPrice
 
     const newItem: CartItem = {
       id: `${currentItem.product_id}-${Date.now()}`,
       name: currentItem.name,
-      price: totalItemPrice,
+      price: basePrice, // FIX: Only base price
       basePrice: basePrice,
       quantity: itemQuantity,
       size: selectedSizeName,
@@ -412,7 +413,58 @@ export default function SalesPage() {
   }
 
   const calculateTotal = () => {
-    return cart.reduce((sum, item) => sum + item.price * item.quantity, 0)
+    // FIX: Calculate total as (basePrice * quantity) + sum of all extras (price * quantity)
+    return cart.reduce((sum, item) => {
+      const extrasTotal = item.extras?.reduce((eSum, extra) => eSum + (extra.price * extra.quantity), 0) || 0;
+      return sum + (item.basePrice * item.quantity) + extrasTotal;
+    }, 0);
+  }
+
+  // Get current active shift ID for proper transaction tracking - use existing backend routes
+  const getCurrentActiveShift = async (): Promise<string> => {
+    try {
+      // First, try to get stored user's shift data
+      const storedUser = JSON.parse(localStorage.getItem("currentUser") || "{}")
+      
+      if (storedUser?.shift?.shift_id) {
+        console.log("📊 Using cashier's current shift ID:", storedUser.shift.shift_id)
+        return storedUser.shift.shift_id
+      }
+      
+      // If no shift in stored user, try to get active shift from backend using existing routes
+      if (storedUser?.user_id || storedUser?.id) {
+        const userId = storedUser.user_id || storedUser.id
+        
+        try {
+          // Use existing route: GET /shifts/cashier/:cashierId
+          const response = await fetch(`${API_BASE_URL}/shifts/cashier/${userId}`)
+          if (response.ok) {
+            const result = await response.json()
+            const shifts = Array.isArray(result) ? result : result.data || []
+            
+            // Find the most recent open/active shift
+            const activeShift = shifts.find((shift: any) => 
+              shift.status === 'OPEN' || shift.status === 'open' || shift.status === 'ACTIVE'
+            )
+            
+            if (activeShift?.shift_id) {
+              console.log("📊 Found active shift from backend:", activeShift.shift_id)
+              return activeShift.shift_id
+            }
+          }
+        } catch (apiError) {
+          console.warn("⚠️ Could not fetch shifts from backend:", apiError)
+        }
+      }
+    } catch (error) {
+      console.warn("⚠️ Could not fetch active shift:", error)
+    }
+    
+    // Fallback to stored user's shift_id or default
+    const storedUser = JSON.parse(localStorage.getItem("currentUser") || "{}")
+    const fallbackShiftId = storedUser?.shift?.shift_id || `cashier_shift_${Date.now()}`
+    console.log("📊 Using fallback shift ID:", fallbackShiftId)
+    return fallbackShiftId
   }
 
   // FIXED: Complete rewrite of saveOrderToAPI with proper event timing
@@ -440,6 +492,9 @@ export default function SalesPage() {
       const uniqueOrderId = `order_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`
       console.log(`💾 Starting save process for order: ${uniqueOrderId}`)
 
+      // Get current active shift ID for proper tracking
+      const currentShiftId = await getCurrentActiveShift()
+
       // Create order data structure
       const orderData = {
         order_id: uniqueOrderId,
@@ -457,7 +512,8 @@ export default function SalesPage() {
           full_name: storedUser.full_name || storedUser.name || storedUser.username || "مستخدم غير معروف",
         },
         cashier_name: storedUser.full_name || storedUser.name || storedUser.username || "مستخدم غير معروف",
-        shift: storedUser.shift || { shift_id: `shift_${Date.now()}`, shift_name: "وردية افتراضية" },
+        shift: { shift_id: currentShiftId, shift_name: "وردية نشطة" },
+        shift_id: currentShiftId,
         items: cart.map((item) => ({
           order_item_id: item.id,
           quantity: item.quantity,
@@ -511,7 +567,7 @@ export default function SalesPage() {
 
         const apiPayloadBase = {
           cashier_id: storedUser.user_id,
-          shift_id: storedUser.shift?.shift_id || `shift_${Date.now()}`,
+          shift_id: currentShiftId,
           table_number: orderType === "dine-in" ? "1" : "TAKEAWAY",
           order_type: orderType,
           customer_name: customerName || "عميل عابر",
