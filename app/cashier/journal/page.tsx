@@ -164,14 +164,21 @@ interface CurrentUser {
 
 interface ShiftWorker {
   shift_worker_id: string
-  worker: Worker
-  shift: Shift
+  worker_id: string
+  shift_id: string
+  hourly_rate: number
   start_time: string
   end_time?: string
   hours_worked?: number
   calculated_salary?: number
   is_active: boolean
   created_at: string
+  // Worker details - these will be populated from a separate call or joined data
+  worker?: Worker
+  // Fallback fields in case worker object is not populated
+  worker_name?: string
+  worker_status?: string
+  worker_base_hourly_rate?: number
 }
 
 export default function SimpleRestaurantJournal() {
@@ -181,14 +188,12 @@ export default function SimpleRestaurantJournal() {
     amount: "",
     category: "",
   })
-
   const [editForm, setEditForm] = useState<FormData>({
     title: "",
     description: "",
     amount: "",
     category: "",
   })
-
   const [expenses, setExpenses] = useState<Expense[]>([])
   const [currentUser, setCurrentUser] = useState<CurrentUser | null>(null)
   const [activeShift, setActiveShift] = useState<Shift | null>(null)
@@ -202,40 +207,34 @@ export default function SimpleRestaurantJournal() {
   const [deletingExpense, setDeletingExpense] = useState<string | null>(null)
   const [editingExpense, setEditingExpense] = useState<Expense | null>(null)
   const [editDialogOpen, setEditDialogOpen] = useState(false)
-
   const [availableWorkers, setAvailableWorkers] = useState<Worker[]>([])
   const [shiftWorkers, setShiftWorkers] = useState<ShiftWorker[]>([])
   const [loadingWorkers, setLoadingWorkers] = useState(false)
   const [assigningWorker, setAssigningWorker] = useState<string | null>(null)
   const [endingWorker, setEndingWorker] = useState<string | null>(null)
-  // Store pending assigned workers with a timestamp
-  const [pendingWorkers, setPendingWorkers] = useState<{workerId: string, addedAt: number, sw: any}[]>([])
+  // Track the mapping between shift workers and actual workers
+  const [shiftWorkerMapping, setShiftWorkerMapping] = useState<Map<string, string>>(new Map())
 
   // Helper function to validate or format ID
   const ensureValidId = (id: any, fieldName: string): string => {
-    if (!id || id === 'undefined' || id === 'null') {
-      throw new Error(`${fieldName} مفقود`);
+    if (!id || id === "undefined" || id === "null") {
+      throw new Error(`${fieldName} مفقود`)
     }
-    
-    const idStr = String(id).trim();
-    
+    const idStr = String(id).trim()
     // Check if it's already a UUID format
-    const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+    const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
     if (uuidRegex.test(idStr)) {
-      return idStr;
+      return idStr
     }
-    
     // If it's a simple number or string, return as-is (let backend handle validation)
-    return idStr;
-  };
+    return idStr
+  }
 
   const validateForm = (formData: FormData, setErrorsFunc: (errors: FormErrors) => void): boolean => {
     const newErrors: FormErrors = {}
-
     if (!formData.title.trim()) {
       newErrors.title = arabicLabels.required_field
     }
-
     if (!formData.amount.trim()) {
       newErrors.amount = arabicLabels.required_field
     } else {
@@ -244,11 +243,9 @@ export default function SimpleRestaurantJournal() {
         newErrors.amount = arabicLabels.positive_number
       }
     }
-
     if (!formData.category) {
       newErrors.category = arabicLabels.required_field
     }
-
     setErrorsFunc(newErrors)
     return Object.keys(newErrors).length === 0
   }
@@ -278,7 +275,6 @@ export default function SimpleRestaurantJournal() {
           status: user.role || user.status,
         }
         setCurrentUser(mappedUser)
-
         if (user.shift) {
           const mappedShift = {
             shift_id: user.shift.shift_id,
@@ -303,7 +299,6 @@ export default function SimpleRestaurantJournal() {
   const fetchWithErrorHandling = async (url: string, options: RequestInit = {}) => {
     try {
       console.log(`Making request to: ${url}`, options)
-
       const response = await fetch(url, {
         ...options,
         headers: {
@@ -312,16 +307,13 @@ export default function SimpleRestaurantJournal() {
           ...options.headers,
         },
       })
-
       console.log(`Response from ${url}:`, {
         status: response.status,
         statusText: response.statusText,
         ok: response.ok,
       })
-
       const responseData = await response.json()
       console.log(`Response data from ${url}:`, responseData)
-
       if (!response.ok) {
         const errorMessage =
           responseData.message ||
@@ -330,7 +322,6 @@ export default function SimpleRestaurantJournal() {
           `HTTP ${response.status}: ${response.statusText}`
         throw new Error(errorMessage)
       }
-
       return responseData
     } catch (error) {
       console.error(`API Error for ${url}:`, error)
@@ -342,7 +333,23 @@ export default function SimpleRestaurantJournal() {
     setLoadingWorkers(true)
     try {
       const responseData = await fetchWithErrorHandling(`${API_BASE_URL}/workers`)
-      const workers = responseData.success ? responseData.data : responseData
+      console.log("Raw workers API response:", responseData)
+
+      let workers = []
+      if (responseData.success && Array.isArray(responseData.data)) {
+        workers = responseData.data
+      } else if (Array.isArray(responseData)) {
+        workers = responseData
+      } else if (responseData.data && Array.isArray(responseData.data)) {
+        workers = responseData.data
+      } else if (typeof responseData === "object" && responseData !== null) {
+        // If it's an object, try to extract workers array
+        workers = Object.values(responseData).filter(
+          (item) => item && typeof item === "object" && item.worker_id && item.full_name,
+        )
+      }
+
+      console.log("Processed workers array:", workers)
       setAvailableWorkers(Array.isArray(workers) ? workers : [])
     } catch (error) {
       console.error("Error fetching workers:", error)
@@ -352,26 +359,108 @@ export default function SimpleRestaurantJournal() {
     }
   }
 
-  // Modified fetchShiftWorkers to merge backend and pending
+  // Enhanced fetchShiftWorkers that uses mapping to match workers properly
   const fetchShiftWorkers = async () => {
     if (!activeShift) return
-
     try {
       const responseData = await fetchWithErrorHandling(`${API_BASE_URL}/shift-workers/shift/${activeShift.shift_id}`)
       const workers = Array.isArray(responseData.success ? responseData.data : responseData)
-        ? (responseData.success ? responseData.data : responseData)
+        ? responseData.success
+          ? responseData.data
+          : responseData
         : []
-      // Remove expired pending workers (older than 30s)
-      const now = Date.now()
-      const validPending = pendingWorkers.filter(pw => now - pw.addedAt < 30000)
-      setPendingWorkers(validPending)
-      // Merge: add any pending worker not in backend list
-      const backendIds = new Set(workers.map((sw: any) => sw.worker.worker_id))
-      const merged = [
-        ...validPending.filter(pw => !backendIds.has(pw.workerId)).map(pw => pw.sw),
-        ...workers
-      ]
-      setShiftWorkers(merged)
+
+      console.log("Raw shift workers data:", workers)
+      console.log("Available workers for matching:", availableWorkers)
+
+      // Keep track of workers already assigned to avoid duplicates
+      const usedWorkerIds = new Set<string>()
+
+      // Process shift workers and match them with available workers using mapping
+      const enrichedWorkers = workers
+        .map((sw: any) => {
+          try {
+            // Create a standardized shift worker object
+            const standardizedSW: ShiftWorker = {
+              shift_worker_id: sw.shift_worker_id || sw.id,
+              worker_id: "pending", // Will be determined by mapping
+              shift_id: sw.shift_id || sw.shift?.shift_id || activeShift.shift_id,
+              hourly_rate: Number(sw.hourly_rate) || 0,
+              start_time: sw.start_time,
+              end_time: sw.end_time,
+              hours_worked: sw.hours_worked,
+              calculated_salary: sw.calculated_salary,
+              is_active: sw.end_time === null, // Active if no end_time
+              created_at: sw.created_at || new Date().toISOString(),
+            }
+
+            let matchingWorker: Worker | undefined
+
+            // Strategy 1: Try to use the mapping we stored when creating the worker
+            const mappedWorkerId = shiftWorkerMapping.get(sw.shift_worker_id)
+            if (mappedWorkerId && !usedWorkerIds.has(mappedWorkerId)) {
+              matchingWorker = availableWorkers.find((w) => w.worker_id === mappedWorkerId)
+              console.log(`Using mapping for ${sw.shift_worker_id} -> ${mappedWorkerId}:`, matchingWorker)
+            }
+
+            // Strategy 2: If no mapping or mapped worker not found, try to match by hourly rate
+            if (!matchingWorker) {
+              matchingWorker = availableWorkers.find(
+                (worker) =>
+                  Math.abs(worker.base_hourly_rate - standardizedSW.hourly_rate) < 0.01 &&
+                  !usedWorkerIds.has(worker.worker_id),
+              )
+              console.log(`Matching by hourly rate ${standardizedSW.hourly_rate}:`, matchingWorker)
+            }
+
+            // Strategy 3: If still no match, find any available worker not yet used
+            if (!matchingWorker) {
+              matchingWorker = availableWorkers.find((worker) => !usedWorkerIds.has(worker.worker_id))
+              console.log(`Using first available worker:`, matchingWorker)
+            }
+
+            if (matchingWorker) {
+              standardizedSW.worker = {
+                worker_id: matchingWorker.worker_id,
+                full_name: matchingWorker.full_name,
+                status: matchingWorker.status,
+                base_hourly_rate: matchingWorker.base_hourly_rate,
+              }
+              standardizedSW.worker_id = matchingWorker.worker_id
+
+              // Mark this worker as used to prevent duplicates
+              usedWorkerIds.add(matchingWorker.worker_id)
+
+              // Update mapping if we found a match and don't already have one
+              if (!shiftWorkerMapping.has(sw.shift_worker_id)) {
+                setShiftWorkerMapping((prev) => new Map(prev.set(sw.shift_worker_id, matchingWorker!.worker_id)))
+              }
+
+              console.log(`Successfully matched shift worker ${sw.shift_worker_id} with ${matchingWorker.full_name}`)
+            } else {
+              // Fallback: create a placeholder with better naming
+              const placeholderName = `موظف غير محدد`
+              standardizedSW.worker = {
+                worker_id: `unknown_${sw.shift_worker_id}`,
+                full_name: placeholderName,
+                status: "موظف",
+                base_hourly_rate: standardizedSW.hourly_rate,
+              }
+              standardizedSW.worker_id = standardizedSW.worker.worker_id
+              console.log(`No match found for shift worker ${sw.shift_worker_id}, using placeholder`)
+            }
+
+            return standardizedSW
+          } catch (error) {
+            console.error("Error processing shift worker:", sw, error)
+            return null
+          }
+        })
+        .filter((sw: ShiftWorker | null): sw is ShiftWorker => sw !== null)
+
+      console.log("Enriched shift workers:", enrichedWorkers)
+      console.log("Used worker IDs:", Array.from(usedWorkerIds))
+      setShiftWorkers(enrichedWorkers)
     } catch (error) {
       console.error("Error fetching shift workers:", error)
       setShiftWorkers([])
@@ -384,9 +473,17 @@ export default function SimpleRestaurantJournal() {
       setMsgType("error")
       return
     }
-
     if (!currentUser) {
       setMsg("لا يوجد مستخدم مسجل")
+      setMsgType("error")
+      return
+    }
+
+    // Check if this worker is already assigned to the active shift
+    const isAlreadyAssigned = shiftWorkers.some((sw) => sw.worker_id === workerId && sw.is_active)
+
+    if (isAlreadyAssigned) {
+      setMsg("هذا الموظف مسجل حضوره بالفعل في الوردية")
       setMsgType("error")
       return
     }
@@ -401,28 +498,27 @@ export default function SimpleRestaurantJournal() {
     setAssigningWorker(workerId)
     try {
       // Find the selected worker to get their base_hourly_rate
-      const selectedWorker = availableWorkers.find(w => w.worker_id === workerId);
-      const hourlyRate = selectedWorker?.base_hourly_rate;
+      const selectedWorker = availableWorkers.find((w) => w.worker_id === workerId)
+      const hourlyRate = selectedWorker?.base_hourly_rate
+
       if (!hourlyRate || hourlyRate <= 0) {
         setMsg("يجب تحديد أجر/ساعة صحيح للموظف")
         setMsgType("error")
         setAssigningWorker(null)
-        return;
+        return
       }
 
-      // More complete payload with all required fields
+      // Enhanced payload with all required fields
       const payload = {
         worker_id: workerId,
         shift_id: activeShift.shift_id,
         hourly_rate: hourlyRate,
         start_time: new Date().toISOString(),
-        status: "active",
+        status: "ACTIVE", // Use enum value
         is_active: true,
-        created_by: currentUser.worker_id,
-        assigned_by: currentUser.worker_id,
       }
 
-      console.log("Complete payload being sent:", payload)
+      console.log("Enhanced payload being sent:", payload)
 
       const response = await fetch(`${API_BASE_URL}/shift-workers`, {
         method: "POST",
@@ -434,20 +530,15 @@ export default function SimpleRestaurantJournal() {
       })
 
       console.log("Response status:", response.status)
-      console.log("Response headers:", response.headers)
-
       const responseData = await response.json()
       console.log("Response data:", responseData)
 
       if (!response.ok) {
-        // Log the full error details
         console.error("API Error Details:", {
           status: response.status,
           statusText: response.statusText,
           responseData: responseData,
         })
-
-        // Show specific error message if available
         const errorMessage =
           responseData.message ||
           responseData.error ||
@@ -458,26 +549,18 @@ export default function SimpleRestaurantJournal() {
         throw new Error(errorMessage)
       }
 
-      setMsg("تم تسجيل حضور الموظف ✓")
-      setMsgType("success")
-      // Optimistically add the worker to the shiftWorkers list if not present
-      const alreadyExists = shiftWorkers.some(sw => sw.worker.worker_id === workerId && sw.is_active)
-      if (!alreadyExists && selectedWorker) {
-        const pendingSw = {
-          shift_worker_id: responseData.data?.shift_worker_id || `${workerId}-${activeShift.shift_id}`,
-          worker: selectedWorker,
-          shift: activeShift,
-          start_time: payload.start_time,
-          is_active: true,
-          created_at: new Date().toISOString(),
-        }
-        setShiftWorkers([pendingSw, ...shiftWorkers])
-        setPendingWorkers([
-          ...pendingWorkers,
-          { workerId, addedAt: Date.now(), sw: pendingSw }
-        ])
+      // Store the mapping between shift worker and actual worker
+      const newShiftWorkerId = responseData.shift_worker_id || responseData.data?.shift_worker_id
+      if (newShiftWorkerId) {
+        console.log(`Storing mapping: ${newShiftWorkerId} -> ${workerId}`)
+        setShiftWorkerMapping((prev) => new Map(prev.set(newShiftWorkerId, workerId)))
       }
-      fetchShiftWorkers()
+
+      const workerName = selectedWorker?.full_name || "الموظف"
+      setMsg(`تم تسجيل حضور ${workerName} ✓`)
+      setMsgType("success")
+      // Refresh the shift workers list
+      await fetchShiftWorkers()
     } catch (error: any) {
       console.error("Full error object:", error)
       setMsg(error.message || "خطأ في تسجيل الحضور")
@@ -490,13 +573,14 @@ export default function SimpleRestaurantJournal() {
   const endWorkerShift = async (shiftWorkerId: string) => {
     setEndingWorker(shiftWorkerId)
     try {
-      await fetchWithErrorHandling(`${API_BASE_URL}/shift-workers/${shiftWorkerId}/end`, {
-        method: "PUT",
+      // Use the correct endpoint pattern that matches your backend routes
+      await fetchWithErrorHandling(`${API_BASE_URL}/shift-workers/end-time`, {
+        method: "PATCH",
         body: JSON.stringify({
+          shift_worker_id: shiftWorkerId,
           end_time: new Date().toISOString(),
         }),
       })
-
       setMsg("تم إنهاء وردية الموظف ✓")
       setMsgType("success")
       fetchShiftWorkers()
@@ -523,7 +607,6 @@ export default function SimpleRestaurantJournal() {
     setLoadingExpenses(true)
     try {
       const responseData = await fetchWithErrorHandling(`${API_BASE_URL}/expenses`)
-
       if (Array.isArray(responseData)) {
         setExpenses(responseData)
       } else if (responseData.data && Array.isArray(responseData.data)) {
@@ -548,10 +631,10 @@ export default function SimpleRestaurantJournal() {
   }, [])
 
   useEffect(() => {
-    if (activeShift) {
+    if (activeShift && availableWorkers.length > 0) {
       fetchShiftWorkers()
     }
-  }, [activeShift])
+  }, [activeShift, availableWorkers])
 
   const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault()
@@ -571,11 +654,10 @@ export default function SimpleRestaurantJournal() {
     }
 
     setLoading(true)
-
     try {
       // Use helper function to ensure valid IDs
-      const created_by = ensureValidId(currentUser.worker_id, 'معرف المستخدم');
-      const shift_id = ensureValidId(activeShift.shift_id, 'معرف الوردية');
+      const created_by = ensureValidId(currentUser.worker_id, "معرف المستخدم")
+      const shift_id = ensureValidId(activeShift.shift_id, "معرف الوردية")
 
       const payload: any = {
         title: form.title.trim(),
@@ -584,13 +666,12 @@ export default function SimpleRestaurantJournal() {
         created_by: created_by,
         shift_id: shift_id,
       }
-      
+
       if (form.category && form.category.trim() !== "") {
-        payload.category = form.category.trim();
+        payload.category = form.category.trim()
       }
 
-      // Debug logging to check data format
-      console.log('Expense Payload Debug:', {
+      console.log("Expense Payload Debug:", {
         payload,
         originalData: {
           currentUser_worker_id: currentUser.worker_id,
@@ -600,16 +681,9 @@ export default function SimpleRestaurantJournal() {
           created_by,
           shift_id,
           created_by_type: typeof created_by,
-          shift_id_type: typeof shift_id
-        }
-      });
-
-      // Alternative payload if backend expects integer IDs (uncomment if needed):
-      // const payloadWithIntIds = {
-      //   ...payload,
-      //   created_by: parseInt(created_by) || created_by,
-      //   shift_id: parseInt(shift_id) || shift_id,
-      // };
+          shift_id_type: typeof shift_id,
+        },
+      })
 
       await fetchWithErrorHandling(`${API_BASE_URL}/expenses`, {
         method: "POST",
@@ -621,19 +695,16 @@ export default function SimpleRestaurantJournal() {
       setForm({ title: "", description: "", amount: "", category: "" })
       fetchExpenses()
     } catch (error: any) {
-      console.error('Expense creation error:', error);
-      
+      console.error("Expense creation error:", error)
       // Handle specific validation errors
-      let errorMessage = error.message || arabicLabels.fail;
-      
-      if (error.message && error.message.includes('Validation failed')) {
-        errorMessage = 'خطأ في التحقق من البيانات - تأكد من صحة المعلومات المدخلة';
-      } else if (error.message && error.message.includes('UUID')) {
-        errorMessage = 'خطأ في معرف المستخدم أو الوردية - يرجى إعادة تسجيل الدخول';
-      } else if (error.message && error.message.includes('400')) {
-        errorMessage = 'البيانات المدخلة غير صحيحة - يرجى التحقق من جميع الحقول';
+      let errorMessage = error.message || arabicLabels.fail
+      if (error.message && error.message.includes("Validation failed")) {
+        errorMessage = "خطأ في التحقق من البيانات - تأكد من صحة المعلومات المدخلة"
+      } else if (error.message && error.message.includes("UUID")) {
+        errorMessage = "خطأ في معرف المستخدم أو الوردية - يرجى إعادة تسجيل الدخول"
+      } else if (error.message && error.message.includes("400")) {
+        errorMessage = "البيانات المدخلة غير صحيحة - يرجى التحقق من جميع الحقول"
       }
-      
       setMsg(errorMessage)
       setMsgType("error")
     } finally {
@@ -661,7 +732,6 @@ export default function SimpleRestaurantJournal() {
     }
 
     setLoading(true)
-
     try {
       const payload = {
         title: editForm.title.trim(),
@@ -694,7 +764,6 @@ export default function SimpleRestaurantJournal() {
       await fetchWithErrorHandling(`${API_BASE_URL}/expenses/${expenseId}`, {
         method: "DELETE",
       })
-
       setMsg(`${arabicLabels.delete_success}: ${expenseTitle}`)
       setMsgType("success")
       setExpenses(expenses.filter((e) => e.expense_id !== expenseId))
@@ -721,8 +790,14 @@ export default function SimpleRestaurantJournal() {
 
   const getTotalStaffCost = () => {
     return shiftWorkers.reduce((total, sw) => {
+      // Safe access to worker properties with fallback values
+      if (!sw.worker) {
+        console.warn("Shift worker missing worker object:", sw)
+        return total
+      }
       const hours = calculateHours(sw.start_time, sw.end_time)
-      return total + calculateSalary(hours, sw.worker.base_hourly_rate)
+      const hourlyRate = sw.worker.base_hourly_rate || sw.hourly_rate || 0
+      return total + calculateSalary(hours, hourlyRate)
     }, 0)
   }
 
@@ -775,326 +850,115 @@ export default function SimpleRestaurantJournal() {
   }
 
   return (
-    <div dir="rtl" className="min-h-screen bg-gradient-to-br from-blue-50 via-white to-purple-50 p-4">
-      <div className="max-w-7xl mx-auto space-y-6">
-        {/* Enhanced Header */}
-        <div className="bg-white rounded-xl shadow-lg border border-gray-100 p-6 backdrop-blur-sm">
-          <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-6">
-            <div className="flex items-center gap-6">
-              <div className="bg-gradient-to-br from-blue-500 to-purple-600 p-4 rounded-xl shadow-lg">
-                <BookOpen className="w-10 h-10 text-white" />
+    <div dir="rtl" className="min-h-screen bg-white p-4">
+      <div className="max-w-5xl mx-auto space-y-4">
+        {/* Simplified Header */}
+        <div className="flex items-center justify-between mb-6">
+          <div className="flex items-center gap-3">
+            <div className="bg-blue-600 p-2.5 rounded-md">
+              <BookOpen className="w-5 h-5 text-white" />
+            </div>
+            <div>
+              <h1 className="text-xl font-bold text-gray-900">السجل اليومي</h1>
+              <p className="text-sm text-gray-500">
+                {new Date().toLocaleDateString("ar-EG", {
+                  weekday: "long",
+                  day: "numeric",
+                  month: "long",
+                })}
+              </p>
+            </div>
+          </div>
+          <div className="flex items-center gap-3">
+            <div className="text-right">
+              <p className="text-sm text-gray-500">الكاشير</p>
+              <p className="font-medium text-gray-900">{currentUser ? currentUser.full_name : "غير محدد"}</p>
+            </div>
+            <div
+              className={`px-3 py-1.5 rounded-full text-xs font-medium ${
+                activeShift ? "bg-emerald-100 text-emerald-700" : "bg-gray-100 text-gray-700"
+              }`}
+            >
+              {activeShift ? `${activeShift.type} - نشطة` : "لا توجد وردية"}
+            </div>
+          </div>
+        </div>
+
+        {/* Simplified Stats */}
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+          <div className="bg-white rounded-md border border-gray-100 shadow-sm p-3.5">
+            <div className="flex items-center gap-3">
+              <div className="bg-blue-50 p-2 rounded-md">
+                <Receipt className="w-4 h-4 text-blue-600" />
               </div>
               <div>
-                <h1 className="text-3xl font-bold bg-gradient-to-r from-blue-600 to-purple-600 bg-clip-text text-transparent">
-                  {arabicLabels.daily_journal}
-                </h1>
-                <p className="text-gray-600 text-lg mt-1">
-                  {new Date().toLocaleDateString("ar-EG", {
-                    weekday: "long",
-                    year: "numeric",
-                    month: "long",
-                    day: "numeric",
-                  })}
-                </p>
-                <div className="flex items-center gap-2 mt-2">
-                  <Clock className="w-4 h-4 text-gray-400" />
-                  <span className="text-sm text-gray-500">
-                    {new Date().toLocaleTimeString("ar-EG", {
-                      hour: "2-digit",
-                      minute: "2-digit",
-                    })}
-                  </span>
-                </div>
+                <p className="text-xs text-gray-500">المصروفات اليوم</p>
+                <p className="text-lg font-semibold text-gray-900">{formatEgyptianCurrency(getTotalExpenses())}</p>
               </div>
             </div>
-
-            <div className="flex flex-col sm:flex-row items-start sm:items-center gap-4">
-              <div className="bg-gray-50 rounded-lg p-4 text-center min-w-[120px]">
-                <div className="flex items-center justify-center mb-2">
-                  <User className="w-5 h-5 text-blue-600" />
-                </div>
-                <p className="text-xs text-gray-500 mb-1">المدير الحالي</p>
-                <p className="font-bold text-gray-900 text-sm">
-                  {currentUser ? currentUser.full_name : "غير محدد"}
-                </p>
+          </div>
+          <div className="bg-white rounded-md border border-gray-100 shadow-sm p-3.5">
+            <div className="flex items-center gap-3">
+              <div className="bg-emerald-50 p-2 rounded-md">
+                <Users className="w-4 h-4 text-emerald-600" />
               </div>
-              
-              <div className={`px-6 py-3 rounded-xl text-sm font-bold shadow-md transition-all duration-300 ${
-                activeShift 
-                  ? "bg-gradient-to-r from-green-500 to-emerald-600 text-white shadow-green-200" 
-                  : "bg-gradient-to-r from-red-500 to-rose-600 text-white shadow-red-200"
-              }`}>
-                <div className="flex items-center gap-2">
-                  {activeShift ? (
-                    <CheckCircle className="w-4 h-4" />
-                  ) : (
-                    <XCircle className="w-4 h-4" />
-                  )}
-                  <span>{activeShift ? `${activeShift.type} - نشطة` : "لا توجد وردية"}</span>
-                </div>
+              <div>
+                <p className="text-xs text-gray-500">تكلفة الموظفين</p>
+                <p className="text-lg font-semibold text-gray-900">{formatEgyptianCurrency(getTotalStaffCost())}</p>
+              </div>
+            </div>
+          </div>
+          <div className="bg-white rounded-md border border-gray-100 shadow-sm p-3.5">
+            <div className="flex items-center gap-3">
+              <div className="bg-indigo-50 p-2 rounded-md">
+                <UserCheck className="w-4 h-4 text-indigo-600" />
+              </div>
+              <div>
+                <p className="text-xs text-gray-500">الموظفين الحاضرين</p>
+                <p className="text-lg font-semibold text-gray-900">
+                  {shiftWorkers.filter((sw) => sw.is_active).length}
+                </p>
               </div>
             </div>
           </div>
         </div>
 
-        {/* Enhanced Stats Dashboard */}
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-          <Card className="bg-gradient-to-br from-blue-50 to-blue-100 border-blue-200 hover:shadow-lg transition-all duration-300 group">
-            <CardContent className="p-6">
-              <div className="flex items-center justify-between">
-                <div className="flex-1">
-                  <div className="flex items-center gap-2 mb-2">
-                    <Receipt className="w-5 h-5 text-blue-600" />
-                    <p className="text-blue-700 text-sm font-bold">المصروفات اليوم</p>
-                  </div>
-                  <p className="text-3xl font-bold text-blue-800 mb-1">
-                    {formatEgyptianCurrency(getTotalExpenses())}
-                  </p>
-                  <p className="text-xs text-blue-600">
-                    {expenses.length} عملية شراء
-                  </p>
-                </div>
-                <div className="bg-blue-500 p-4 rounded-xl shadow-lg group-hover:scale-110 transition-transform duration-300">
-                  <Receipt className="w-8 h-8 text-white" />
-                </div>
-              </div>
-            </CardContent>
-          </Card>
-
-          <Card className="bg-gradient-to-br from-green-50 to-green-100 border-green-200 hover:shadow-lg transition-all duration-300 group">
-            <CardContent className="p-6">
-              <div className="flex items-center justify-between">
-                <div className="flex-1">
-                  <div className="flex items-center gap-2 mb-2">
-                    <Users className="w-5 h-5 text-green-600" />
-                    <p className="text-green-700 text-sm font-bold">تكلفة الموظفين</p>
-                  </div>
-                  <p className="text-3xl font-bold text-green-800 mb-1">
-                    {formatEgyptianCurrency(getTotalStaffCost())}
-                  </p>
-                  <p className="text-xs text-green-600">
-                    متوقع حتى الآن
-                  </p>
-                </div>
-                <div className="bg-green-500 p-4 rounded-xl shadow-lg group-hover:scale-110 transition-transform duration-300">
-                  <Users className="w-8 h-8 text-white" />
-                </div>
-              </div>
-            </CardContent>
-          </Card>
-
-          <Card className="bg-gradient-to-br from-purple-50 to-purple-100 border-purple-200 hover:shadow-lg transition-all duration-300 group">
-            <CardContent className="p-6">
-              <div className="flex items-center justify-between">
-                <div className="flex-1">
-                  <div className="flex items-center gap-2 mb-2">
-                    <UserCheck className="w-5 h-5 text-purple-600" />
-                    <p className="text-purple-700 text-sm font-bold">الموظفين الحاضرين</p>
-                  </div>
-                  <p className="text-3xl font-bold text-purple-800 mb-1">
-                    {shiftWorkers.filter((sw) => sw.is_active).length}
-                  </p>
-                  <p className="text-xs text-purple-600">
-                    من {availableWorkers.length} موظف
-                  </p>
-                </div>
-                <div className="bg-purple-500 p-4 rounded-xl shadow-lg group-hover:scale-110 transition-transform duration-300">
-                  <UserCheck className="w-8 h-8 text-white" />
-                </div>
-              </div>
-            </CardContent>
-          </Card>
-        </div>
-
-        {/* Enhanced Message Alert */}
+        {/* Simplified Message Alert */}
         {msg && (
-          <Alert className={`border-0 shadow-lg backdrop-blur-sm transition-all duration-500 ${
-            msgType === "success" 
-              ? "bg-gradient-to-r from-green-50 to-emerald-50 border-l-4 border-l-green-500" 
-              : "bg-gradient-to-r from-red-50 to-rose-50 border-l-4 border-l-red-500"
-          }`}>
-            <div className="flex items-center gap-3">
-              <div className={`p-2 rounded-full ${
-                msgType === "success" ? "bg-green-100" : "bg-red-100"
-              }`}>
-                {msgType === "success" ? (
-                  <CheckCircle className="w-5 h-5 text-green-600" />
-                ) : (
-                  <XCircle className="w-5 h-5 text-red-600" />
-                )}
-              </div>
-              <AlertDescription className={`font-medium text-lg ${
-                msgType === "success" ? "text-green-800" : "text-red-800"
-              }`}>
-                {msg}
-              </AlertDescription>
-            </div>
-          </Alert>
+          <div
+            className={`rounded-md border p-3 flex items-center gap-2 text-sm ${
+              msgType === "success"
+                ? "bg-emerald-50 border-emerald-100 text-emerald-700"
+                : "bg-red-50 border-red-100 text-red-700"
+            }`}
+          >
+            {msgType === "success" ? (
+              <CheckCircle className="w-4 h-4 flex-shrink-0" />
+            ) : (
+              <XCircle className="w-4 h-4 flex-shrink-0" />
+            )}
+            <span>{msg}</span>
+          </div>
         )}
 
-        {/* Enhanced Tabs */}
-        <Tabs defaultValue="overview" className="space-y-6">
-          <div className="bg-white rounded-xl shadow-lg border border-gray-100 p-2">
-            <TabsList className="grid w-full grid-cols-3 bg-transparent gap-2">
-              <TabsTrigger 
-                value="overview" 
-                className="flex items-center gap-3 data-[state=active]:bg-gradient-to-r data-[state=active]:from-blue-500 data-[state=active]:to-purple-600 data-[state=active]:text-white data-[state=active]:shadow-lg rounded-lg py-3 px-4 transition-all duration-300"
-              >
-                <BookOpen className="w-5 h-5" />
-                <span className="font-medium">{arabicLabels.overview_tab}</span>
-              </TabsTrigger>
-              <TabsTrigger 
-                value="expenses" 
-                className="flex items-center gap-3 data-[state=active]:bg-gradient-to-r data-[state=active]:from-red-500 data-[state=active]:to-pink-600 data-[state=active]:text-white data-[state=active]:shadow-lg rounded-lg py-3 px-4 transition-all duration-300"
-              >
-                <Receipt className="w-5 h-5" />
-                <span className="font-medium">{arabicLabels.expenses_tab}</span>
-              </TabsTrigger>
-              <TabsTrigger 
-                value="staff" 
-                className="flex items-center gap-3 data-[state=active]:bg-gradient-to-r data-[state=active]:from-green-500 data-[state=active]:to-emerald-600 data-[state=active]:text-white data-[state=active]:shadow-lg rounded-lg py-3 px-4 transition-all duration-300"
-              >
-                <Users className="w-5 h-5" />
-                <span className="font-medium">{arabicLabels.staff_tab}</span>
-              </TabsTrigger>
-            </TabsList>
-          </div>
-
-          {/* Enhanced Overview Tab */}
-          <TabsContent value="overview" className="space-y-6">
-            <div className="grid lg:grid-cols-2 gap-8">
-              {/* Enhanced Recent Expenses */}
-              <Card className="bg-white border-0 shadow-xl rounded-2xl overflow-hidden">
-                <CardHeader className="bg-gradient-to-r from-blue-500 to-purple-600 text-white">
-                  <CardTitle className="flex items-center gap-3 text-xl">
-                    <div className="bg-white/20 p-2 rounded-lg">
-                      <Receipt className="w-6 h-6" />
-                    </div>
-                    <span>آخر المصروفات</span>
-                    <div className="bg-white/20 px-3 py-1 rounded-full text-sm font-medium">
-                      {expenses.length}
-                    </div>
-                  </CardTitle>
-                </CardHeader>
-                <CardContent className="p-6">
-                  {expenses.slice(0, 5).length === 0 ? (
-                    <div className="text-center py-12">
-                      <div className="bg-gray-100 rounded-full w-20 h-20 flex items-center justify-center mx-auto mb-4">
-                        <Receipt className="w-10 h-10 text-gray-400" />
-                      </div>
-                      <p className="text-gray-500 text-lg font-medium">لا توجد مصروفات اليوم</p>
-                      <p className="text-gray-400 text-sm mt-1">ابدأ بإضافة أول مصروف</p>
-                    </div>
-                  ) : (
-                    <div className="space-y-4">
-                      {expenses.slice(0, 5).map((expense, index) => (
-                        <div
-                          key={expense.expense_id}
-                          className="flex items-center justify-between p-4 bg-gradient-to-r from-gray-50 to-gray-100 rounded-xl hover:shadow-md transition-all duration-300 border border-gray-200"
-                        >
-                          <div className="flex items-center gap-4">
-                            <div className={`p-3 ${getCategoryColor(expense.category || "other")} rounded-xl shadow-lg`}>
-                              {getCategoryIcon(expense.category || "other")}
-                            </div>
-                            <div>
-                              <p className="font-bold text-gray-900 text-lg">{expense.title}</p>
-                              <div className="flex items-center gap-2 mt-1">
-                                <User className="w-4 h-4 text-gray-500" />
-                                <p className="text-sm text-gray-600 font-medium">{expense.created_by.full_name}</p>
-                              </div>
-                              <div className="flex items-center gap-2 mt-1">
-                                <Clock className="w-4 h-4 text-gray-400" />
-                                <p className="text-xs text-gray-500">
-                                  {new Date(expense.created_at).toLocaleTimeString("ar-EG", {
-                                    hour: "2-digit",
-                                    minute: "2-digit",
-                                  })}
-                                </p>
-                              </div>
-                            </div>
-                          </div>
-                          <div className="text-left">
-                            <p className="font-bold text-red-600 text-xl">{formatEgyptianCurrency(expense.amount)}</p>
-                            <div className="bg-red-100 text-red-700 px-2 py-1 rounded-full text-xs font-medium mt-1">
-                              مصروف #{index + 1}
-                            </div>
-                          </div>
-                        </div>
-                      ))}
-                    </div>
-                  )}
-                </CardContent>
-              </Card>
-
-              {/* Enhanced Active Staff */}
-              <Card className="bg-white border-0 shadow-xl rounded-2xl overflow-hidden">
-                <CardHeader className="bg-gradient-to-r from-green-500 to-emerald-600 text-white">
-                  <CardTitle className="flex items-center gap-3 text-xl">
-                    <div className="bg-white/20 p-2 rounded-lg">
-                      <Users className="w-6 h-6" />
-                    </div>
-                    <span>الموظفين الحاضرين</span>
-                    <div className="bg-white/20 px-3 py-1 rounded-full text-sm font-medium">
-                      {shiftWorkers.filter((sw) => sw.is_active).length}
-                    </div>
-                  </CardTitle>
-                </CardHeader>
-                <CardContent className="p-6">
-                  {shiftWorkers.filter((sw) => sw.is_active).length === 0 ? (
-                    <div className="text-center py-12">
-                      <div className="bg-gray-100 rounded-full w-20 h-20 flex items-center justify-center mx-auto mb-4">
-                        <Users className="w-10 h-10 text-gray-400" />
-                      </div>
-                      <p className="text-gray-500 text-lg font-medium">لا يوجد موظفين حاضرين</p>
-                      <p className="text-gray-400 text-sm mt-1">قم بتسجيل حضور الموظفين</p>
-                    </div>
-                  ) : (
-                    <div className="space-y-4">
-                      {shiftWorkers
-                        .filter((sw) => sw.is_active)
-                        .slice(0, 5)
-                        .map((sw, index) => {
-                          const hours = calculateHours(sw.start_time)
-                          const salary = calculateSalary(hours, sw.worker.base_hourly_rate)
-                          return (
-                            <div
-                              key={sw.shift_worker_id}
-                              className="flex items-center justify-between p-4 bg-gradient-to-r from-green-50 to-emerald-50 rounded-xl hover:shadow-md transition-all duration-300 border border-green-200"
-                            >
-                              <div className="flex items-center gap-4">
-                                <div className={`p-3 rounded-xl shadow-lg ${getWorkerRoleColor(sw.worker.status)}`}>
-                                  {getWorkerRoleIcon(sw.worker.status)}
-                                </div>
-                                <div>
-                                  <p className="font-bold text-gray-900 text-lg">{sw.worker.full_name}</p>
-                                  <div className="flex items-center gap-2 mt-1">
-                                    <div className="bg-blue-100 text-blue-700 px-2 py-1 rounded-full text-xs font-medium">
-                                      {sw.worker.status}
-                                    </div>
-                                  </div>
-                                  <div className="flex items-center gap-4 mt-2 text-sm">
-                                    <div className="flex items-center gap-1 text-gray-600">
-                                      <Clock className="w-4 h-4" />
-                                      <span className="font-medium">{hours.toFixed(1)} ساعة</span>
-                                    </div>
-                                  </div>
-                                </div>
-                              </div>
-                              <div className="text-left">
-                                <p className="font-bold text-green-600 text-xl">{formatEgyptianCurrency(salary)}</p>
-                                <div className="bg-green-100 text-green-700 px-2 py-1 rounded-full text-xs font-medium mt-1">
-                                  راتب متوقع
-                                </div>
-                              </div>
-                            </div>
-                          )
-                        })}
-                    </div>
-                  )}
-                </CardContent>
-              </Card>
-            </div>
-          </TabsContent>
+        {/* Streamlined Tabs */}
+        <Tabs defaultValue="expenses" className="space-y-4">
+          <TabsList className="w-full bg-gray-50 rounded-md p-1 border border-gray-100">
+            <TabsTrigger
+              value="expenses"
+              className="flex items-center gap-2 data-[state=active]:bg-blue-600 data-[state=active]:text-white rounded-md py-1.5 px-3 text-sm"
+            >
+              <Receipt className="w-3.5 h-3.5" />
+              <span>المصروفات</span>
+            </TabsTrigger>
+            <TabsTrigger
+              value="staff"
+              className="flex items-center gap-2 data-[state=active]:bg-blue-600 data-[state=active]:text-white rounded-md py-1.5 px-3 text-sm"
+            >
+              <Users className="w-3.5 h-3.5" />
+              <span>الموظفين</span>
+            </TabsTrigger>
+          </TabsList>
 
           {/* Enhanced Expenses Tab */}
           <TabsContent value="expenses" className="space-y-6">
@@ -1103,30 +967,33 @@ export default function SimpleRestaurantJournal() {
               <div className="lg:col-span-2">
                 <Card className="bg-white border-0 shadow-xl rounded-2xl overflow-hidden sticky top-6">
                   <CardHeader className="bg-gradient-to-r from-red-500 to-pink-600 text-white">
-                    <CardTitle className="flex items-center gap-3 text-xl">
-                      <div className="bg-white/20 p-2 rounded-lg">
-                        <Plus className="w-6 h-6" />
-                      </div>
+                    <CardTitle className="flex items-center gap-2 text-base">
+                      <Plus className="w-4 h-4" />
                       <span>{arabicLabels.add_expense}</span>
                     </CardTitle>
                   </CardHeader>
-                  <CardContent className="p-6">
-                    <form onSubmit={handleSubmit} className="space-y-6">
-                      <div className="space-y-2">
-                        <Label htmlFor="category" className="text-sm font-bold text-gray-700 flex items-center gap-2">
-                          <Package className="w-4 h-4" />
+                  <CardContent className="p-4">
+                    <form onSubmit={handleSubmit} className="space-y-4">
+                      <div className="space-y-1.5">
+                        <Label
+                          htmlFor="category"
+                          className="text-xs font-medium text-gray-700 flex items-center gap-1.5"
+                        >
+                          <Package className="w-3.5 h-3.5" />
                           {arabicLabels.expense_category}
                         </Label>
                         <Select value={form.category} onValueChange={(value) => handleChange("category", value)}>
-                          <SelectTrigger className={`h-12 ${errors.category ? "border-red-500 bg-red-50" : "border-gray-300 hover:border-gray-400"} transition-colors`}>
+                          <SelectTrigger
+                            className={`h-10 ${errors.category ? "border-red-500 bg-red-50" : "border-gray-200"} text-sm`}
+                          >
                             <SelectValue placeholder="اختر فئة المصروف" />
                           </SelectTrigger>
                           <SelectContent>
                             {expenseCategories.map((category) => (
                               <SelectItem key={category.value} value={category.value}>
-                                <div className="flex items-center gap-3">
-                                  <div className={`w-4 h-4 rounded ${category.color}`}></div>
-                                  <span className="font-medium">{category.label}</span>
+                                <div className="flex items-center gap-2">
+                                  <div className={`w-3 h-3 rounded-sm ${category.color}`}></div>
+                                  <span className="text-sm">{category.label}</span>
                                 </div>
                               </SelectItem>
                             ))}
@@ -1140,45 +1007,48 @@ export default function SimpleRestaurantJournal() {
                         )}
                       </div>
 
-                      <div className="space-y-2">
-                        <Label htmlFor="title" className="text-sm font-bold text-gray-700 flex items-center gap-2">
-                          <Edit className="w-4 h-4" />
+                      <div className="space-y-1.5">
+                        <Label htmlFor="title" className="text-xs font-medium text-gray-700 flex items-center gap-1.5">
+                          <Edit className="w-3.5 h-3.5" />
                           {arabicLabels.expense_title}
                         </Label>
                         <Input
                           id="title"
                           value={form.title}
                           onChange={(e) => handleChange("title", e.target.value)}
-                          className={`h-12 ${errors.title ? "border-red-500 bg-red-50" : "border-gray-300 hover:border-gray-400"} transition-colors`}
+                          className={`h-10 text-sm ${errors.title ? "border-red-500 bg-red-50" : "border-gray-200"}`}
                           placeholder="مثال: خضروات، لحوم، مواد تنظيف..."
                           required
                         />
                         {errors.title && (
-                          <p className="text-sm text-red-600 font-medium flex items-center gap-1">
-                            <AlertCircle className="w-4 h-4" />
+                          <p className="text-xs text-red-600 flex items-center gap-1">
+                            <AlertCircle className="w-3 h-3 flex-shrink-0" />
                             {errors.title}
                           </p>
                         )}
                       </div>
 
-                      <div className="space-y-2">
-                        <Label htmlFor="description" className="text-sm font-bold text-gray-700 flex items-center gap-2">
-                          <BookOpen className="w-4 h-4" />
+                      <div className="space-y-1.5">
+                        <Label
+                          htmlFor="description"
+                          className="text-xs font-medium text-gray-700 flex items-center gap-1.5"
+                        >
+                          <BookOpen className="w-3.5 h-3.5" />
                           {arabicLabels.expense_description}
                         </Label>
                         <Textarea
                           id="description"
                           value={form.description}
                           onChange={(e) => handleChange("description", e.target.value)}
-                          className="border-gray-300 hover:border-gray-400 transition-colors min-h-[80px]"
+                          className="border-gray-200 text-sm min-h-[60px]"
                           placeholder="تفاصيل إضافية (اختياري)"
-                          rows={3}
+                          rows={2}
                         />
                       </div>
 
-                      <div className="space-y-2">
-                        <Label htmlFor="amount" className="text-sm font-bold text-gray-700 flex items-center gap-2">
-                          <Receipt className="w-4 h-4" />
+                      <div className="space-y-1.5">
+                        <Label htmlFor="amount" className="text-xs font-medium text-gray-700 flex items-center gap-1.5">
+                          <Receipt className="w-3.5 h-3.5" />
                           {arabicLabels.expense_amount}
                         </Label>
                         <div className="relative">
@@ -1187,19 +1057,19 @@ export default function SimpleRestaurantJournal() {
                             type="number"
                             value={form.amount}
                             onChange={(e) => handleChange("amount", e.target.value)}
-                            className={`h-12 pr-16 text-lg font-bold ${errors.amount ? "border-red-500 bg-red-50" : "border-gray-300 hover:border-gray-400"} transition-colors`}
+                            className={`h-10 pr-12 text-sm ${errors.amount ? "border-red-500 bg-red-50" : "border-gray-200"}`}
                             placeholder="0.00"
                             min="0"
                             step="0.01"
                             required
                           />
-                          <div className="absolute left-4 top-1/2 transform -translate-y-1/2 text-gray-500 font-bold">
+                          <div className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-500 text-sm">
                             ج.م
                           </div>
                         </div>
                         {errors.amount && (
-                          <p className="text-sm text-red-600 font-medium flex items-center gap-1">
-                            <AlertCircle className="w-4 h-4" />
+                          <p className="text-xs text-red-600 flex items-center gap-1">
+                            <AlertCircle className="w-3 h-3 flex-shrink-0" />
                             {errors.amount}
                           </p>
                         )}
@@ -1208,16 +1078,16 @@ export default function SimpleRestaurantJournal() {
                       <Button
                         type="submit"
                         disabled={loading || !currentUser || !activeShift}
-                        className="w-full h-12 bg-gradient-to-r from-red-500 to-pink-600 hover:from-red-600 hover:to-pink-700 text-white font-bold text-lg shadow-lg hover:shadow-xl transition-all duration-300"
+                        className="w-full h-9 bg-blue-600 hover:bg-blue-700 text-white text-sm"
                       >
                         {loading ? (
-                          <div className="flex items-center gap-3">
-                            <Loader2 className="w-5 h-5 animate-spin" />
+                          <div className="flex items-center justify-center gap-2">
+                            <Loader2 className="w-4 h-4 animate-spin" />
                             <span>جاري الحفظ...</span>
                           </div>
                         ) : (
-                          <div className="flex items-center gap-3">
-                            <Plus className="w-5 h-5" />
+                          <div className="flex items-center justify-center gap-2">
+                            <Plus className="w-4 h-4" />
                             <span>{arabicLabels.submit}</span>
                           </div>
                         )}
@@ -1237,68 +1107,66 @@ export default function SimpleRestaurantJournal() {
                           <Receipt className="w-6 h-6" />
                         </div>
                         <span>{arabicLabels.expenses_list}</span>
-                        <div className="bg-white/20 px-3 py-1 rounded-full text-sm font-medium">
-                          {expenses.length}
-                        </div>
+                        <div className="bg-white/20 px-3 py-1 rounded-full text-sm font-medium">{expenses.length}</div>
                       </div>
-                      <Button 
-                        onClick={fetchExpenses} 
-                        disabled={loadingExpenses} 
-                        variant="ghost" 
+                      <Button
+                        onClick={fetchExpenses}
+                        disabled={loadingExpenses}
+                        variant="ghost"
                         size="sm"
-                        className="text-white hover:bg-white/20 transition-colors"
+                        className="text-gray-500 hover:text-gray-700 h-7 w-7 p-0 bg-gray-100 hover:bg-gray-200 rounded-full"
                       >
-                        <RefreshCw className={`w-5 h-5 ${loadingExpenses ? "animate-spin" : ""}`} />
+                        <RefreshCw className={`w-3.5 h-3.5 ${loadingExpenses ? "animate-spin" : ""}`} />
                       </Button>
                     </CardTitle>
                   </CardHeader>
                   <CardContent className="p-0">
                     {loadingExpenses ? (
-                      <div className="flex items-center justify-center py-16">
+                      <div className="flex items-center justify-center py-10">
                         <div className="text-center">
-                          <Loader2 className="w-12 h-12 animate-spin text-gray-400 mx-auto mb-4" />
-                          <span className="text-gray-600 text-lg font-medium">{arabicLabels.loading}</span>
+                          <Loader2 className="w-8 h-8 animate-spin text-gray-400 mx-auto mb-3" />
+                          <span className="text-gray-500 text-sm">{arabicLabels.loading}</span>
                         </div>
                       </div>
                     ) : expenses.length === 0 ? (
-                      <div className="text-center py-16">
-                        <div className="bg-gray-100 rounded-full w-24 h-24 flex items-center justify-center mx-auto mb-6">
-                          <Receipt className="w-12 h-12 text-gray-400" />
+                      <div className="text-center py-10">
+                        <div className="bg-gray-50 rounded-full w-16 h-16 flex items-center justify-center mx-auto mb-3">
+                          <Receipt className="w-8 h-8 text-gray-400" />
                         </div>
-                        <p className="text-gray-500 text-xl font-bold mb-2">{arabicLabels.no_expenses}</p>
-                        <p className="text-gray-400">ابدأ بإضافة أول مصروف لهذا اليوم</p>
+                        <p className="text-gray-500 text-sm font-medium mb-1">{arabicLabels.no_expenses}</p>
+                        <p className="text-gray-400 text-xs">ابدأ بإضافة أول مصروف لهذا اليوم</p>
                       </div>
                     ) : (
-                      <div className="max-h-[600px] overflow-y-auto">
+                      <div className="max-h-[500px] overflow-y-auto border-t border-gray-100">
                         {expenses.map((expense, index) => (
                           <div
                             key={expense.expense_id}
-                            className={`p-6 border-b hover:bg-gradient-to-r hover:from-gray-50 hover:to-gray-100 transition-all duration-300 ${
-                              index === expenses.length - 1 ? "border-b-0" : "border-gray-200"
-                            }`}
+                            className="border-b border-gray-100 last:border-b-0 hover:bg-gray-50 transition-colors"
                           >
-                            <div className="flex items-start justify-between">
-                              <div className="flex items-center gap-4 flex-1">
-                                <div className={`p-3 ${getCategoryColor(expense.category || "other")} rounded-xl shadow-lg`}>
+                            <div className="flex items-start justify-between p-3">
+                              <div className="flex items-center gap-3 flex-1">
+                                <div className={`p-2 ${getCategoryColor(expense.category || "other")} rounded-md`}>
                                   {getCategoryIcon(expense.category || "other")}
                                 </div>
                                 <div className="flex-1">
-                                  <div className="flex items-center gap-3 mb-2">
-                                    <h3 className="font-bold text-gray-900 text-lg">{expense.title}</h3>
-                                    <div className="bg-gray-100 text-gray-700 px-2 py-1 rounded-full text-xs font-medium">
+                                  <div className="flex items-center gap-2 mb-1">
+                                    <h3 className="font-medium text-gray-900 text-sm">{expense.title}</h3>
+                                    <div className="bg-gray-100 text-gray-600 px-1.5 py-0.5 rounded text-xs">
                                       #{index + 1}
                                     </div>
                                   </div>
                                   {expense.description && (
-                                    <p className="text-gray-600 mb-3 bg-gray-50 p-2 rounded-lg">{expense.description}</p>
+                                    <p className="text-xs text-gray-600 mb-2 bg-gray-50 p-1.5 rounded">
+                                      {expense.description}
+                                    </p>
                                   )}
-                                  <div className="flex items-center gap-6 text-sm">
-                                    <div className="flex items-center gap-2 text-blue-600">
-                                      <User className="w-4 h-4" />
-                                      <span className="font-medium">{expense.created_by.full_name}</span>
+                                  <div className="flex flex-wrap items-center gap-3 text-xs text-gray-500">
+                                    <div className="flex items-center gap-1">
+                                      <User className="w-3 h-3" />
+                                      <span>{expense.created_by.full_name}</span>
                                     </div>
-                                    <div className="flex items-center gap-2 text-gray-500">
-                                      <Clock className="w-4 h-4" />
+                                    <div className="flex items-center gap-1">
+                                      <Clock className="w-3 h-3" />
                                       <span>
                                         {new Date(expense.created_at).toLocaleTimeString("ar-EG", {
                                           hour: "2-digit",
@@ -1309,52 +1177,55 @@ export default function SimpleRestaurantJournal() {
                                   </div>
                                 </div>
                               </div>
-                              <div className="flex items-center gap-4">
-                                <div className="text-left">
-                                  <p className="font-bold text-red-600 text-2xl">{formatEgyptianCurrency(expense.amount)}</p>
-                                  <div className="bg-red-100 text-red-700 px-3 py-1 rounded-full text-xs font-bold mt-1 text-center">
-                                    مصروف
-                                  </div>
+                              <div className="flex items-center gap-2">
+                                <div className="text-left mr-2">
+                                  <p className="font-medium text-blue-700 text-sm">
+                                    {formatEgyptianCurrency(expense.amount)}
+                                  </p>
+                                  <div className="text-xs text-gray-500 mt-0.5 text-center">مصروف</div>
                                 </div>
-                                <div className="flex flex-col gap-2">
+                                <div className="flex gap-1">
                                   <Button
                                     variant="ghost"
                                     size="sm"
-                                    className="h-10 w-10 p-0 text-blue-600 hover:bg-blue-50 hover:text-blue-700 transition-colors"
+                                    className="h-7 w-7 p-0 text-gray-500 hover:bg-gray-100 hover:text-gray-700"
                                     onClick={() => handleEdit(expense)}
                                   >
-                                    <Edit className="w-5 h-5" />
+                                    <Edit className="w-3.5 h-3.5" />
                                   </Button>
-
                                   <AlertDialog>
                                     <AlertDialogTrigger asChild>
                                       <Button
                                         variant="ghost"
                                         size="sm"
-                                        className="h-10 w-10 p-0 text-red-600 hover:bg-red-50 hover:text-red-700 transition-colors"
+                                        className="h-7 w-7 p-0 text-gray-500 hover:bg-gray-100 hover:text-gray-700"
                                         disabled={deletingExpense === expense.expense_id}
                                       >
                                         {deletingExpense === expense.expense_id ? (
-                                          <Loader2 className="w-5 h-5 animate-spin" />
+                                          <Loader2 className="w-3.5 h-3.5 animate-spin" />
                                         ) : (
-                                          <Trash2 className="w-5 h-5" />
+                                          <Trash2 className="w-3.5 h-3.5" />
                                         )}
                                       </Button>
                                     </AlertDialogTrigger>
-                                    <AlertDialogContent>
+                                    <AlertDialogContent className="max-w-xs">
                                       <AlertDialogHeader>
-                                        <AlertDialogTitle>{arabicLabels.delete_confirm_title}</AlertDialogTitle>
-                                        <AlertDialogDescription>
+                                        <AlertDialogTitle className="text-base">
+                                          {arabicLabels.delete_confirm_title}
+                                        </AlertDialogTitle>
+                                        <AlertDialogDescription className="text-sm">
                                           {arabicLabels.delete_confirm_message}
                                           <br />
-                                          <strong>{expense.title}</strong>
+                                          <strong className="text-gray-900">{expense.title}</strong>
                                         </AlertDialogDescription>
                                       </AlertDialogHeader>
-                                      <AlertDialogFooter>
-                                        <AlertDialogCancel>{arabicLabels.cancel}</AlertDialogCancel>
+                                      <AlertDialogFooter className="gap-2 mt-4">
+                                        <AlertDialogCancel className="text-xs h-8">
+                                          {arabicLabels.cancel}
+                                        </AlertDialogCancel>
                                         <AlertDialogAction
                                           onClick={() => handleDelete(expense.expense_id, expense.title)}
-                                          className="bg-red-600 hover:bg-red-700"
+                                          className="bg-red-600 hover:bg-red-700 text-xs h-8"
                                         >
                                           {arabicLabels.confirm_delete}
                                         </AlertDialogAction>
@@ -1418,8 +1289,7 @@ export default function SimpleRestaurantJournal() {
                         <div className="space-y-4 max-h-80 overflow-y-auto">
                           {availableWorkers
                             .filter(
-                              (worker) =>
-                                !shiftWorkers.some((sw) => sw.worker.worker_id === worker.worker_id && sw.is_active),
+                              (worker) => !shiftWorkers.some((sw) => sw.worker_id === worker.worker_id && sw.is_active),
                             )
                             .map((worker) => (
                               <div
@@ -1460,8 +1330,7 @@ export default function SimpleRestaurantJournal() {
                               </div>
                             ))}
                           {availableWorkers.filter(
-                            (worker) =>
-                              !shiftWorkers.some((sw) => sw.worker.worker_id === worker.worker_id && sw.is_active),
+                            (worker) => !shiftWorkers.some((sw) => sw.worker_id === worker.worker_id && sw.is_active),
                           ).length === 0 && (
                             <div className="text-center py-12">
                               <div className="bg-gray-100 rounded-full w-20 h-20 flex items-center justify-center mx-auto mb-4">
@@ -1477,67 +1346,70 @@ export default function SimpleRestaurantJournal() {
                 </CardContent>
               </Card>
 
-              {/* Enhanced Active Staff */}
-              <Card className="bg-white border-0 shadow-xl rounded-2xl overflow-hidden">
-                <CardHeader className="bg-gradient-to-r from-orange-500 to-red-600 text-white">
-                  <CardTitle className="flex items-center gap-3 text-xl">
-                    <div className="bg-white/20 p-2 rounded-lg">
-                      <Users className="w-6 h-6" />
-                    </div>
+              {/* Simplified Active Staff */}
+              <Card className="bg-white border border-gray-100 rounded-md overflow-hidden">
+                <CardHeader className="bg-emerald-600 text-white py-3 px-4">
+                  <CardTitle className="flex items-center gap-2 text-base">
+                    <Users className="w-4 h-4" />
                     <span>{arabicLabels.active_staff}</span>
-                    <div className="bg-white/20 px-3 py-1 rounded-full text-sm font-medium">
+                    <div className="bg-white/20 px-2 py-0.5 rounded-full text-xs">
                       {shiftWorkers.filter((sw) => sw.is_active).length}
                     </div>
                   </CardTitle>
                 </CardHeader>
                 <CardContent className="p-0">
                   {shiftWorkers.filter((sw) => sw.is_active).length === 0 ? (
-                    <div className="text-center py-16 px-6">
-                      <div className="bg-gray-100 rounded-full w-24 h-24 flex items-center justify-center mx-auto mb-6">
-                        <Users className="w-12 h-12 text-gray-400" />
+                    <div className="text-center py-10 px-4">
+                      <div className="bg-gray-50 rounded-full w-16 h-16 flex items-center justify-center mx-auto mb-3">
+                        <Users className="w-8 h-8 text-gray-400" />
                       </div>
-                      <p className="text-gray-500 text-xl font-bold mb-2">لا يوجد موظفين حاضرين</p>
-                      <p className="text-gray-400">قم بتسجيل حضور الموظفين من القائمة المجاورة</p>
+                      <p className="text-gray-500 text-sm font-medium mb-1">لا يوجد موظفين حاضرين</p>
+                      <p className="text-gray-400 text-xs">قم بتسجيل حضور الموظفين من القائمة المجاورة</p>
                     </div>
                   ) : (
-                    <div className="max-h-[500px] overflow-y-auto">
+                    <div className="max-h-[400px] overflow-y-auto border-t border-gray-100">
                       {shiftWorkers
-                        .filter((sw) => sw.is_active)
+                        .filter((sw) => sw.is_active && sw.worker)
                         .map((shiftWorker, index) => {
                           const hoursWorked = calculateHours(shiftWorker.start_time, shiftWorker.end_time)
-                          const estimatedSalary = calculateSalary(hoursWorked, shiftWorker.worker.base_hourly_rate)
-
+                          const estimatedSalary = calculateSalary(
+                            hoursWorked,
+                            shiftWorker.worker!.base_hourly_rate || shiftWorker.hourly_rate,
+                          )
                           return (
                             <div
                               key={shiftWorker.shift_worker_id}
-                              className={`p-6 border-b hover:bg-gradient-to-r hover:from-orange-50 hover:to-red-50 transition-all duration-300 ${
-                                index === shiftWorkers.filter((sw) => sw.is_active).length - 1 ? "border-b-0" : "border-gray-200"
-                              }`}
+                              className="border-b border-gray-100 last:border-b-0 hover:bg-gray-50 transition-colors"
                             >
-                              <div className="flex items-start justify-between">
-                                <div className="flex items-center gap-4">
-                                  <div className={`p-3 rounded-xl shadow-lg ${getWorkerRoleColor(shiftWorker.worker.status)}`}>
-                                    {getWorkerRoleIcon(shiftWorker.worker.status)}
+                              <div className="flex items-center justify-between p-3">
+                                <div className="flex items-center gap-3">
+                                  <div className={`p-2 rounded-md ${getWorkerRoleColor(shiftWorker.worker!.status)}`}>
+                                    {getWorkerRoleIcon(shiftWorker.worker!.status)}
                                   </div>
                                   <div>
                                     <div className="flex items-center gap-3 mb-2">
-                                      <h3 className="font-bold text-gray-900 text-lg">{shiftWorker.worker.full_name}</h3>
+                                      <h3 className="font-bold text-gray-900 text-lg">
+                                        {shiftWorker.worker!.full_name}
+                                      </h3>
                                       <div className="bg-green-100 text-green-700 px-2 py-1 rounded-full text-xs font-bold">
                                         نشط
                                       </div>
                                     </div>
                                     <div className="flex items-center gap-2 mb-3">
                                       <div className="bg-blue-100 text-blue-700 px-3 py-1 rounded-full text-sm font-bold">
-                                        {shiftWorker.worker.status}
+                                        {shiftWorker.worker!.status}
                                       </div>
                                     </div>
                                     <div className="grid grid-cols-2 gap-4 text-sm">
                                       <div className="flex items-center gap-2 text-gray-600">
                                         <Clock className="w-4 h-4" />
-                                        <span className="font-medium">بدء: {new Date(shiftWorker.start_time).toLocaleTimeString("ar-EG", {
-                                          hour: "2-digit",
-                                          minute: "2-digit",
-                                        })}</span>
+                                        <span className="font-medium">
+                                          بدء:{" "}
+                                          {new Date(shiftWorker.start_time).toLocaleTimeString("ar-EG", {
+                                            hour: "2-digit",
+                                            minute: "2-digit",
+                                          })}
+                                        </span>
                                       </div>
                                       <div className="flex items-center gap-2 text-green-600">
                                         <Clock className="w-4 h-4" />
@@ -1586,54 +1458,54 @@ export default function SimpleRestaurantJournal() {
 
         {/* Enhanced Edit Dialog */}
         <Dialog open={editDialogOpen} onOpenChange={setEditDialogOpen}>
-          <DialogContent className="max-w-2xl bg-white rounded-2xl border-0 shadow-2xl">
-            <DialogHeader className="bg-gradient-to-r from-blue-500 to-purple-600 text-white p-6 -m-6 mb-6 rounded-t-2xl">
-              <DialogTitle className="text-2xl font-bold flex items-center gap-3">
-                <div className="bg-white/20 p-2 rounded-lg">
-                  <Edit className="w-6 h-6" />
-                </div>
+          <DialogContent className="max-w-md bg-white rounded-md border border-gray-100">
+            <DialogHeader className="bg-blue-600 text-white py-3 px-4 -m-6 mb-6 rounded-t-md">
+              <DialogTitle className="text-base font-medium flex items-center gap-2">
+                <Edit className="w-4 h-4" />
                 {arabicLabels.edit_expense}
               </DialogTitle>
             </DialogHeader>
-            <div className="space-y-6 px-2">
-              <div className="space-y-2">
-                <Label htmlFor="edit-category" className="text-sm font-bold text-gray-700 flex items-center gap-2">
-                  <Package className="w-4 h-4" />
+            <div className="space-y-4">
+              <div className="space-y-1.5">
+                <Label htmlFor="edit-category" className="text-xs font-medium text-gray-700 flex items-center gap-1.5">
+                  <Package className="w-3.5 h-3.5" />
                   {arabicLabels.expense_category}
                 </Label>
                 <Select value={editForm.category} onValueChange={(value) => handleChange("category", value, true)}>
-                  <SelectTrigger className={`h-12 ${editErrors.category ? "border-red-500 bg-red-50" : "border-gray-300"} hover:border-gray-400 transition-colors`}>
+                  <SelectTrigger
+                    className={`h-10 ${editErrors.category ? "border-red-500 bg-red-50" : "border-gray-200"} text-sm`}
+                  >
                     <SelectValue placeholder="اختر فئة المصروف" />
                   </SelectTrigger>
                   <SelectContent>
                     {expenseCategories.map((category) => (
                       <SelectItem key={category.value} value={category.value}>
-                        <div className="flex items-center gap-3">
-                          <div className={`w-4 h-4 rounded ${category.color}`}></div>
-                          <span className="font-medium">{category.label}</span>
+                        <div className="flex items-center gap-2">
+                          <div className={`w-3 h-3 rounded-sm ${category.color}`}></div>
+                          <span className="text-sm">{category.label}</span>
                         </div>
                       </SelectItem>
                     ))}
                   </SelectContent>
                 </Select>
                 {editErrors.category && (
-                  <p className="text-sm text-red-600 font-medium flex items-center gap-1">
-                    <AlertCircle className="w-4 h-4" />
+                  <p className="text-xs text-red-600 flex items-center gap-1">
+                    <AlertCircle className="w-3 h-3 flex-shrink-0" />
                     {editErrors.category}
                   </p>
                 )}
               </div>
 
-              <div className="space-y-2">
-                <Label htmlFor="edit-title" className="text-sm font-bold text-gray-700 flex items-center gap-2">
-                  <Edit className="w-4 h-4" />
+              <div className="space-y-1.5">
+                <Label htmlFor="edit-title" className="text-xs font-medium text-gray-700 flex items-center gap-1.5">
+                  <Edit className="w-3.5 h-3.5" />
                   {arabicLabels.expense_title}
                 </Label>
                 <Input
                   id="edit-title"
                   value={editForm.title}
                   onChange={(e) => handleChange("title", e.target.value, true)}
-                  className={`h-12 ${editErrors.title ? "border-red-500 bg-red-50" : "border-gray-300"} hover:border-gray-400 transition-colors`}
+                  className={`h-10 text-sm ${editErrors.title ? "border-red-500 bg-red-50" : "border-gray-200"}`}
                 />
                 {editErrors.title && (
                   <p className="text-sm text-red-600 font-medium flex items-center gap-1">
@@ -1682,30 +1554,30 @@ export default function SimpleRestaurantJournal() {
                 )}
               </div>
             </div>
-            <DialogFooter className="gap-3 pt-6">
-              <Button 
-                variant="outline" 
+            <DialogFooter className="gap-2 mt-4">
+              <Button
+                variant="outline"
                 onClick={() => setEditDialogOpen(false)}
-                className="h-12 px-6 border-2 border-gray-300 hover:border-gray-400 font-bold transition-colors"
+                className="h-9 text-sm border-gray-200"
               >
-                <div className="flex items-center gap-2">
-                  <XCircle className="w-5 h-5" />
+                <div className="flex items-center gap-1.5">
+                  <XCircle className="w-4 h-4" />
                   {arabicLabels.cancel}
                 </div>
               </Button>
-              <Button 
-                onClick={handleUpdate} 
+              <Button
+                onClick={handleUpdate}
                 disabled={loading}
-                className="h-12 px-6 bg-gradient-to-r from-blue-500 to-purple-600 hover:from-blue-600 hover:to-purple-700 text-white font-bold shadow-lg hover:shadow-xl transition-all duration-300"
+                className="h-9 text-sm bg-blue-600 hover:bg-blue-700 text-white"
               >
                 {loading ? (
-                  <div className="flex items-center gap-2">
-                    <Loader2 className="w-5 h-5 animate-spin" />
+                  <div className="flex items-center gap-1.5">
+                    <Loader2 className="w-4 h-4 animate-spin" />
                     <span>جاري الحفظ...</span>
                   </div>
                 ) : (
-                  <div className="flex items-center gap-2">
-                    <CheckCircle className="w-5 h-5" />
+                  <div className="flex items-center gap-1.5">
+                    <CheckCircle className="w-4 h-4" />
                     {arabicLabels.update}
                   </div>
                 )}

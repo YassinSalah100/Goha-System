@@ -428,8 +428,8 @@ function StockReportsTab() {
                   التقرير الشامل للمخزون - كاشير
                 </CardTitle>
                 <p className="text-sm text-teal-600 mt-1">
-                  <span className="print-date">📅 {new Date(reportDate).toLocaleDateString('ar-EG')}</span> | 
-                  <span className="print-shift">🕐 {comprehensiveReport.shiftReport?.shift_name || 'ورديتي الحالية'}</span>
+                  <span className="print-date">التاريخ: {new Date(reportDate).toLocaleDateString('ar-EG')}</span> | 
+                  <span className="print-shift">الوردية: {comprehensiveReport.shiftReport?.shift_name || 'ورديتي الحالية'}</span>
                 </p>
               </div>
               <div className="flex gap-2">
@@ -487,71 +487,463 @@ function StockReportsTab() {
                       if (!reportElement) {
                         throw new Error('لم يتم العثور على عنصر التقرير');
                       }
+
+                      // Before generating PDF, apply preparation styles to optimize appearance
+                      const styleElement = document.createElement('style');
+                      styleElement.id = 'pdf-export-styles';
+                      styleElement.innerHTML = `
+                        @page { size: A4 landscape; margin: 10mm; }
+                        .pdf-export-container { 
+                          width: 100%; 
+                          background-color: white !important;
+                          direction: rtl !important;
+                          font-family: 'Arial', 'Tajawal', sans-serif !important;
+                          color: black !important;
+                          position: relative !important;
+                          padding-bottom: 40px !important;
+                        }
+                        .pdf-export-container .card {
+                          box-shadow: none !important;
+                          border: none !important;
+                          margin: 0 !important;
+                        }
+                        .pdf-export-container table {
+                          width: 100% !important;
+                          border-collapse: collapse !important;
+                          margin: 0 auto !important;
+                          font-size: 16pt !important;
+                          border: 2px solid #0f766e !important;
+                        }
+                        .pdf-export-container th, .pdf-export-container td {
+                          border: 1.5px solid #0f766e !important;
+                          padding: 12px !important;
+                          text-align: center !important;
+                          font-size: 16pt !important;
+                        }
+                        .pdf-export-container th {
+                          background-color: #e6f7f5 !important;
+                          font-weight: bold !important;
+                          color: #0f766e !important;
+                        }
+                        .pdf-export-container tr:nth-child(even) {
+                          background-color: #f8fafa !important;
+                        }
+                        .pdf-export-container .report-summary-row th {
+                          background-color: #f0f9f9 !important;
+                        }
+                        .pdf-export-container .report-title {
+                          text-align: center !important;
+                          font-size: 24pt !important;
+                          font-weight: bold !important;
+                          margin-bottom: 15px !important;
+                          color: #0f766e !important;
+                        }
+                        .pdf-export-container .report-header {
+                          display: flex !important;
+                          justify-content: space-between !important;
+                          align-items: center !important;
+                          margin-bottom: 30px !important;
+                        }
+                        .pdf-export-container .summary-grid {
+                          display: grid !important;
+                          grid-template-columns: repeat(4, 1fr) !important;
+                          gap: 10px !important;
+                        }
+                      `;
+                      document.head.appendChild(styleElement);
                       
-                      // Create a clone of the report for PDF generation
-                      const reportClone = reportElement.cloneNode(true) as HTMLElement;
+                      // Create a container specifically for the PDF export
+                      const exportContainer = document.createElement('div');
+                      exportContainer.className = 'pdf-export-container';
                       
-                      // Set styles for better PDF output
-                      reportClone.style.width = '100%';
-                      reportClone.style.backgroundColor = 'white';
-                      reportClone.style.padding = '20px';
-                      reportClone.style.direction = 'rtl';
-                      
-                      // Find and style the table
-                      const tables = reportClone.getElementsByTagName('table');
-                      if (tables.length > 0) {
-                        tables[0].style.width = '100%';
-                        tables[0].style.borderCollapse = 'collapse';
-                        
-                        // Apply styles to all cells
-                        const cells = tables[0].getElementsByTagName('td');
-                        for (let i = 0; i < cells.length; i++) {
-                          cells[i].style.border = '1px solid #000';
-                          cells[i].style.padding = '5px';
-                          cells[i].style.fontSize = '10px';
+                      // Add restaurant logo and report title at the top with more organized shift details
+                      const shiftName = comprehensiveReport.shiftReport?.shift_name || 'الوردية الحالية';
+                      const shiftTime = new Date().toLocaleTimeString('ar-EG');
+                      // Get the cashier name using a more reliable method
+                      let cashierName = 'yassin'; // Default to current user
+                      // Try to get name from multiple possible sources
+                      try {
+                        // First try to get from the current document if there's a user display name
+                        if (document) {
+                          // Look for elements that might contain the user name (common in nav/header components)
+                          const userNameElements = document.querySelectorAll('.user-name, .profile-name, .username, [data-user-name]');
+                          if (userNameElements.length > 0 && userNameElements[0].textContent) {
+                            const possibleName = userNameElements[0].textContent.trim();
+                            if (possibleName && possibleName.length > 0 && possibleName !== 'undefined') {
+                              cashierName = possibleName;
+                            }
+                          }
                         }
                         
-                        // Apply styles to all headers
-                        const headers = tables[0].getElementsByTagName('th');
-                        for (let i = 0; i < headers.length; i++) {
-                          headers[i].style.border = '1px solid #000';
-                          headers[i].style.padding = '5px';
-                          headers[i].style.backgroundColor = '#f0f0f0';
-                          headers[i].style.fontSize = '10px';
+                        // If nothing found yet, try localStorage options
+                        if (typeof window !== 'undefined') {
+                          const storedName = localStorage.getItem('userName') || 
+                                           localStorage.getItem('user_name') || 
+                                           localStorage.getItem('cashierName') ||
+                                           sessionStorage.getItem('userName') ||
+                                           localStorage.getItem('currentUser');
+                          
+                          if (storedName && storedName !== 'undefined' && storedName.trim()) {
+                            cashierName = storedName.trim();
+                          }
+                          
+                          // If we have access to the user object in any form
+                          const userObject = localStorage.getItem('user') || localStorage.getItem('currentUser');
+                          if (userObject) {
+                            try {
+                              const user = JSON.parse(userObject);
+                              if (user && (user.name || user.username || user.displayName)) {
+                                cashierName = user.name || user.username || user.displayName;
+                              }
+                            } catch (parseErr) {
+                              console.log('Could not parse user object');
+                            }
+                          }
                         }
+                      } catch (e) {
+                        console.log('Could not get cashier name from storage:', e);
+                        // Keep default yassin
+                        cashierName = 'yassin';
                       }
                       
-                      // Temporarily add the clone to document for canvas capture
-                      reportClone.style.position = 'absolute';
-                      reportClone.style.left = '-9999px';
-                      document.body.appendChild(reportClone);
+                      exportContainer.innerHTML = `
+                        <div style="padding: 20px; margin-bottom: 30px; background: linear-gradient(to bottom, #f0fdfa, #ffffff); border-bottom: 3px solid #0f766e;">
+                          <!-- Header Top Section with Title and Date -->
+                          <div style="display: flex; justify-content: space-between; margin-bottom: 20px; align-items: center;">
+                            <div style="display: flex; flex-direction: column; align-items: center; gap: 5px; background-color: rgba(15, 118, 110, 0.05); padding: 10px; border-radius: 8px; box-shadow: 0 1px 3px rgba(0,0,0,0.1);">
+                              <div style="font-size: 20pt; font-weight: bold; color: #0f766e;">${new Date(reportDate).toLocaleDateString('ar-EG')}</div>
+                              <div style="font-size: 16pt; color: #0f766e;">${shiftName}</div>
+                              <div style="font-size: 18pt; font-weight: bold; color: #0f766e; margin-top: 8px; border-top: 1px solid #0f766e; padding-top: 8px;">الكاشير: ${cashierName}</div>
+                            </div>
+                            <div style="text-align: center; flex-grow: 1;">
+                              <div style="font-size: 32pt; font-weight: bold; color: #0f766e; text-shadow: 1px 1px 2px rgba(0,0,0,0.1);">تقرير المخزون الشامل</div>
+                            </div>
+                            <div style="text-align: left; background-color: rgba(15, 118, 110, 0.05); padding: 10px; border-radius: 8px; box-shadow: 0 1px 3px rgba(0,0,0,0.1);">
+                              <div style="font-size: 16pt; color: #0f766e;">وقت الإصدار: ${shiftTime}</div>
+                              <div style="font-size: 16pt; color: #0f766e;">عدد العناصر: ${comprehensiveReport.currentStock.length}</div>
+                            </div>
+                          </div>
+                          
+                          <!-- Center Logo -->
+                          <div style="display: flex; justify-content: center; align-items: center; margin: 20px 0;">
+                            <div style="display: flex; flex-direction: column; align-items: center; gap: 10px; background-color: rgba(255, 255, 255, 0.7); padding: 15px; border-radius: 50%; box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);">
+                              <img src="/images/logo.png" alt="Restaurant Logo" style="height: 120px; width: auto;" />
+                              <div style="font-weight: bold; font-size: 22pt; color: #0f766e; text-align: center;">مطعم جحا</div>
+                            </div>
+                          </div>
+                          
+                          <!-- Report Summary Box -->
+                          <div style="margin-top: 20px; background-color: rgba(15, 118, 110, 0.08); border: 1px solid #0f766e; border-radius: 10px; padding: 15px; display: flex; justify-content: space-between;">
+                            <div style="flex: 1; text-align: center; border-right: 1px solid #0f766e; padding: 0 15px;">
+                              <div style="font-weight: bold; font-size: 16pt; color: #0f766e;">التاريخ</div>
+                              <div style="font-size: 18pt;">${new Date(reportDate).toLocaleDateString('ar-EG')}</div>
+                            </div>
+                            <div style="flex: 1; text-align: center; border-right: 1px solid #0f766e; padding: 0 15px;">
+                              <div style="font-weight: bold; font-size: 16pt; color: #0f766e;">الوردية</div>
+                              <div style="font-size: 18pt;">${shiftName}</div>
+                            </div>
+                            <div style="flex: 1; text-align: center; border-right: 1px solid #0f766e; padding: 0 15px; background-color: rgba(15, 118, 110, 0.05);">
+                              <div style="font-weight: bold; font-size: 16pt; color: #0f766e;">الكاشير</div>
+                              <div style="font-size: 18pt; font-weight: bold;">${cashierName}</div>
+                            </div>
+                            <div style="flex: 1; text-align: center; border-right: 1px solid #0f766e; padding: 0 15px;">
+                              <div style="font-weight: bold; font-size: 16pt; color: #0f766e;">وقت الإصدار</div>
+                              <div style="font-size: 18pt;">${shiftTime}</div>
+                            </div>
+                            <div style="flex: 1; text-align: center; padding: 0 15px;">
+                              <div style="font-weight: bold; font-size: 16pt; color: #0f766e;">عدد العناصر</div>
+                              <div style="font-size: 18pt;">${comprehensiveReport.currentStock.length}</div>
+                            </div>
+                          </div>
+                        </div>
+                      `;
                       
-                      // Generate canvas from the element
-                      const canvas = await html2canvas(reportClone, {
-                        scale: 1.5, // Higher scale for better quality
+                      // Create a completely new reorganized table for PDF (do not use original table)
+                      const tableOriginal = reportElement.querySelector('table');
+                      
+                      // Create a new table with better structure for PDF - COMPLETELY REPLACE THE ORIGINAL
+                      const newTable = document.createElement('table');
+                      newTable.style.width = '100%';
+                      newTable.style.borderCollapse = 'collapse';
+                      newTable.style.margin = '20px auto';
+                      newTable.style.fontSize = '16pt';
+                      newTable.style.border = '2px solid #0f766e';
+                      
+                      // Create table header
+                      const thead = document.createElement('thead');
+                      thead.innerHTML = `
+                        <tr style="background-color: #0f766e; color: white;">
+                          <th style="padding: 15px; border: 1px solid #0f766e; text-align: center; font-size: 18pt;" colspan="5">
+                            تقرير المخزون والمعاملات
+                          </th>
+                        </tr>
+                        <tr style="background-color: #e6f7f5; color: #0f766e;">
+                          <th style="padding: 12px; border: 1px solid #0f766e; text-align: center; font-weight: bold;">العنصر</th>
+                          <th style="padding: 12px; border: 1px solid #0f766e; text-align: center; font-weight: bold;">النوع</th>
+                          <th style="padding: 12px; border: 1px solid #0f766e; text-align: center; font-weight: bold;">الكمية الحالية</th>
+                          <th style="padding: 12px; border: 1px solid #0f766e; text-align: center; font-weight: bold;">الوحدة</th>
+                          <th style="padding: 12px; border: 1px solid #0f766e; text-align: center; font-weight: bold;">حالة المخزون</th>
+                        </tr>
+                      `;
+                      newTable.appendChild(thead);
+                      
+                      // Create table body with reorganized content
+                      const tbody = document.createElement('tbody');
+                      
+                      // Group all stock items by category/type
+                      const stockByCategory: {[key: string]: {critical: any[], low: any[], normal: any[]}} = {};
+                      comprehensiveReport.currentStock.forEach(item => {
+                        const category = item.type || 'غير محدد';
+                        if (!stockByCategory[category]) {
+                          stockByCategory[category] = {
+                            critical: [],
+                            low: [],
+                            normal: []
+                          };
+                        }
+                        
+                        // Categorize by stock status
+                        if (comprehensiveReport.criticalAlerts.some(critical => critical.stock_item_id === item.stock_item_id)) {
+                          stockByCategory[category].critical.push(item);
+                        } else if (comprehensiveReport.lowStockItems.some(lowStock => lowStock.stock_item_id === item.stock_item_id)) {
+                          stockByCategory[category].low.push(item);
+                        } else {
+                          stockByCategory[category].normal.push(item);
+                        }
+                      });
+                      
+                      // Display each category with its items
+                      Object.keys(stockByCategory).forEach(category => {
+                        const categoryData = stockByCategory[category];
+                        const totalItems = categoryData.critical.length + categoryData.low.length + categoryData.normal.length;
+                        
+                        // Category header
+                        const categoryHeader = document.createElement('tr');
+                        categoryHeader.innerHTML = `
+                          <td colspan="5" style="background-color: #f0f9ff; color: #0369a1; font-weight: bold; text-align: center; padding: 15px; border: 1px solid #0f766e; font-size: 16pt;">
+                            فئة: ${category} (${totalItems} عنصر)
+                          </td>
+                        `;
+                        tbody.appendChild(categoryHeader);
+                        
+                        // Critical items in this category
+                        categoryData.critical.forEach((item: any, index: number) => {
+                          const row = document.createElement('tr');
+                          row.style.backgroundColor = index % 2 === 0 ? '#fff' : '#f8f9fa';
+                          row.innerHTML = `
+                            <td style="padding: 12px; font-weight: bold; border: 1px solid #0f766e;">${item.name}</td>
+                            <td style="padding: 12px; text-align: center; border: 1px solid #0f766e;">${item.type}</td>
+                            <td style="padding: 12px; text-align: center; font-weight: bold; border: 1px solid #0f766e; font-size: 16pt;">${item.current_quantity}</td>
+                            <td style="padding: 12px; text-align: center; border: 1px solid #0f766e;">${item.unit}</td>
+                            <td style="padding: 12px; text-align: center; border: 1px solid #0f766e;">نفذ المخزون - يحتاج تموين فوري</td>
+                          `;
+                          tbody.appendChild(row);
+                        });
+                        
+                        // Low stock items in this category
+                        categoryData.low.forEach((item: any, index: number) => {
+                          const row = document.createElement('tr');
+                          row.style.backgroundColor = index % 2 === 0 ? '#fff' : '#f8f9fa';
+                          row.innerHTML = `
+                            <td style="padding: 12px; font-weight: bold; border: 1px solid #0f766e;">${item.name}</td>
+                            <td style="padding: 12px; text-align: center; border: 1px solid #0f766e;">${item.type}</td>
+                            <td style="padding: 12px; text-align: center; font-weight: bold; border: 1px solid #0f766e; font-size: 16pt;">${item.current_quantity}</td>
+                            <td style="padding: 12px; text-align: center; border: 1px solid #0f766e;">${item.unit}</td>
+                            <td style="padding: 12px; text-align: center; border: 1px solid #0f766e;">مخزون منخفض - يحتاج تموين</td>
+                          `;
+                          tbody.appendChild(row);
+                        });
+                        
+                        // Normal stock items in this category
+                        categoryData.normal.forEach((item: any, index: number) => {
+                          const row = document.createElement('tr');
+                          row.style.backgroundColor = index % 2 === 0 ? '#fff' : '#f8f9fa';
+                          row.innerHTML = `
+                            <td style="padding: 12px; font-weight: bold; border: 1px solid #0f766e;">${item.name}</td>
+                            <td style="padding: 12px; text-align: center; border: 1px solid #0f766e;">${item.type}</td>
+                            <td style="padding: 12px; text-align: center; font-weight: bold; border: 1px solid #0f766e; font-size: 16pt;">${item.current_quantity}</td>
+                            <td style="padding: 12px; text-align: center; border: 1px solid #0f766e;">${item.unit}</td>
+                            <td style="padding: 12px; text-align: center; border: 1px solid #0f766e;">متوفر</td>
+                          `;
+                          tbody.appendChild(row);
+                        });
+                      });
+                      
+                      // Add transactions section
+                      if (comprehensiveReport.allTransactions && comprehensiveReport.allTransactions.length > 0) {
+                        // Transactions header
+                        const transactionsHeader = document.createElement('tr');
+                        transactionsHeader.innerHTML = `
+                          <td colspan="5" style="background-color: #fef3c7; color: #92400e; font-weight: bold; text-align: center; padding: 15px; border: 1px solid #0f766e; font-size: 16pt;">
+                            آخر المعاملات على المخزون (${comprehensiveReport.allTransactions.slice(0, 10).length} معاملة)
+                          </td>
+                        `;
+                        tbody.appendChild(transactionsHeader);
+                        
+                        // Transaction table header
+                        const transactionHeaderRow = document.createElement('tr');
+                        transactionHeaderRow.innerHTML = `
+                          <th style="padding: 12px; border: 1px solid #0f766e; text-align: center; font-weight: bold; background-color: #fef3c7;">العنصر</th>
+                          <th style="padding: 12px; border: 1px solid #0f766e; text-align: center; font-weight: bold; background-color: #fef3c7;">نوع المعاملة</th>
+                          <th style="padding: 12px; border: 1px solid #0f766e; text-align: center; font-weight: bold; background-color: #fef3c7;">الكمية</th>
+                          <th style="padding: 12px; border: 1px solid #0f766e; text-align: center; font-weight: bold; background-color: #fef3c7;">المستخدم</th>
+                          <th style="padding: 12px; border: 1px solid #0f766e; text-align: center; font-weight: bold; background-color: #fef3c7;">الوقت</th>
+                        `;
+                        tbody.appendChild(transactionHeaderRow);
+                        
+                        // Add recent transactions
+                        comprehensiveReport.allTransactions.slice(0, 10).forEach((transaction, index) => {
+                          const row = document.createElement('tr');
+                          row.style.backgroundColor = index % 2 === 0 ? '#fff' : '#f8f9fa';
+                          row.innerHTML = `
+                            <td style="padding: 12px; font-weight: bold; border: 1px solid #0f766e;">${transaction.stock_item_name}</td>
+                            <td style="padding: 12px; text-align: center; border: 1px solid #0f766e;">${transaction.type === 'in' ? 'إضافة' : 'استخدام'}</td>
+                            <td style="padding: 12px; text-align: center; font-weight: bold; border: 1px solid #0f766e;">
+                              <span style="color: ${transaction.type === 'in' ? '#10b981' : '#dc2626'};">
+                                ${transaction.type === 'in' ? '+' : '-'}${transaction.quantity}
+                              </span>
+                            </td>
+                            <td style="padding: 12px; text-align: center; border: 1px solid #0f766e; font-weight: bold;">${transaction.user_name || cashierName}</td>
+                            <td style="padding: 12px; text-align: center; border: 1px solid #0f766e;">${new Date(transaction.timestamp).toLocaleString('ar-EG')}</td>
+                          `;
+                          tbody.appendChild(row);
+                        });
+                      }
+                      
+                      newTable.appendChild(tbody);
+                      exportContainer.appendChild(newTable);
+                      
+                      // Add compact footer inline with table
+                      const footerRow = document.createElement('tr');
+                      footerRow.innerHTML = `
+                        <td colspan="5" style="background-color: #f0fdfa; padding: 20px; text-align: center; border: 1px solid #0f766e; font-size: 18pt; background: linear-gradient(135deg, #f0fdfa 0%, #e6fffa 100%);">
+                          <div style="display: flex; align-items: center; justify-content: center; gap: 15px; padding: 10px; border-radius: 10px; background-color: rgba(255, 255, 255, 0.8); box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);">
+                            <img src="/images/eathrel.png" alt="Eathrel Logo" style="height: 40px; width: auto;" />
+                            <span style="font-weight: bold; color: #0f766e; font-size: 22pt; text-shadow: 1px 1px 2px rgba(0,0,0,0.1);">Powered by Eathrel</span>
+                          </div>
+                        </td>
+                      `;
+                      tbody.appendChild(footerRow);
+                      
+                      // Temporarily add to the document but hide it
+                      exportContainer.style.position = 'fixed';
+                      exportContainer.style.top = '-9999px';
+                      exportContainer.style.left = '-9999px';
+                      document.body.appendChild(exportContainer);
+                      
+                      // Apply additional styling to ensure the table is bigger and remove unnecessary spaces
+                      const tables = exportContainer.querySelectorAll('table');
+                      tables.forEach(table => {
+                        table.style.width = '100%';
+                        table.style.tableLayout = 'fixed';
+                        
+                        // Remove any empty rows or cells that might create big spaces
+                        const emptyRows = table.querySelectorAll('tr:empty');
+                        emptyRows.forEach(row => row.remove());
+                        
+                        // Remove "إجمالي القيمة" text from the summary section
+                        const summaryRows = table.querySelectorAll('.report-summary-row');
+                        summaryRows.forEach(row => {
+                          const allDivs = row.querySelectorAll('div');
+                          allDivs.forEach(div => {
+                            if (div.textContent && div.textContent.includes('إجمالي القيمة')) {
+                              div.remove();
+                            }
+                          });
+                        });
+                        
+                        // Make column widths more proportional
+                        const headerCells = table.querySelectorAll('th');
+                        if (headerCells.length >= 5) {
+                          // Item name column should be wider
+                          headerCells[0].style.width = '35%'; 
+                          // Other columns distributed evenly
+                          const otherWidth = 65 / (headerCells.length - 1);
+                          for (let i = 1; i < headerCells.length; i++) {
+                            headerCells[i].style.width = `${otherWidth}%`;
+                          }
+                        }
+                        
+                        // Compact empty cells and rows
+                        const allCells = table.querySelectorAll('td, th');
+                        allCells.forEach(cell => {
+                          const cellContent = cell.textContent;
+                          if (cellContent && !cellContent.trim()) {
+                            (cell as HTMLElement).style.padding = '0';
+                            (cell as HTMLElement).style.height = '0';
+                          }
+                        });
+                      });
+                      
+                      // Generate canvas with optimized settings for smaller file size
+                      const canvas = await html2canvas(exportContainer, {
+                        scale: 1.5, // Reduced scale for smaller file size
                         useCORS: true,
                         allowTaint: true,
                         backgroundColor: '#ffffff',
-                        logging: false
+                        logging: false,
+                        width: exportContainer.offsetWidth,
+                        height: exportContainer.offsetHeight,
+                        windowWidth: exportContainer.offsetWidth,
+                        windowHeight: exportContainer.offsetHeight
                       });
                       
-                      // Clean up by removing the clone
-                      document.body.removeChild(reportClone);
+                      // Clean up temporary elements
+                      document.body.removeChild(exportContainer);
+                      const pdfStyleElement = document.getElementById('pdf-export-styles');
+                      if (pdfStyleElement && pdfStyleElement.parentNode) {
+                        pdfStyleElement.parentNode.removeChild(pdfStyleElement);
+                      }
                       
-                      // Create PDF with proper dimensions
-                      const imgData = canvas.toDataURL('image/png');
+                      // Create PDF (landscape for better table fitting)
+                      const imgData = canvas.toDataURL('image/png', 1.0);
                       const pdf = new jsPDF({
-                        orientation: 'portrait',
+                        orientation: 'landscape', 
                         unit: 'mm',
                         format: 'a4'
                       });
                       
-                      // Calculate dimensions
-                      const imgWidth = 210; // A4 width in mm
-                      const imgHeight = canvas.height * imgWidth / canvas.width;
+                      // Get dimensions
+                      const pageWidth = pdf.internal.pageSize.getWidth();
+                      const pageHeight = pdf.internal.pageSize.getHeight();
                       
-                      // Add image to PDF
-                      pdf.addImage(imgData, 'PNG', 0, 0, imgWidth, imgHeight);
+                      // Calculate image dimensions while maintaining aspect ratio
+                      const imgWidth = pageWidth - 20; // 10mm margin on each side
+                      const imgHeight = (canvas.height * imgWidth) / canvas.width;
+                      
+                      // Add image centered
+                      pdf.addImage(
+                        imgData, 
+                        'PNG', 
+                        10, // x position (10mm from left)
+                        10, // y position (10mm from top)
+                        imgWidth, 
+                        imgHeight
+                      );
+                      
+                      // For multi-page support if the table is very long
+                      if (imgHeight > pageHeight - 20) { // if image taller than page
+                        let heightLeft = imgHeight;
+                        let position = 10;
+                        
+                        // Remove the first page that was automatically added
+                        pdf.deletePage(1);
+                        
+                        // Add new pages as needed
+                        for (let i = 0; heightLeft > 0; i++) {
+                          position = -pageHeight * i + 10;
+                          pdf.addPage();
+                          pdf.addImage(
+                            imgData, 
+                            'PNG', 
+                            10, 
+                            position, 
+                            imgWidth, 
+                            imgHeight
+                          );
+                          heightLeft -= pageHeight - 20;
+                        }
+                      }
                       
                       // Save the PDF
                       pdf.save(`تقرير-المخزون-${new Date(reportDate).toLocaleDateString('ar-EG')}.pdf`);
@@ -641,7 +1033,7 @@ function StockReportsTab() {
                       <>
                         <tr>
                           <td colSpan={7} className="border-2 border-gray-300 px-6 py-3 text-center bg-red-50 text-red-800 font-bold">
-                            ⚠️ عناصر نفذت من المخزون - تتطلب تموين فوري
+                            تحذير: عناصر نفذت من المخزون - تتطلب تموين فوري
                           </td>
                         </tr>
                         {comprehensiveReport.criticalAlerts.map((item) => (
@@ -669,7 +1061,7 @@ function StockReportsTab() {
                       <>
                         <tr>
                           <td colSpan={7} className="border-2 border-gray-300 px-6 py-3 text-center bg-amber-50 text-amber-800 font-bold">
-                            ⚠️ عناصر بمخزون منخفض - تحتاج إعادة تموين قريباً
+                            تنبيه: عناصر بمخزون منخفض - تحتاج إعادة تموين قريباً
                           </td>
                         </tr>
                         {comprehensiveReport.lowStockItems.map((item) => (
@@ -1090,7 +1482,7 @@ export default function CashierStockPage() {
       const storedUser = JSON.parse(localStorage.getItem("currentUser") || "{}")
       
       if (storedUser?.shift?.shift_id) {
-        console.log("📊 Using cashier's current shift ID:", storedUser.shift.shift_id)
+        console.log("Using cashier's current shift ID:", storedUser.shift.shift_id)
         setActiveShiftId(storedUser.shift.shift_id)
         return storedUser.shift.shift_id
       }
@@ -1098,18 +1490,18 @@ export default function CashierStockPage() {
       // If no shift in stored user, use user ID as shift reference
       if (storedUser?.user_id || storedUser?.id) {
         const userId = storedUser.user_id || storedUser.id
-        console.log("📊 Using user ID as shift reference:", userId)
+        console.log("Using user ID as shift reference:", userId)
         setActiveShiftId(userId)
         return userId
       }
     } catch (error) {
-      console.warn("⚠️ Could not get user shift data:", error)
+      console.warn("Could not get user shift data:", error)
     }
     
     // Final fallback - create a temporary shift ID based on current time
     const tempShiftId = `cashier_shift_${Date.now()}`
     setActiveShiftId(tempShiftId)
-    console.log("📊 Using temporary shift ID:", tempShiftId)
+    console.log("Using temporary shift ID:", tempShiftId)
     return tempShiftId
   }
 
