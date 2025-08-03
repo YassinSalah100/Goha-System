@@ -2,7 +2,14 @@
 export const formatEgyptianCurrency = (amount: number): string => {
   // Ensure amount is a valid number
   const numAmount = typeof amount === 'number' ? amount : parseFloat(amount) || 0
-  return `${numAmount.toFixed(2)} ج.م`
+  
+  // Format with Egyptian locale and currency
+  return new Intl.NumberFormat('ar-EG', {
+    style: 'currency',
+    currency: 'EGP',
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2
+  }).format(numAmount)
 }
 
 export const validateExpenseForm = (formData: any): { isValid: boolean; errors: any } => {

@@ -143,6 +143,16 @@ export default function JournalPage() {
   const [endingWorker, setEndingWorker] = useState<string | null>(null)
   const [deletingExpense, setDeletingExpense] = useState<string | null>(null)
 
+  // Form state for adding expenses
+  const [expenseForm, setExpenseForm] = useState({
+    category: "",
+    item: "",
+    amount: "",
+    description: ""
+  })
+  const [formErrors, setFormErrors] = useState<any>({})
+  const [message, setMessage] = useState<{ text: string; type: 'success' | 'error' } | null>(null)
+
   // API utility functions
   const fetchWithErrorHandling = async (url: string, options: RequestInit = {}) => {
     try {
@@ -250,6 +260,9 @@ export default function JournalPage() {
         ? responseData.success ? responseData.data : responseData
         : []
 
+      console.log("Raw shift workers data:", workers)
+      console.log("Available workers for matching:", availableWorkers)
+
       const enrichedWorkers = workers
         .map((sw: any) => {
           try {
@@ -266,15 +279,46 @@ export default function JournalPage() {
               created_at: sw.created_at || new Date().toISOString(),
             }
 
-            const matchingWorker = availableWorkers.find((worker) => worker.worker_id === sw.worker_id)
+            // Enhanced worker matching with multiple strategies
+            let matchingWorker = availableWorkers.find((worker) => worker.worker_id === sw.worker_id)
+            
+            // If no direct match, try matching by name or other fields from the shift worker data
+            if (!matchingWorker && sw.worker) {
+              matchingWorker = availableWorkers.find((worker) => 
+                worker.full_name === sw.worker.full_name ||
+                worker.worker_id === sw.worker.worker_id
+              )
+            }
+
+            // If still no match, try matching by hourly rate (as a last resort)
+            if (!matchingWorker && standardizedSW.hourly_rate > 0) {
+              matchingWorker = availableWorkers.find((worker) =>
+                Math.abs(worker.base_hourly_rate - standardizedSW.hourly_rate) < 0.01
+              )
+            }
+
             if (matchingWorker) {
               standardizedSW.worker = matchingWorker
+              console.log(`✓ Successfully matched shift worker ${sw.shift_worker_id} with ${matchingWorker.full_name}`)
             } else {
-              standardizedSW.worker = {
-                worker_id: sw.worker_id || `unknown_${sw.shift_worker_id}`,
-                full_name: sw.worker_name || "موظف غير محدد",
-                status: sw.worker_status || "موظف",
-                base_hourly_rate: standardizedSW.hourly_rate,
+              // If we have worker data in the shift worker response, use it
+              if (sw.worker && sw.worker.full_name) {
+                standardizedSW.worker = {
+                  worker_id: sw.worker.worker_id || sw.worker_id || `unknown_${sw.shift_worker_id}`,
+                  full_name: sw.worker.full_name,
+                  status: sw.worker.status || "موظف",
+                  base_hourly_rate: sw.worker.base_hourly_rate || standardizedSW.hourly_rate,
+                }
+                console.log(`✓ Using embedded worker data for ${sw.worker.full_name}`)
+              } else {
+                // Fallback: create a placeholder with better naming
+                standardizedSW.worker = {
+                  worker_id: sw.worker_id || `unknown_${sw.shift_worker_id}`,
+                  full_name: `موظف #${sw.shift_worker_id?.slice(-4) || 'غير محدد'}`,
+                  status: "موظف",
+                  base_hourly_rate: standardizedSW.hourly_rate,
+                }
+                console.log(`⚠ No match found for shift worker ${sw.shift_worker_id}, using placeholder`)
               }
             }
 
@@ -291,7 +335,7 @@ export default function JournalPage() {
       // Convert to simple staff format for components
       const convertedStaff: StaffMember[] = enrichedWorkers.map((sw: ShiftWorker) => ({
         id: sw.shift_worker_id,
-        name: sw.worker?.full_name || "موظف غير محدد",
+        name: sw.worker?.full_name || `موظف #${sw.shift_worker_id?.slice(-4) || 'غير محدد'}`,
         position: sw.worker?.status || "موظف",
         startTime: sw.start_time,
         endTime: sw.end_time,
@@ -299,6 +343,8 @@ export default function JournalPage() {
         status: sw.is_active ? "present" : "ended"
       }))
       setStaff(convertedStaff)
+      
+      console.log("Final converted staff:", convertedStaff)
     } catch (error) {
       console.error("Error fetching shift workers:", error)
       setShiftWorkers([])
@@ -460,6 +506,58 @@ export default function JournalPage() {
     }
   }
 
+  // Form handling functions
+  const handleFormChange = (field: string, value: string) => {
+    setExpenseForm(prev => ({ ...prev, [field]: value }))
+    // Clear error for this field when user starts typing
+    if (formErrors[field]) {
+      setFormErrors((prev: any) => ({ ...prev, [field]: undefined }))
+    }
+  }
+
+  const handleExpenseSubmit = async (e: React.FormEvent) => {
+    e.preventDefault()
+    setMessage(null)
+    
+    // Validate form
+    const validation = validateExpenseForm({
+      item: expenseForm.item,
+      amount: parseFloat(expenseForm.amount) || 0,
+      category: expenseForm.category,
+      description: expenseForm.description
+    })
+    
+    if (!validation.isValid) {
+      setFormErrors(validation.errors)
+      setMessage({ text: "يرجى تصحيح الأخطاء في النموذج", type: 'error' })
+      return
+    }
+
+    try {
+      await handleAddExpense({
+        item: expenseForm.item,
+        amount: parseFloat(expenseForm.amount),
+        category: expenseForm.category,
+        description: expenseForm.description || undefined
+      })
+      
+      // Clear form on success
+      setExpenseForm({
+        category: "",
+        item: "",
+        amount: "",
+        description: ""
+      })
+      setFormErrors({})
+      setMessage({ text: "تم إضافة المصروف بنجاح ✓", type: 'success' })
+      
+      // Clear success message after 3 seconds
+      setTimeout(() => setMessage(null), 3000)
+    } catch (error: any) {
+      setMessage({ text: error.message || "خطأ في إضافة المصروف", type: 'error' })
+    }
+  }
+
   useEffect(() => {
     getCurrentUser()
     fetchAvailableWorkers()
@@ -596,11 +694,21 @@ export default function JournalPage() {
                 </CardTitle>
               </CardHeader>
               <CardContent>
-                <div className="space-y-4">
+                {message && (
+                  <Alert className={`mb-4 ${message.type === 'error' ? 'border-red-500 bg-red-50' : 'border-green-500 bg-green-50'}`}>
+                    <AlertDescription className={message.type === 'error' ? 'text-red-700' : 'text-green-700'}>
+                      {message.text}
+                    </AlertDescription>
+                  </Alert>
+                )}
+                <form onSubmit={handleExpenseSubmit} className="space-y-4">
                   <div>
-                    <Label htmlFor="category">الفئة</Label>
-                    <Select>
-                      <SelectTrigger>
+                    <Label htmlFor="category">الفئة *</Label>
+                    <Select 
+                      value={expenseForm.category} 
+                      onValueChange={(value) => handleFormChange('category', value)}
+                    >
+                      <SelectTrigger className={formErrors.category ? 'border-red-500' : ''}>
                         <SelectValue placeholder="اختر فئة المصروف" />
                       </SelectTrigger>
                       <SelectContent>
@@ -611,41 +719,58 @@ export default function JournalPage() {
                         ))}
                       </SelectContent>
                     </Select>
+                    {formErrors.category && (
+                      <p className="text-sm text-red-500 mt-1">{formErrors.category}</p>
+                    )}
                   </div>
 
                   <div>
-                    <Label htmlFor="item">اسم المصروف</Label>
+                    <Label htmlFor="item">اسم المصروف *</Label>
                     <Input
                       id="item"
+                      value={expenseForm.item}
+                      onChange={(e) => handleFormChange('item', e.target.value)}
                       placeholder="مثال: قهوة، سكر، مناديل"
+                      className={formErrors.item ? 'border-red-500' : ''}
                     />
+                    {formErrors.item && (
+                      <p className="text-sm text-red-500 mt-1">{formErrors.item}</p>
+                    )}
                   </div>
 
                   <div>
-                    <Label htmlFor="amount">المبلغ (جنيه)</Label>
+                    <Label htmlFor="amount">المبلغ (جنيه) *</Label>
                     <Input
                       id="amount"
                       type="number"
                       step="0.01"
                       min="0"
+                      value={expenseForm.amount}
+                      onChange={(e) => handleFormChange('amount', e.target.value)}
                       placeholder="0.00"
+                      className={formErrors.amount ? 'border-red-500' : ''}
                     />
+                    {formErrors.amount && (
+                      <p className="text-sm text-red-500 mt-1">{formErrors.amount}</p>
+                    )}
                   </div>
 
                   <div>
                     <Label htmlFor="description">ملاحظات (اختياري)</Label>
                     <Textarea
                       id="description"
+                      value={expenseForm.description}
+                      onChange={(e) => handleFormChange('description', e.target.value)}
                       placeholder="تفاصيل إضافية عن المصروف..."
                       rows={3}
                     />
                   </div>
 
-                  <Button className="w-full">
+                  <Button type="submit" className="w-full">
                     <Plus className="w-4 h-4 mr-2" />
                     إضافة المصروف
                   </Button>
-                </div>
+                </form>
               </CardContent>
             </Card>
 
@@ -685,6 +810,7 @@ export default function JournalPage() {
                             <Button
                               size="sm"
                               disabled={assigningWorker === worker.worker_id}
+                              onClick={() => assignWorkerToShift(worker.worker_id)}
                             >
                               {assigningWorker === worker.worker_id ? (
                                 <Loader2 className="w-4 h-4 animate-spin" />
@@ -874,6 +1000,7 @@ export default function JournalPage() {
                                   variant="outline"
                                   className="mt-2 text-red-600 hover:text-red-800 hover:bg-red-50"
                                   disabled={endingWorker === member.id}
+                                  onClick={() => handleEndShift(member.id)}
                                 >
                                   <UserX className="w-4 h-4 mr-1" />
                                   إنهاء المناوبة
