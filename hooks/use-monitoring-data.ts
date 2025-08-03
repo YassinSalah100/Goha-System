@@ -26,6 +26,18 @@ export function useMonitoringData() {
     completedOrders: 0,
     pendingOrders: 0,
     activeCashiers: 0,
+    ordersByType: {
+      "dine-in": 0,
+      takeaway: 0,
+      delivery: 0,
+      cafe: 0
+    },
+    salesByType: {
+      "dine-in": 0,
+      takeaway: 0,
+      delivery: 0,
+      cafe: 0
+    }
   })
 
   // Loading states
@@ -52,6 +64,34 @@ export function useMonitoringData() {
     const today = new Date().toISOString().split('T')[0]
     const todayOrders = orders.filter(order => order.created_at.startsWith(today))
     
+    // Initialize order type counters
+    const ordersByType = {
+      "dine-in": 0,
+      takeaway: 0,
+      delivery: 0,
+      cafe: 0
+    }
+    
+    const salesByType = {
+      "dine-in": 0,
+      takeaway: 0,
+      delivery: 0,
+      cafe: 0
+    }
+    
+    // Count orders and sales by type
+    todayOrders.forEach(order => {
+      const orderType = order.order_type?.toLowerCase() || 'dine-in'
+      const price = typeof order.total_price === 'string' 
+        ? parseFloat(order.total_price) 
+        : order.total_price || 0
+      
+      if (ordersByType[orderType as keyof typeof ordersByType] !== undefined) {
+        ordersByType[orderType as keyof typeof ordersByType]++
+        salesByType[orderType as keyof typeof salesByType] += price
+      }
+    })
+    
     const stats: TodayStats = {
       totalOrders: todayOrders.length,
       totalSales: todayOrders.reduce((sum, order) => {
@@ -63,6 +103,8 @@ export function useMonitoringData() {
       completedOrders: todayOrders.filter(order => order.status === 'completed').length,
       pendingOrders: todayOrders.filter(order => order.status === 'pending').length,
       activeCashiers: cashiers.filter(cashier => cashier.isActive).length,
+      ordersByType,
+      salesByType
     }
     
     setTodayStats(stats)

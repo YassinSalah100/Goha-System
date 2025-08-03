@@ -162,12 +162,6 @@ export default function MonitoringPage() {
                               {formatPrice(orderStats.totalRevenue)}
                             </span>
                           </div>
-                          <div className="flex justify-between">
-                            <span>متوسط الطلب:</span>
-                            <span className="font-bold">
-                              {formatPrice(orderStats.averageOrderValue)}
-                            </span>
-                          </div>
                         </div>
                         
                         <div className="space-y-2">

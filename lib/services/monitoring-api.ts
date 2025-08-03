@@ -5,7 +5,8 @@ import {
   StockItem, 
   OrderStats, 
   DetailedShiftSummary,
-  CashierActivity
+  CashierActivity,
+  CashierDto
 } from '@/lib/types/monitoring'
 
 const API_BASE_URL = "http://192.168.1.14:3000/api/v1"
@@ -65,7 +66,6 @@ export class MonitoringApiService {
         return data.data?.orders || data.data || []
       } catch (noPaginationError) {
         // If that fails, try with minimal pagination parameters
-        console.log('Trying with pagination parameters')
         const data = await apiRequest<any>(`/orders/except-cafe?page=1&limit=10`)
         return data.data?.orders || data.data || []
       }
@@ -281,60 +281,153 @@ export class MonitoringApiService {
     return filtered
   }
 
-  // Generate cashier activities from orders
+  // Generate cashier activities from shift summaries instead of orders
   static async fetchCashierActivities(): Promise<CashierActivity[]> {
     try {
-      // Use the simple orders endpoint without pagination
-      const orders = await this.fetchOrders()
+      // Try to get shift summaries which should contain cashier information
       const today = new Date().toISOString().split('T')[0]
+      let shiftsWithCashiers: DetailedShiftSummary[] = []
+
+      // Get regular shifts since summary endpoints are failing
+      const [openedShifts, closedShifts] = await Promise.all([
+        this.fetchShiftsByStatus('opened'),
+        this.fetchShiftsByStatus('closed')
+      ])
       
+      const todayShifts = [...openedShifts, ...closedShifts].filter(shift => 
+        shift.start_time?.startsWith(today)
+      )
+
+      // For each shift, try to get its summary which should contain cashier info
+      const shiftSummariesPromises = todayShifts.map(async (shift) => {
+        try {
+          const summaryData = await apiRequest<any>(`/shifts/summary/${shift.shift_id}`)
+          return summaryData
+        } catch (error) {
+          return shift // fallback to original shift data
+        }
+      })
+
+      shiftsWithCashiers = await Promise.all(shiftSummariesPromises)
+
+      // Also get orders to calculate order statistics per cashier
+      const orders = await this.fetchOrders()
       const todayOrders = orders.filter(order => 
         order.created_at?.startsWith(today)
       )
 
       const cashierMap = new Map<string, CashierActivity>()
 
+      // First, extract cashiers from orders (most reliable source for cashier names)
       todayOrders.forEach(order => {
-        const cashierName = order.cashier?.full_name || 'غير محدد'
-        const cashierId = order.cashier?.user_id || 'unknown'
-
-        if (!cashierMap.has(cashierId)) {
-          cashierMap.set(cashierId, {
-            cashierName,
-            cashierId,
-            ordersToday: 0,
-            totalSales: 0,
-            lastOrderTime: order.created_at || '',
-            isActive: false,
-            orderTypes: {
-              "dine-in": 0,
-              takeaway: 0,
-              delivery: 0,
-              cafe: 0,
-            },
-          })
-        }
-
-        const activity = cashierMap.get(cashierId)!
-        activity.ordersToday++
-        activity.totalSales += normalizePrice(order.total_price)
+        // Handle clean architecture response structure
+        const cashierId = order.cashier?.id || order.cashier?.user_id
+        const cashierName = order.cashier?.fullName || order.cashier?.username || order.cashier?.full_name || 'غير محدد'
+        const orderPrice = normalizePrice(order.total_price)
         
-        if (order.created_at && order.created_at > activity.lastOrderTime) {
-          activity.lastOrderTime = order.created_at
-        }
+        if (cashierId) {
+          if (!cashierMap.has(cashierId)) {
+            cashierMap.set(cashierId, {
+              cashierName,
+              cashierId,
+              ordersToday: 1,
+              totalSales: orderPrice,
+              lastOrderTime: order.created_at || '',
+              isActive: false,
+              orderTypes: {
+                "dine-in": 0,
+                takeaway: 0,
+                delivery: 0,
+                cafe: 0,
+              },
+              salesByType: {
+                "dine-in": 0,
+                takeaway: 0,
+                delivery: 0,
+                cafe: 0,
+              },
+            })
+          } else {
+            const activity = cashierMap.get(cashierId)!
+            activity.ordersToday++
+            activity.totalSales += orderPrice
+            
+            if (order.created_at && order.created_at > activity.lastOrderTime) {
+              activity.lastOrderTime = order.created_at
+            }
+          }
 
-        // Count order types
-        if (order.order_type in activity.orderTypes) {
-          activity.orderTypes[order.order_type as keyof typeof activity.orderTypes]++
+          // Count order types and track sales by type
+          const activity = cashierMap.get(cashierId)!
+          if (order.order_type in activity.orderTypes) {
+            activity.orderTypes[order.order_type as keyof typeof activity.orderTypes]++
+            activity.salesByType[order.order_type as keyof typeof activity.salesByType] += orderPrice
+          }
         }
-
-        // Consider active if last order was within 2 hours
-        const lastOrderTime = new Date(activity.lastOrderTime)
-        const twoHoursAgo = new Date(Date.now() - 2 * 60 * 60 * 1000)
-        activity.isActive = lastOrderTime > twoHoursAgo
       })
 
-      return Array.from(cashierMap.values())
+      // Then, update activity status based on shift information
+      shiftsWithCashiers.forEach(shift => {        
+        // If shift has cashiers array (from summary), use it
+        if (shift.cashiers && Array.isArray(shift.cashiers)) {
+          shift.cashiers.forEach(cashier => {            
+            // Handle clean architecture structure - cashier.id vs user_id
+            const cashierIdFromShift = cashier.user_id || cashier.id
+            if (cashierIdFromShift && cashierMap.has(cashierIdFromShift)) {
+              const activity = cashierMap.get(cashierIdFromShift)!
+              activity.isActive = shift.status === 'opened'
+              // Use the username from shift if available and different
+              if (cashier.username && cashier.username !== 'غير محدد') {
+                activity.cashierName = cashier.username
+              }
+            } else if (cashierIdFromShift) {
+              // Add cashier from shift data if not found in orders
+              const newActivity = {
+                cashierName: cashier.username || 'غير محدد',
+                cashierId: cashierIdFromShift,
+                ordersToday: 0,
+                totalSales: 0,
+                lastOrderTime: shift.start_time || '',
+                isActive: shift.status === 'opened',
+                orderTypes: {
+                  "dine-in": 0,
+                  takeaway: 0,
+                  delivery: 0,
+                  cafe: 0,
+                },
+                salesByType: {
+                  "dine-in": 0,
+                  takeaway: 0,
+                  delivery: 0,
+                  cafe: 0,
+                },
+              }
+              cashierMap.set(cashierIdFromShift, newActivity)
+            }
+          })
+        } else {
+          // If no cashiers array, try to match by shift and mark as active
+          // This is less reliable but better than nothing
+          cashierMap.forEach((activity, cashierId) => {
+            if (shift.status === 'opened') {
+              activity.isActive = true
+            }
+          })
+        }
+      })
+
+      // Update activity status based on recent orders (last 2 hours)
+      cashierMap.forEach((activity) => {
+        const lastOrderTime = new Date(activity.lastOrderTime)
+        const twoHoursAgo = new Date(Date.now() - 2 * 60 * 60 * 1000)
+        if (lastOrderTime > twoHoursAgo) {
+          activity.isActive = true
+        }
+      })
+
+      const activities = Array.from(cashierMap.values())
+
+      return activities
     } catch (error) {
       console.error('Error generating cashier activities:', error)
       return []

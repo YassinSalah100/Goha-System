@@ -114,24 +114,33 @@ export function LiveOrders({ orders, isLoading = false, onRefresh }: LiveOrdersP
                           </span>
                         </div>
 
-                        {order.cashier?.full_name && (
+                        {/* Show cashier name */}
+                        {(order.cashier?.username || order.cashier?.full_name || order.cashier?.fullName) && (
                           <div className="flex items-center gap-2">
-                            <User className="w-4 h-4" />
-                            <span className="font-medium">الكاشير: {order.cashier.full_name}</span>
+                            <User className="w-4 h-4 text-blue-500" />
+                            <span className="font-medium text-blue-600">
+                              الكاشير: {order.cashier?.username || order.cashier?.full_name || order.cashier?.fullName}
+                            </span>
                           </div>
                         )}
 
-                        {order.shift?.shift_name && (
+                        {/* Show shift information */}
+                        {order.shift?.shift_id && (
                           <div className="flex items-center gap-2">
-                            <Package className="w-4 h-4" />
-                            <span className="font-medium">الوردية: {order.shift.shift_name}</span>
+                            <Package className="w-4 h-4 text-green-500" />
+                            <span className="font-medium text-green-600">
+                              الوردية: {order.shift?.shift_type === 'morning' ? 'صباحية' : order.shift?.shift_type === 'night' ? 'ليلية' : order.shift?.shift_name || `#${order.shift.shift_id.slice(-6)}`}
+                            </span>
                           </div>
                         )}
 
-                        {order.table_number && (
-                          <div className="text-sm">
-                            <span className="font-medium">رقم الطاولة: </span>
-                            <span>{order.table_number}</span>
+                        {/* Show table number only for dine-in orders */}
+                        {order.order_type === 'dine-in' && order.table_number && (
+                          <div className="flex items-center gap-2">
+                            <Package className="w-4 h-4 text-orange-500" />
+                            <span className="font-medium text-orange-600">
+                              رقم الطاولة: {order.table_number}
+                            </span>
                           </div>
                         )}
                       </div>
@@ -141,8 +150,11 @@ export function LiveOrders({ orders, isLoading = false, onRefresh }: LiveOrdersP
                       <div className="text-lg font-bold text-green-600 mb-2">
                         {formatPrice(order.total_price)}
                       </div>
-                      <div className="text-xs text-gray-500">
+                      <div className="text-xs text-gray-500 mb-1">
                         {order.payment_method === 'cash' ? 'نقدي' : 'بطاقة'}
+                      </div>
+                      <div className="text-xs text-gray-400">
+                        رقم الطلب: #{order.order_id.slice(-6)}
                       </div>
                     </div>
                   </div>

@@ -120,8 +120,8 @@ export function CashierActivities({ activities, isLoading = false }: CashierActi
 
                     {/* Order types breakdown */}
                     <div className="mt-3 pt-3 border-t">
-                      <p className="text-sm font-medium text-gray-700 mb-2">توزيع الطلبات:</p>
-                      <div className="flex gap-2 flex-wrap">
+                      <p className="text-sm font-medium text-gray-700 mb-2">توزيع الطلبات والمبيعات:</p>
+                      <div className="grid grid-cols-2 gap-2">
                         {Object.entries(activity.orderTypes).map(([type, count]) => {
                           if (count === 0) return null
                           const typeLabels = {
@@ -130,10 +130,21 @@ export function CashierActivities({ activities, isLoading = false }: CashierActi
                             "delivery": "توصيل",
                             "cafe": "كافيه"
                           }
+                          const salesForType = activity.salesByType?.[type as keyof typeof activity.salesByType] || 0
                           return (
-                            <Badge key={type} variant="outline" className="text-xs">
-                              {typeLabels[type as keyof typeof typeLabels]}: {count}
-                            </Badge>
+                            <div key={type} className="p-2 bg-gray-50 rounded-lg">
+                              <div className="flex items-center justify-between">
+                                <span className="text-xs font-medium text-gray-700">
+                                  {typeLabels[type as keyof typeof typeLabels]}
+                                </span>
+                                <Badge variant="outline" className="text-xs">
+                                  {count}
+                                </Badge>
+                              </div>
+                              <div className="text-xs text-green-600 font-medium mt-1">
+                                {formatPrice(salesForType)}
+                              </div>
+                            </div>
                           )
                         })}
                       </div>

@@ -28,12 +28,18 @@ export interface Order {
   items?: OrderItem[]
   table_number?: string
   cashier?: {
-    user_id: string
-    full_name: string
+    user_id?: string
+    id?: string  // Alternative field name
+    full_name?: string
+    fullName?: string  // Alternative field name
+    username?: string
   }
   shift?: {
     shift_id: string
     shift_name?: string
+    shift_type?: "morning" | "night"
+    start_time?: string
+    status?: "opened" | "closed"
   }
 }
 
@@ -54,6 +60,12 @@ export interface CashierActivity {
   lastOrderTime: string
   isActive: boolean
   orderTypes: {
+    "dine-in": number
+    takeaway: number
+    delivery: number
+    cafe: number
+  }
+  salesByType: {
     "dine-in": number
     takeaway: number
     delivery: number
@@ -118,6 +130,14 @@ export interface ShiftExpense {
   }
 }
 
+export interface CashierDto {
+  id?: string        // Clean architecture uses 'id'
+  user_id?: string   // Alternative field name  
+  username: string
+  fullName?: string  // Clean architecture uses 'fullName'
+  full_name?: string // Alternative field name
+}
+
 export interface DetailedShiftSummary {
   shift_id: string
   type: "morning" | "night"
@@ -163,6 +183,8 @@ export interface DetailedShiftSummary {
     [key: string]: number
   }
   expenses: ShiftExpense[]
+  // Cashiers summary
+  cashiers?: CashierDto[]
 }
 
 export interface TodayStats {
@@ -171,6 +193,18 @@ export interface TodayStats {
   completedOrders: number
   pendingOrders: number
   activeCashiers: number
+  ordersByType: {
+    "dine-in": number
+    takeaway: number
+    delivery: number
+    cafe: number
+  }
+  salesByType: {
+    "dine-in": number
+    takeaway: number
+    delivery: number
+    cafe: number
+  }
 }
 
 export interface MonitoringFilters {
