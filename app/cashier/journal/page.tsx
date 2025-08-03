@@ -572,6 +572,12 @@ export default function JournalPage() {
 
   // Report generation function
   const handleGenerateReport = async () => {
+    console.log('Report generation started with data:', {
+      expensesCount: expenses?.length || 0,
+      workersCount: shiftWorkers?.length || 0,
+      activeShiftId: activeShift?.shift_id
+    })
+
     setIsGeneratingReport(true)
     try {
       // Prepare shift data
@@ -589,7 +595,14 @@ export default function JournalPage() {
       }
 
       // Prepare expenses data
-      const expensesData = expenses.map(expense => ({
+      console.log('Report Generation Debug:', {
+        expensesCount: expenses?.length || 0,
+        expensesRaw: expenses,
+        workersCount: shiftWorkers?.length || 0,
+        workersRaw: shiftWorkers
+      })
+
+      const expensesData = (expenses || []).map(expense => ({
         id: expense.expense_id,
         category: expense.category || 'other',
         item: expense.title,
@@ -597,6 +610,8 @@ export default function JournalPage() {
         description: expense.description,
         timestamp: expense.created_at
       }))
+
+      console.log('Mapped expenses data:', expensesData)
 
       // Prepare workers data
       const workersData = shiftWorkers.map(worker => ({

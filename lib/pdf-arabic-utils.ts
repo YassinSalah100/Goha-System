@@ -522,11 +522,25 @@ const createSimpleArabicReportHTML = (reportData: ReportData): string => {
 
 // Generate simple expenses section
 const generateSimpleExpensesSection = (reportData: ReportData): string => {
+  console.log('Expenses Section Debug:', {
+    expenses: reportData.expenses,
+    expensesLength: reportData.expenses?.length,
+    expensesData: JSON.stringify(reportData.expenses, null, 2)
+  })
+
   if (!reportData.expenses || reportData.expenses.length === 0) {
     return `
       <div class="section">
         <h2 class="section-title">${ARABIC_LABELS.DETAILED_EXPENSES}</h2>
-        <div class="no-data">لا توجد مصروفات مسجلة لهذا اليوم</div>
+        <div class="no-data">
+          <div style="margin-bottom: 10px;">لا توجد مصروفات مسجلة لهذا اليوم</div>
+          <div style="font-size: 12px; color: #666;">
+            قم بإضافة مصروفات من صفحة اليومية ثم أعد إنشاء التقرير
+          </div>
+        </div>
+        <div style="font-size: 12px; color: #999; margin-top: 10px;">
+          عدد المصروفات في البيانات: ${reportData.expenses?.length || 0}
+        </div>
       </div>
     `
   }
