@@ -10,7 +10,7 @@ import { Textarea } from "@/components/ui/textarea"
 import { FileText, Phone, User, Trash2, Loader2, RefreshCw, Clock, Users } from "lucide-react"
 
 // Constants
-const API_BASE_URL = "http://172.162.241.242:3000/api/v1"
+const API_BASE_URL = "http://192.168.1.14:3000/api/v1"
 
 // GLOBAL SINGLETON TO PREVENT MULTIPLE FETCHES
 let globalFetchInProgress = false

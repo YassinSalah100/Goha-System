@@ -24,8 +24,9 @@ import {
 import { motion, AnimatePresence } from "framer-motion"
 import { useRouter } from "next/navigation"
 import { Textarea } from "@/components/ui/textarea"
+import { SavedOrdersTab } from "@/components/cafe-orders/SavedOrdersTab"
 
-const API_BASE_URL = "http://172.162.241.242:3000/api/v1"
+const API_BASE_URL = "http://192.168.1.14:3000/api/v1"
 
 interface Category {
   category_id: string
@@ -175,7 +176,12 @@ const normalizeCafeOrderItem = (item: any): CartItem => {
   let basePrice = 0
 
   try {
-    // Strategy 1: Check product_size (from API response structure)
+    // Strategy 1: Check direct size field (from localStorage cart items)
+    if (item.size) {
+      sizeName = item.size
+    }
+    
+    // Strategy 2: Check product_size (from API response structure)
     if (item.product_size) {
       productName = item.product_size.product_name || productName
       if (item.product_size.size && item.product_size.size.size_name) {
@@ -185,7 +191,7 @@ const normalizeCafeOrderItem = (item: any): CartItem => {
       }
       basePrice = Number(item.product_size.price || item.unit_price || 0)
     }
-    // Strategy 2: Check product object with productSize
+    // Strategy 3: Check product object with productSize
     else if (item.product && item.product.name) {
       productName = item.product.name
       if (item.productSize?.size?.size_name) {
@@ -195,24 +201,28 @@ const normalizeCafeOrderItem = (item: any): CartItem => {
         basePrice = Number(item.unit_price || 0)
       }
     }
-    // Strategy 3: Direct fields (from localStorage or other sources)
+    // Strategy 4: Direct fields (from localStorage or other sources)
     else if (item.product_name) {
       productName = item.product_name
-      sizeName = item.size_name || sizeName
+      sizeName = item.size_name || item.size || sizeName
       basePrice = Number(item.unit_price || item.price || 0)
     }
-    // Strategy 4: Try to extract from any available data
+    // Strategy 5: Try to extract from any available data
     else {
       const possibleNames = [item.name, item.product?.name, item.productName].filter(Boolean)
       if (possibleNames.length > 0) {
         productName = possibleNames[0]
+      }
+      // Also check for direct size field here
+      if (item.size) {
+        sizeName = item.size
       }
       basePrice = Number(item.unit_price || item.price || 0)
     }
   } catch (error) {
     console.error(`❌ Error normalizing cafe order item:`, error, item)
     productName = item.product_name || item.name || "منتج غير معروف"
-    sizeName = item.size_name || "عادي"
+    sizeName = item.size_name || item.size || "عادي"
     basePrice = Number(item.unit_price || item.price || 0)
   }
 
@@ -1141,445 +1151,27 @@ export default function CafeOrdersPage() {
           )}
 
           {activeTab === "saved-orders" && (
-            <Card>
-              <CardHeader>
-                <div className="flex flex-col sm:flex-row justify-between items-center gap-2">
-                  <div className="flex items-center gap-2 w-full">
-                    <input
-                      type="text"
-                      placeholder="بحث برقم الطاولة أو اسم الموظف أو رقم الطلب..."
-                      className="border border-gray-300 rounded px-2 py-1 w-full sm:w-72 text-sm focus:outline-none focus:ring-2 focus:ring-amber-400"
-                      value={searchQuery}
-                      onChange={(e) => setSearchQuery(e.target.value)}
-                    />
-                    <Button
-                      size="sm"
-                      variant="outline"
-                      onClick={loadAndSyncCafeOrders}
-                      disabled={isUpdating}
-                      className="text-amber-600 border-amber-200 hover:bg-amber-50 bg-transparent"
-                      title="تحديث الطلبات"
-                    >
-                      {isUpdating ? (
-                        <Loader2 className="h-4 w-4 mr-1 animate-spin" />
-                      ) : (
-                        <RefreshCw className="h-4 w-4 mr-1" />
-                      )}
-                      تحديث
-                    </Button>
-                  </div>
-                  <div className="flex justify-end w-full sm:w-auto mt-2 sm:mt-0 gap-2">
-                    <Button
-                      onClick={handlePrintAllSavedOrders} // New button for printing all saved orders
-                      className="bg-blue-600 hover:bg-blue-700 text-white"
-                      disabled={filteredSavedOrders.length === 0}
-                      title="طباعة جميع الطلبات المحفوظة"
-                    >
-                      <Printer className="h-4 w-4 mr-2" />
-                      طباعة جميع الطلبات
-                    </Button>
-                    <Button
-                      onClick={confirmAllCafeOrders}
-                      className="bg-green-600 hover:bg-green-700 text-white"
-                      disabled={isConfirmingAll || unpaidOrders.length === 0}
-                      title="تأكيد دفع جميع الطلبات غير المدفوعة"
-                    >
-                      {isConfirmingAll ? (
-                        <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                      ) : (
-                        <CheckCircle className="h-4 w-4 mr-2" />
-                      )}
-                      تأكيد دفع جميع الطلبات غير المدفوعة
-                    </Button>
-                  </div>
-                </div>
-                {/* Sticky summary */}
-                <div className="sticky top-0 z-10 bg-white mt-4 mb-2 rounded shadow-sm p-2 flex flex-wrap gap-4 justify-between items-center border border-amber-100">
-                  <div className="flex items-center gap-2">
-                    <span className="font-semibold text-amber-700">إجمالي الطلبات:</span>
-                    <Badge variant="outline" className="bg-amber-50 text-amber-700">
-                      {filteredSavedOrders.length} طلب
-                    </Badge>
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <span className="font-semibold text-red-600">غير مدفوع:</span>
-                    <Badge variant="outline" className="bg-red-50 text-red-600">
-                      {filteredUnpaidOrders.length} ({totalUnpaid.toFixed(2)} ج.م)
-                    </Badge>
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <span className="font-semibold text-green-600">مدفوع:</span>
-                    <Badge variant="outline" className="bg-green-50 text-green-600">
-                      {filteredPaidOrders.length} ({totalPaid.toFixed(2)} ج.م)
-                    </Badge>
-                  </div>
-                </div>
-              </CardHeader>
-              <CardContent>
-                <div className="space-y-8">
-                  {/* Unpaid Orders */}
-                  <div>
-                    <div className="flex items-center gap-2 mb-2">
-                      <div className="w-2 h-6 bg-red-500 rounded-full"></div>
-                      <h3 className="font-semibold text-md text-red-700">طلبات غير مدفوعة</h3>
-                      <Badge variant="outline" className="bg-red-50 text-red-700">
-                        {filteredUnpaidOrders.length} طلب
-                      </Badge>
-                    </div>
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                      {filteredUnpaidOrders.length === 0 ? (
-                        <Card className="border-dashed border-red-200 bg-red-50 col-span-full">
-                          <CardContent className="p-8 text-center">
-                            <Coffee className="h-12 w-12 mx-auto mb-3 text-red-400" />
-                            <p className="text-red-600 font-medium">لا توجد طلبات غير مدفوعة</p>
-                          </CardContent>
-                        </Card>
-                      ) : (
-                        filteredUnpaidOrders.map((order) => (
-                          <Card
-                            key={`unpaid-${order.orderId}`}
-                            className="border-l-4 border-red-500 bg-red-50/30 hover:shadow-md transition-shadow"
-                          >
-                            <CardContent className="p-3">
-                              <div className="flex justify-between items-center mb-2">
-                                <div className="flex items-center gap-2">
-                                  <h4 className="font-semibold text-base">
-                                    طلب #
-                                    {order.orderId.startsWith("cafe_")
-                                      ? order.orderId.substring(5, 13) // Show part of local ID
-                                      : order.orderId.substring(order.orderId.length - 8)}
-                                  </h4>
-                                  <Badge variant="secondary" className="text-xs">
-                                    غير مدفوع
-                                  </Badge>
-                                  {order.api_saved ? (
-                                    <Badge variant="outline" className="text-xs bg-blue-50 text-blue-600">
-                                      مزامنة
-                                    </Badge>
-                                  ) : (
-                                    <Badge variant="outline" className="text-xs bg-red-50 text-red-600">
-                                      محلي
-                                    </Badge>
-                                  )}
-                                </div>
-                                <div className="flex gap-1">
-                                  <Button
-                                    size="icon"
-                                    className="bg-green-500 hover:bg-green-600"
-                                    onClick={() => handleMarkOrderPaid(order.orderId)}
-                                    disabled={isMarkingPaid === order.orderId}
-                                    title="تأكيد الدفع"
-                                  >
-                                    {isMarkingPaid === order.orderId ? (
-                                      <Loader2 className="h-4 w-4 animate-spin" />
-                                    ) : (
-                                      <DollarSign className="h-4 w-4" />
-                                    )}
-                                  </Button>
-                                  <Button
-                                    size="icon"
-                                    variant="destructive"
-                                    onClick={() => handleDeleteCafeOrder(order.orderId)}
-                                    disabled={isDeleting === order.orderId}
-                                    title="حذف الطلب"
-                                  >
-                                    {isDeleting === order.orderId ? (
-                                      <Loader2 className="h-4 w-4 animate-spin" />
-                                    ) : (
-                                      <Trash2 className="h-4 w-4" />
-                                    )}
-                                  </Button>
-                                  <Button
-                                    size="icon"
-                                    variant="ghost"
-                                    onClick={() => toggleOrderExpand(order.orderId)}
-                                    title={expandedOrders[order.orderId] ? "إخفاء التفاصيل" : "عرض التفاصيل"}
-                                  >
-                                    {expandedOrders[order.orderId] ? "−" : "+"}
-                                  </Button>
-                                  <Button
-                                    size="icon"
-                                    variant="outline"
-                                    onClick={() => handlePrintSingleSavedOrder(order)} // Print single saved order
-                                    title="طباعة الطلب"
-                                  >
-                                    <Printer className="h-4 w-4" />
-                                  </Button>
-                                </div>
-                              </div>
-                              <div className="flex flex-wrap gap-2 text-xs text-gray-600 mb-1">
-                                <span>
-                                  <Users className="h-3 w-3 inline mr-1" />
-                                  {order.staffName}
-                                </span>
-                                {order.tableNumber && (
-                                  <span>
-                                    <Package className="h-3 w-3 inline mr-1" />
-                                    طاولة {order.tableNumber}
-                                  </span>
-                                )}
-                                <span>
-                                  <Clock className="h-3 w-3 inline mr-1" />
-                                  {order.orderDate} - {order.orderTime}
-                                </span>
-                              </div>
-                              <div className="flex justify-between items-center pt-1 pb-2 border-b border-gray-200">
-                                <span className="font-bold text-md">الإجمالي: {(order.total || 0).toFixed(2)} ج.م</span>
-                              </div>
-                              <AnimatePresence>
-                                {expandedOrders[order.orderId] && (
-                                  <motion.div
-                                    initial={{ opacity: 0, height: 0 }}
-                                    animate={{ opacity: 1, height: "auto" }}
-                                    exit={{ opacity: 0, height: 0 }}
-                                    transition={{ duration: 0.2 }}
-                                    className="overflow-hidden mt-2"
-                                  >
-                                    <div className="space-y-2">
-                                      {order.items && order.items.length > 0 ? (
-                                        order.items.map((item: any, index: number) => (
-                                          <div
-                                            key={`${order.orderId}-item-${item.id || index}`}
-                                            className="bg-white p-3 rounded border border-gray-100"
-                                          >
-                                            <div className="flex justify-between items-center text-sm mb-1">
-                                              <span className="font-medium">{item.name}</span>
-                                              <span className="font-medium">
-                                                {(Number(item.price || 0) * Number(item.quantity || 1)).toFixed(2)} ج.م
-                                              </span>
-                                            </div>
-                                            <div className="flex justify-between items-center text-xs text-gray-600">
-                                              <span>
-                                                {item.size && item.size !== "عادي" && `(${item.size}) `}x{item.quantity}
-                                              </span>
-                                              <span>السعر الفردي: {Number(item.basePrice || 0).toFixed(2)} ج.م</span>
-                                            </div>
-                                            {item.extras && item.extras.length > 0 && (
-                                              <div className="text-xs text-gray-500 mt-1 pl-2 border-t pt-1 border-gray-100 bg-gray-50 rounded-sm py-1">
-                                                <div className="flex justify-between items-center mb-1">
-                                                  <span className="font-semibold text-gray-700">إضافات:</span>
-                                                  <span className="font-semibold text-gray-700">
-                                                    +
-                                                    {(
-                                                      item.extras.reduce(
-                                                        (sum: number, extra: any) => sum + Number(extra.price),
-                                                        0,
-                                                      ) * item.quantity
-                                                    ).toFixed(2)}{" "}
-                                                    ج.م
-                                                  </span>
-                                                </div>
-                                                <ul className="list-disc list-inside space-y-0.5">
-                                                  {item.extras.map((extra: any) => (
-                                                    <li key={extra.id} className="flex justify-between items-center">
-                                                      <span className="text-gray-600">{extra.name}</span>
-                                                      <span className="text-gray-600">
-                                                        ({Number(extra.price).toFixed(2)} ج.م)
-                                                      </span>
-                                                    </li>
-                                                  ))}
-                                                </ul>
-                                              </div>
-                                            )}
-                                            {item.notes && (
-                                              <div className="text-xs text-gray-600 mt-1 pl-2 border-t pt-1 border-gray-100 bg-blue-50 rounded-sm py-1">
-                                                <span className="font-semibold text-blue-700">ملاحظات خاصة:</span>{" "}
-                                                {item.notes}
-                                              </div>
-                                            )}
-                                          </div>
-                                        ))
-                                      ) : (
-                                        <p className="text-gray-500 text-center py-2">لا توجد عناصر في هذا الطلب</p>
-                                      )}
-                                    </div>
-                                  </motion.div>
-                                )}
-                              </AnimatePresence>
-                            </CardContent>
-                          </Card>
-                        ))
-                      )}
-                    </div>
-                  </div>
-                  {/* Paid Orders */}
-                  <div>
-                    <div className="flex items-center gap-2 mb-2 mt-6">
-                      <div className="w-2 h-6 bg-green-500 rounded-full"></div>
-                      <h3 className="font-semibold text-md text-green-700">طلبات مدفوعة</h3>
-                      <Badge variant="outline" className="bg-green-50 text-green-700">
-                        {filteredPaidOrders.length} طلب
-                      </Badge>
-                    </div>
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                      {filteredPaidOrders.length === 0 ? (
-                        <Card className="border-dashed border-green-200 bg-green-50 col-span-full">
-                          <CardContent className="p-8 text-center">
-                            <Coffee className="h-12 w-12 mx-auto mb-3 text-green-400" />
-                            <p className="text-green-600 font-medium">لا توجد طلبات مدفوعة</p>
-                          </CardContent>
-                        </Card>
-                      ) : (
-                        filteredPaidOrders.map((order) => (
-                          <Card
-                            key={`paid-${order.orderId}`}
-                            className="border-l-4 border-green-500 bg-green-50/30 hover:shadow-md transition-shadow"
-                          >
-                            <CardContent className="p-3">
-                              <div className="flex justify-between items-center mb-2">
-                                <div className="flex items-center gap-2">
-                                  <h4 className="font-semibold text-base">
-                                    طلب #
-                                    {order.orderId.startsWith("cafe_")
-                                      ? order.orderId.substring(5, 13) // Show part of local ID
-                                      : order.orderId.substring(order.orderId.length - 8)}
-                                  </h4>
-                                  <Badge variant="default" className="text-xs">
-                                    مدفوع
-                                  </Badge>
-                                  {order.api_saved ? (
-                                    <Badge variant="outline" className="text-xs bg-blue-50 text-blue-600">
-                                      مزامنة
-                                    </Badge>
-                                  ) : (
-                                    <Badge variant="outline" className="text-xs bg-red-50 text-red-600">
-                                      محلي
-                                    </Badge>
-                                  )}
-                                </div>
-                                <div className="flex gap-1">
-                                  <Button
-                                    size="icon"
-                                    variant="destructive"
-                                    onClick={() => handleDeleteCafeOrder(order.orderId)}
-                                    disabled={isDeleting === order.orderId}
-                                    title="حذف الطلب"
-                                  >
-                                    {isDeleting === order.orderId ? (
-                                      <Loader2 className="h-4 w-4 animate-spin" />
-                                    ) : (
-                                      <Trash2 className="h-4 w-4" />
-                                    )}
-                                  </Button>
-                                  <Button
-                                    size="icon"
-                                    variant="ghost"
-                                    onClick={() => toggleOrderExpand(order.orderId)}
-                                    title={expandedOrders[order.orderId] ? "إخفاء التفاصيل" : "عرض التفاصيل"}
-                                  >
-                                    {expandedOrders[order.orderId] ? "−" : "+"}
-                                  </Button>
-                                  <Button
-                                    size="icon"
-                                    variant="outline"
-                                    onClick={() => handlePrintSingleSavedOrder(order)} // Print single saved order
-                                    title="طباعة الطلب"
-                                  >
-                                    <Printer className="h-4 w-4" />
-                                  </Button>
-                                </div>
-                              </div>
-                              <div className="flex flex-wrap gap-2 text-xs text-gray-600 mb-1">
-                                <span>
-                                  <Users className="h-3 w-3 inline mr-1" />
-                                  {order.staffName}
-                                </span>
-                                {order.tableNumber && (
-                                  <span>
-                                    <Package className="h-3 w-3 inline mr-1" />
-                                    طاولة {order.tableNumber}
-                                  </span>
-                                )}
-                                <span>
-                                  <Clock className="h-3 w-3 inline mr-1" />
-                                  {order.orderDate} - {order.orderTime}
-                                </span>
-                              </div>
-                              <div className="flex justify-between items-center pt-1 pb-2 border-b border-gray-200">
-                                <span className="font-bold text-md">الإجمالي: {(order.total || 0).toFixed(2)} ج.م</span>
-                                {order.paymentTime && (
-                                  <span className="text-xs text-green-600">تم الدفع: {order.paymentTime}</span>
-                                )}
-                              </div>
-                              <AnimatePresence>
-                                {expandedOrders[order.orderId] && (
-                                  <motion.div
-                                    initial={{ opacity: 0, height: 0 }}
-                                    animate={{ opacity: 1, height: "auto" }}
-                                    exit={{ opacity: 0, height: 0 }}
-                                    transition={{ duration: 0.2 }}
-                                    className="overflow-hidden mt-2"
-                                  >
-                                    <div className="space-y-2">
-                                      {order.items && order.items.length > 0 ? (
-                                        order.items.map((item: any, index: number) => (
-                                          <div
-                                            key={`${order.orderId}-item-${item.id || index}`}
-                                            className="bg-white p-3 rounded border border-gray-100"
-                                          >
-                                            <div className="flex justify-between items-center text-sm mb-1">
-                                              <span className="font-medium">{item.name}</span>
-                                              <span className="font-medium">
-                                                {(Number(item.price || 0) * Number(item.quantity || 1)).toFixed(2)} ج.م
-                                              </span>
-                                            </div>
-                                            <div className="flex justify-between items-center text-xs text-gray-600">
-                                              <span>
-                                                {item.size && item.size !== "عادي" && `(${item.size}) `}x{item.quantity}
-                                              </span>
-                                              <span>السعر الفردي: {Number(item.basePrice || 0).toFixed(2)} ج.م</span>
-                                            </div>
-                                            {item.extras && item.extras.length > 0 && (
-                                              <div className="text-xs text-gray-500 mt-1 pl-2 border-t pt-1 border-gray-100 bg-gray-50 rounded-sm py-1">
-                                                <div className="flex justify-between items-center mb-1">
-                                                  <span className="font-semibold text-gray-700">إضافات:</span>
-                                                  <span className="font-semibold text-gray-700">
-                                                    +
-                                                    {(
-                                                      item.extras.reduce(
-                                                        (sum: number, extra: any) => sum + Number(extra.price),
-                                                        0,
-                                                      ) * item.quantity
-                                                    ).toFixed(2)}{" "}
-                                                    ج.م
-                                                  </span>
-                                                </div>
-                                                <ul className="list-disc list-inside space-y-0.5">
-                                                  {item.extras.map((extra: any) => (
-                                                    <li key={extra.id} className="flex justify-between items-center">
-                                                      <span className="text-gray-600">{extra.name}</span>
-                                                      <span className="text-gray-600">
-                                                        ({Number(extra.price).toFixed(2)} ج.م)
-                                                      </span>
-                                                    </li>
-                                                  ))}
-                                                </ul>
-                                              </div>
-                                            )}
-                                            {item.notes && (
-                                              <div className="text-xs text-gray-600 mt-1 pl-2 border-t pt-1 border-gray-100 bg-blue-50 rounded-sm py-1">
-                                                <span className="font-semibold text-blue-700">ملاحظات خاصة:</span>{" "}
-                                                {item.notes}
-                                              </div>
-                                            )}
-                                          </div>
-                                        ))
-                                      ) : (
-                                        <p className="text-gray-500 text-center py-2">لا توجد عناصر في هذا الطلب</p>
-                                      )}
-                                    </div>
-                                  </motion.div>
-                                )}
-                              </AnimatePresence>
-                            </CardContent>
-                          </Card>
-                        ))
-                      )}
-                    </div>
-                  </div>
-                </div>
-              </CardContent>
-            </Card>
+            <SavedOrdersTab
+              searchQuery={searchQuery}
+              setSearchQuery={setSearchQuery}
+              filteredUnpaidOrders={filteredUnpaidOrders}
+              filteredPaidOrders={filteredPaidOrders}
+              filteredSavedOrders={filteredSavedOrders}
+              expandedOrders={expandedOrders}
+              isUpdating={isUpdating}
+              isDeleting={isDeleting}
+              isMarkingPaid={isMarkingPaid}
+              isConfirmingAll={isConfirmingAll}
+              totalUnpaid={totalUnpaid}
+              totalPaid={totalPaid}
+              toggleOrderExpand={toggleOrderExpand}
+              loadAndSyncCafeOrders={loadAndSyncCafeOrders}
+              handlePrintAllSavedOrders={handlePrintAllSavedOrders}
+              confirmAllCafeOrders={confirmAllCafeOrders}
+              handleMarkOrderPaid={handleMarkOrderPaid}
+              handleDeleteCafeOrder={handleDeleteCafeOrder}
+              handlePrintSingleSavedOrder={handlePrintSingleSavedOrder}
+            />
           )}
           {activeTab === "shift-summary" && (
             <Card>

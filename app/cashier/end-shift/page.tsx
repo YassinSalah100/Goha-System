@@ -5,11 +5,25 @@ import { useRouter } from "next/navigation"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Textarea } from "@/components/ui/textarea"
-import { AlertCircle, CheckCircle2, Printer, RefreshCw, Users, Clock, DollarSign } from "lucide-react"
+import { Badge } from "@/components/ui/badge"
+import { Separator } from "@/components/ui/separator"
+import { 
+  AlertCircle, 
+  CheckCircle2, 
+  Printer, 
+  RefreshCw, 
+  Users, 
+  Clock, 
+  DollarSign, 
+  Coffee, 
+  FileText,
+  TrendingUp,
+  Package
+} from "lucide-react"
 import { motion } from "framer-motion"
 import { useReactToPrint } from "react-to-print"
 
-const API_BASE_URL = "http://172.162.241.242:3000/api/v1"
+const API_BASE_URL = "http://192.168.1.14:3000/api/v1"
 
 interface CartItem {
   id: string
@@ -371,10 +385,15 @@ export default function EndShiftPageFixed() {
     avgOrderValue: 0,
     ordersPerHour: 0,
   })
+  const [shiftSummary, setShiftSummary] = useState<any>(null)
   const [notes, setNotes] = useState("")
   const [requestSent, setRequestSent] = useState(false)
   const [loading, setLoading] = useState(false)
+  const [loadingSummary, setLoadingSummary] = useState(false)
+  const [showSummary, setShowSummary] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [isLoadingShiftDetails, setIsLoadingShiftDetails] = useState(false)
+  const [isLoadingShiftData, setIsLoadingShiftData] = useState(false)
   const shiftReportRef = useRef<HTMLDivElement>(null)
 
   // Helper function to get shift display name
@@ -395,8 +414,12 @@ export default function EndShiftPageFixed() {
     return shift
   }
 
+  
   const fetchShiftDetails = async (shiftId: string) => {
+    if (isLoadingShiftDetails) return null
+    
     try {
+      setIsLoadingShiftDetails(true)
       console.log(`🔍 Fetching shift details for ${shiftId}`)
       const response = await fetch(`${API_BASE_URL}/shifts/${shiftId}`, {
         method: "GET",
@@ -417,32 +440,129 @@ export default function EndShiftPageFixed() {
       }
     } catch (error) {
       console.error("❌ Error fetching shift details:", error)
+    } finally {
+      setIsLoadingShiftDetails(false)
+    }
+    return null
+  }
+  
+  const fetchShiftSummary = async (shiftId: string) => {
+    if (loadingSummary) return null
+    
+    try {
+      setLoadingSummary(true)
+      console.log(`🔍 Fetching shift summary for ${shiftId}`)
+      
+      // Try the working URL format first based on your logs
+      let response;
+      
+      try {
+        console.log(`Trying URL: ${API_BASE_URL}/shifts/summary/${shiftId}`)
+        response = await fetch(`${API_BASE_URL}/shifts/summary/${shiftId}`, {
+          method: "GET",
+          headers: {
+            Authorization: `Bearer ${localStorage.getItem("authToken") || ""}`,
+            "Content-Type": "application/json",
+          },
+        });
+        
+        if (!response.ok) {
+          console.log(`First URL attempt failed with status ${response.status}, trying alternate URL format...`);
+          
+          // If first attempt fails, try the alternate URL format
+          console.log(`Trying URL: ${API_BASE_URL}/shifts/${shiftId}/summary`)
+          response = await fetch(`${API_BASE_URL}/shifts/${shiftId}/summary`, {
+            method: "GET",
+            headers: {
+              Authorization: `Bearer ${localStorage.getItem("authToken") || ""}`,
+              "Content-Type": "application/json",
+            },
+          });
+        }
+      } catch (error) {
+        console.error("Error trying first URL format:", error);
+        
+        // Fallback to the second URL format
+        console.log(`Trying URL: ${API_BASE_URL}/shifts/${shiftId}/summary`)
+        response = await fetch(`${API_BASE_URL}/shifts/${shiftId}/summary`, {
+          method: "GET",
+          headers: {
+            Authorization: `Bearer ${localStorage.getItem("authToken") || ""}`,
+            "Content-Type": "application/json",
+          },
+        });
+      }
+
+      if (response.ok) {
+        const result = await response.json()
+        console.log("✅ Shift summary retrieved:", result)
+        // Additional logging to understand structure
+        console.log("API Response Keys:", Object.keys(result))
+        if (result.final_number !== undefined) {
+          console.log("Found final_number in response:", result.final_number)
+        }
+        
+        // Simplify the API response to only use what we actually have
+        // Don't create placeholder structures that might confuse users
+        const normalizedResult = {
+          ...result,
+          // Map total_revenue to total_sales if it exists
+          total_sales: result.total_sales || result.total_revenue || 0,
+          // Include final_number if it exists
+          final_number: result.final_number !== undefined ? result.final_number : undefined,
+          // Map total_salaries to total_staff_cost if it exists
+          total_staff_cost: result.total_staff_cost || result.total_salaries || 0,
+          // Don't create empty placeholder objects that mislead users
+          // Only include these if the API actually returns them
+          orders_by_type: result.orders_by_type || null,
+          orders_by_payment: result.orders_by_payment || null,
+          orders_by_status: result.orders_by_status || null
+        }
+        
+        console.log("✅ Normalized shift summary:", normalizedResult)
+        setShiftSummary(normalizedResult)
+        return normalizedResult
+      } else {
+        const errorText = await response.text();
+        console.warn("❌ Failed to fetch shift summary:", response.status, errorText)
+      }
+    } catch (error) {
+      console.error("❌ Error fetching shift summary:", error)
+    } finally {
+      setLoadingSummary(false)
     }
     return null
   }
 
   const loadShiftData = async () => {
+    if (isLoadingShiftData) return
+    
     if (typeof window !== "undefined") {
-      const user = JSON.parse(localStorage.getItem("currentUser") || "{}")
-      setCurrentUser(user)
-      const currentCashierName = user.full_name || user.name || user.username || ""
+      setIsLoadingShiftData(true)
+      try {
+        const user = JSON.parse(localStorage.getItem("currentUser") || "{}")
+        setCurrentUser(user)
+        const currentCashierName = user.full_name || user.name || user.username || ""
 
-      if (user.shift) {
-        setCurrentShift(user.shift)
+        if (user.shift) {
+          setCurrentShift(user.shift)
 
-        // Try to fetch additional shift details from API
-        const shiftId = getShiftId(user.shift)
-        if (shiftId) {
-          const shiftDetails = await fetchShiftDetails(shiftId)
-          if (shiftDetails) {
-            // Merge API shift details with local shift data
-            setCurrentShift({
-              ...user.shift,
-              ...shiftDetails,
-            })
+          // Try to fetch additional shift details from API
+          const shiftId = getShiftId(user.shift)
+          if (shiftId) {
+            const shiftDetails = await fetchShiftDetails(shiftId)
+            if (shiftDetails) {
+              // Merge API shift details with local shift data
+              setCurrentShift({
+                ...user.shift,
+                ...shiftDetails,
+              })
+            }
+            
+            // Fetch the shift summary
+            await fetchShiftSummary(shiftId)
           }
         }
-      }
 
       const savedOrdersString = localStorage.getItem("savedOrders")
       let allOrders: any[] = []
@@ -450,14 +570,23 @@ export default function EndShiftPageFixed() {
       if (savedOrdersString) {
         try {
           allOrders = JSON.parse(savedOrdersString)
+          console.log("📋 Found saved orders:", allOrders.length)
         } catch (error) {
           console.error("Error parsing saved orders:", error)
           allOrders = []
         }
       }
 
+      console.log(`🔍 Looking for orders for shift: ${getShiftId(user.shift)} and cashier: ${currentCashierName}`)
+      
+      // Debug flag - set to false to reduce console noise
+      const DEBUG_ORDER_MATCHING = false
+      
       const currentShiftOrders = allOrders.filter((order: any) => {
-        if (!order || !order.order_id) return false
+        if (!order || !order.order_id) {
+          if (DEBUG_ORDER_MATCHING) console.log("❌ Skipping invalid order without ID:", order)
+          return false
+        }
 
         const orderCashierName = order.cashier_name || order.cashier?.full_name || "[اسم الكاشير غير متوفر]"
         const matchesCashier = orderCashierName === currentCashierName
@@ -465,9 +594,19 @@ export default function EndShiftPageFixed() {
         const orderShiftId = order.shift?.shift_id || order.shift_id || ""
         const currentShiftId = getShiftId(user.shift)
         const matchesShift = orderShiftId === currentShiftId
+        
+        if (matchesCashier && matchesShift) {
+          console.log(`✅ Found matching order: ${order.order_id}, total: ${order.total_price || order.total || 0}`)
+        } else if (DEBUG_ORDER_MATCHING) {
+          console.log(`❌ Order ${order.order_id} doesn't match: cashier match=${matchesCashier}, shift match=${matchesShift}`)
+          console.log(`   Order info: cashier=${orderCashierName}, shift=${orderShiftId}`)
+          console.log(`   Expected: cashier=${currentCashierName}, shift=${currentShiftId}`)
+        }
 
         return matchesCashier && matchesShift
       })
+      
+      console.log(`📊 Found ${currentShiftOrders.length} orders for current shift/cashier`)
 
       const convertedOrders = currentShiftOrders.map((order: any) => ({
         id: order.order_id || `order_${Date.now()}`,
@@ -524,29 +663,111 @@ export default function EndShiftPageFixed() {
         avgOrderValue: convertedOrders.length > 0 ? total / convertedOrders.length : 0,
         ordersPerHour: ordersPerHour,
       })
+      } catch (error) {
+        console.error("Error loading shift data:", error)
+      } finally {
+        setIsLoadingShiftData(false)
+      }
     }
   }
 
   useEffect(() => {
-    loadShiftData()
+    // Add a small delay to prevent rapid successive calls
+    const timeoutId = setTimeout(() => {
+      loadShiftData()
+    }, 100)
 
     const handleOrderAdded = () => {
-      loadShiftData()
+      // Debounce the loadShiftData call
+      clearTimeout(timeoutId)
+      setTimeout(() => {
+        loadShiftData()
+      }, 500)
     }
 
     const handleStorageChange = () => {
-      loadShiftData()
+      // Debounce the loadShiftData call
+      clearTimeout(timeoutId)
+      setTimeout(() => {
+        loadShiftData()
+      }, 500)
     }
 
     window.addEventListener("orderAdded", handleOrderAdded)
     window.addEventListener("storage", handleStorageChange)
 
     return () => {
+      clearTimeout(timeoutId)
       window.removeEventListener("orderAdded", handleOrderAdded)
       window.removeEventListener("storage", handleStorageChange)
     }
   }, [])
 
+  // New function to show shift summary before ending the shift
+  const handleShowSummary = async () => {
+    if (!currentUser || !currentShift) {
+      setError("معلومات المستخدم أو الوردية غير متوفرة")
+      return
+    }
+
+    const shiftId = getShiftId(currentShift)
+    console.log("🔍 Fetching summary for shift:", shiftId)
+    console.log("📊 Current local orders count:", savedOrders.length)
+    console.log("📊 Current local shift stats:", shiftStats)
+    
+    // Always refresh summary data when showing it
+    setLoadingSummary(true)
+    const summaryData = await fetchShiftSummary(shiftId)
+    setLoadingSummary(false)
+    
+    if (!summaryData) {
+      console.log("❌ Failed to get summary from server, using local data")
+      
+      // If we failed to get summary from server, create a summary from local data
+      const localSummary = {
+        shift_id: shiftId,
+        shift_type: getShiftDisplayName(currentShift),
+        start_time: currentUser.loginTime,
+        end_time: new Date().toISOString(),
+        total_orders: shiftStats.totalOrders,
+        total_sales: shiftStats.totalSales,
+        total_revenue: shiftStats.totalSales, // For compatibility
+        total_expenses: 0, // We don't have this locally
+        cafe_revenue: 0, // We don't have this locally
+        
+        // Group orders by type from local data
+        orders_by_type: {
+          "dine-in": savedOrders.filter(o => o.orderType === "dine-in").length,
+          "takeaway": savedOrders.filter(o => o.orderType === "takeaway").length,
+          "delivery": savedOrders.filter(o => o.orderType === "delivery").length,
+          "cafe": 0, // We don't track this separately in local data
+        },
+        
+        // Group orders by payment method from local data
+        orders_by_payment: {
+          "cash": savedOrders.filter(o => o.paymentMethod === "cash").length,
+          "card": savedOrders.filter(o => o.paymentMethod === "card").length,
+        },
+        
+        // Group orders by status from local data
+        orders_by_status: {
+          "completed": savedOrders.filter(o => o.status === "completed").length,
+          "pending": savedOrders.filter(o => o.status === "pending").length,
+          "cancelled": savedOrders.filter(o => o.status === "cancelled").length,
+        },
+        
+        // Calculate average order value from local data
+        average_order_value: shiftStats.avgOrderValue,
+      }
+      
+      console.log("📊 Generated local summary:", localSummary)
+      setShiftSummary(localSummary)
+    }
+    
+    // Show summary view
+    setShowSummary(true)
+  }
+  
   const handleEndShiftRequest = async () => {
     if (!currentUser || !currentShift) {
       setError("معلومات المستخدم أو الوردية غير متوفرة")
@@ -561,28 +782,20 @@ export default function EndShiftPageFixed() {
       const userId = currentUser.user_id || currentUser.id
 
       let apiSuccess = false
-      let shiftSummary = null
+      let summaryData = shiftSummary
 
-      // Step 1: Get shift summary first
-      try {
-        console.log(`🔍 Getting shift summary for shift ${shiftId}`)
-        const summaryResponse = await fetch(`${API_BASE_URL}/shifts/${shiftId}/summary`, {
-          method: "GET",
-          headers: {
-            Authorization: `Bearer ${localStorage.getItem("authToken") || ""}`,
-            "Content-Type": "application/json",
-          },
-        })
-
-        if (summaryResponse.ok) {
-          const summaryResult = await summaryResponse.json()
-          if (summaryResult.success) {
-            shiftSummary = summaryResult.data
-            console.log("✅ Shift summary retrieved:", shiftSummary)
+      // Step 1: Ensure we have shift summary
+      if (!summaryData) {
+        try {
+          console.log(`🔍 Getting shift summary for shift ${shiftId}`)
+          const summaryResult = await fetchShiftSummary(shiftId)
+          if (summaryResult) {
+            summaryData = summaryResult
+            console.log("✅ Shift summary retrieved:", summaryData)
           }
+        } catch (summaryError) {
+          console.warn("⚠️ Failed to get shift summary:", summaryError)
         }
-      } catch (summaryError) {
-        console.warn("⚠️ Failed to get shift summary:", summaryError)
       }
 
       // Step 2: Request shift close using the correct endpoint
@@ -869,11 +1082,277 @@ export default function EndShiftPageFixed() {
                 </div>
               </div>
 
-              <div className="mt-6">
-                <Button onClick={handleEndShiftRequest} className="bg-red-600 hover:bg-red-700" disabled={loading}>
-                  {loading ? "جاري إرسال الطلب..." : "إنهاء الوردية"}
-                </Button>
+              <div className="mt-6 flex gap-2">
+                {showSummary ? (
+                  <Button onClick={handleEndShiftRequest} className="bg-red-600 hover:bg-red-700" disabled={loading}>
+                    {loading ? "جاري إرسال الطلب..." : "تأكيد إنهاء الوردية"}
+                  </Button>
+                ) : (
+                  <Button 
+                    onClick={handleShowSummary} 
+                    className="bg-blue-600 hover:bg-blue-700" 
+                    disabled={loadingSummary}
+                  >
+                    {loadingSummary ? "جاري تحميل ملخص الوردية..." : "عرض ملخص الوردية"}
+                  </Button>
+                )}
+                {showSummary && (
+                  <Button 
+                    variant="outline" 
+                    onClick={() => setShowSummary(false)}
+                    disabled={loading}
+                  >
+                    رجوع
+                  </Button>
+                )}
               </div>
+              
+              {/* Shift Summary Section */}
+              {showSummary && shiftSummary && (
+                <motion.div 
+                  initial={{ opacity: 0, height: 0 }}
+                  animate={{ opacity: 1, height: "auto" }}
+                  className="mt-6 border rounded-lg p-6 bg-gradient-to-r from-green-50 to-blue-50 border-green-200"
+                >
+                  {/* Shift Header */}
+                  <div className="flex items-center justify-between mb-4">
+                    <div className="flex items-center gap-3">
+                      <div className="h-12 w-12 rounded-full flex items-center justify-center bg-green-100">
+                        <Coffee className="h-6 w-6 text-green-600" />
+                      </div>
+                      <div>
+                        <h3 className="font-bold text-lg">{getShiftDisplayName(currentShift)}</h3>
+                        <p className="text-sm text-muted-foreground">الكاشير: {currentUser?.name || currentUser?.full_name}</p>
+                        <p className="text-xs text-muted-foreground">
+                          بدأت:{" "}
+                          {new Date(currentUser?.loginTime).toLocaleTimeString("ar-EG", {
+                            hour: "2-digit",
+                            minute: "2-digit",
+                          })}
+                        </p>
+                      </div>
+                    </div>
+                    <div className="text-right">
+                      <div className="text-2xl font-bold text-green-600">
+                        {shiftSummary?.total_sales || shiftSummary?.total_revenue ? 
+                          `ج.م ${parseFloat(shiftSummary.total_sales || shiftSummary.total_revenue || "0").toFixed(2)}` : 
+                          `ج.م ${shiftStats.totalSales.toFixed(2)}`}
+                      </div>
+                      <p className="text-sm text-muted-foreground">
+                        {shiftSummary?.total_orders || shiftStats.totalOrders} طلب
+                      </p>
+                      <Badge variant="default" className="mt-1">
+                        نشطة
+                      </Badge>
+                    </div>
+                  </div>
+                  
+                  {/* Only show order types section if we actually have the data */}
+                  {shiftSummary?.orders_by_type ? (
+                    <div className="my-4 border-t border-b py-4 border-gray-200">
+                      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                        <div className="text-center">
+                          <div className="text-lg font-bold text-blue-600">
+                            {shiftSummary.orders_by_type["dine-in"] || 0}
+                          </div>
+                          <p className="text-xs text-muted-foreground">تناول في المطعم</p>
+                        </div>
+                        <div className="text-center">
+                          <div className="text-lg font-bold text-green-600">
+                            {shiftSummary.orders_by_type.takeaway || 0}
+                          </div>
+                          <p className="text-xs text-muted-foreground">تيك اواي</p>
+                        </div>
+                        <div className="text-center">
+                          <div className="text-lg font-bold text-purple-600">
+                            {shiftSummary.orders_by_type.delivery || 0}
+                          </div>
+                          <p className="text-xs text-muted-foreground">توصيل</p>
+                        </div>
+                        <div className="text-center">
+                          <div className="text-lg font-bold text-orange-600">
+                            {shiftSummary.orders_by_type.cafe || 0}
+                          </div>
+                          <p className="text-xs text-muted-foreground">كافية</p>
+                        </div>
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="my-4 border-t border-b py-4 border-gray-200 text-center">
+                      <p className="text-muted-foreground">بيانات الطلبات حسب النوع غير متوفرة</p>
+                    </div>
+                  )}
+                  
+                  <div className="grid grid-cols-2 md:grid-cols-3 gap-4 mb-4">
+                    {/* Only show payment methods if we have the data */}
+                    {shiftSummary?.orders_by_payment ? (
+                      <div className="bg-white p-3 rounded-lg border">
+                        <h4 className="font-medium text-sm mb-2">طرق الدفع</h4>
+                        <div className="space-y-1">
+                          <div className="flex justify-between">
+                            <span className="text-xs text-muted-foreground">نقدي:</span>
+                            <span className="text-xs font-medium">
+                              {shiftSummary.orders_by_payment.cash || 0}
+                            </span>
+                          </div>
+                          <div className="flex justify-between">
+                            <span className="text-xs text-muted-foreground">كارت:</span>
+                            <span className="text-xs font-medium">
+                              {shiftSummary.orders_by_payment.card || 0}
+                            </span>
+                          </div>
+                        </div>
+                      </div>
+                    ) : (
+                      <div className="bg-white p-3 rounded-lg border">
+                        <h4 className="font-medium text-sm mb-2">طرق الدفع</h4>
+                        <p className="text-xs text-muted-foreground text-center">بيانات غير متوفرة</p>
+                      </div>
+                    )}
+                    
+                    {/* Only show order status if we have the data */}
+                    {shiftSummary?.orders_by_status ? (
+                      <div className="bg-white p-3 rounded-lg border">
+                        <h4 className="font-medium text-sm mb-2">حالة الطلبات</h4>
+                        <div className="space-y-1">
+                          <div className="flex justify-between">
+                            <span className="text-xs text-muted-foreground">مكتملة:</span>
+                            <span className="text-xs font-medium text-green-600">
+                              {shiftSummary.orders_by_status.completed || 0}
+                            </span>
+                          </div>
+                          <div className="flex justify-between">
+                            <span className="text-xs text-muted-foreground">قيد التنفيذ:</span>
+                            <span className="text-xs font-medium text-yellow-600">
+                              {shiftSummary.orders_by_status.pending || 0}
+                            </span>
+                          </div>
+                          <div className="flex justify-between">
+                            <span className="text-xs text-muted-foreground">ملغاة:</span>
+                            <span className="text-xs font-medium text-red-600">
+                              {shiftSummary.orders_by_status.cancelled || 0}
+                            </span>
+                          </div>
+                        </div>
+                      </div>
+                    ) : (
+                      <div className="bg-white p-3 rounded-lg border">
+                        <h4 className="font-medium text-sm mb-2">حالة الطلبات</h4>
+                        <p className="text-xs text-muted-foreground text-center">بيانات غير متوفرة</p>
+                      </div>
+                    )}
+                    
+                    <div className="bg-white p-3 rounded-lg border">
+                      <h4 className="font-medium text-sm mb-2">الأداء</h4>
+                      <div className="space-y-1">
+                        <div className="flex justify-between">
+                          <span className="text-xs text-muted-foreground">متوسط الطلب:</span>
+                          <span className="text-xs font-medium">
+                            ج.م {
+                              shiftSummary?.total_orders && (shiftSummary?.total_sales || shiftSummary?.total_revenue) ? 
+                              (parseFloat(shiftSummary.total_sales || shiftSummary.total_revenue) / shiftSummary.total_orders).toFixed(2) : 
+                              shiftStats.avgOrderValue.toFixed(2)
+                            }
+                          </span>
+                        </div>
+                        <div className="flex justify-between">
+                          <span className="text-xs text-muted-foreground">إجمالي الطلبات:</span>
+                          <span className="text-xs font-medium">
+                            {shiftSummary?.total_orders || shiftStats.totalOrders || 0}
+                          </span>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                  
+                  {/* Top Items */}
+                  {shiftSummary?.top_selling_items && shiftSummary.top_selling_items.length > 0 && (
+                    <div className="bg-white p-4 rounded-lg border mb-4">
+                      <h4 className="font-medium text-sm mb-3 flex items-center gap-2">
+                        <Package className="w-4 h-4" />
+                        أكثر الأصناف طلباً
+                      </h4>
+                      <div className="space-y-2">
+                        {shiftSummary.top_selling_items.slice(0, 5).map((item: any, idx: number) => (
+                          <div key={idx} className="flex items-center justify-between p-2 bg-gray-50 rounded">
+                            <div className="flex-1">
+                              <p className="text-sm font-medium">{item.name || item.product_name}</p>
+                              <p className="text-xs text-muted-foreground">
+                                {item.quantity} قطعة في {item.orders_count || item.orders} طلب
+                              </p>
+                            </div>
+                            <div className="text-right">
+                              <p className="text-sm font-bold text-green-600">
+                                ج.م {parseFloat(item.total_sales || item.total_price || "0").toFixed(2)}
+                              </p>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                  
+                  {/* Expenses Section */}
+                  {shiftSummary?.expenses && shiftSummary.expenses.length > 0 && (
+                    <div className="bg-white p-4 rounded-lg border mb-4">
+                      <h4 className="font-medium flex items-center gap-2 mb-3">
+                        <FileText className="w-4 h-4" />
+                        المصروفات ({shiftSummary.expenses.length})
+                      </h4>
+                      <div className="max-h-40 overflow-y-auto">
+                        <div className="space-y-2">
+                          {shiftSummary.expenses.map((expense: any, i: number) => (
+                            <div key={expense.expense_id || `expense-${i}`} className="flex items-center justify-between p-2 bg-gray-50 rounded text-sm">
+                              <div>
+                                <div className="font-medium">{expense.title}</div>
+                                <div className="text-xs text-gray-500">
+                                  {expense.category} • بواسطة: {expense.created_by?.full_name || "غير محدد"}
+                                </div>
+                              </div>
+                              <div className="font-medium text-red-600 text-right">ج.م {parseFloat(expense.amount || "0").toFixed(2)}</div>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    </div>
+                  )}
+                  
+                  {/* Net Profit Section */}
+                  <div className="p-4 bg-green-50 rounded-lg border border-green-200">
+                    <div className="flex items-center justify-between">
+                      <h4 className="font-medium flex items-center gap-2">
+                        <TrendingUp className="w-4 h-4 text-green-600" />
+                        صافي الربح بعد المصاريف
+                      </h4>
+                      <div className="text-lg font-bold text-green-700">
+                        {shiftSummary?.final_number !== undefined ? (
+                          `ج.م ${parseFloat(shiftSummary.final_number.toString()).toFixed(2)}`
+                        ) : (
+                          `ج.م ${(
+                            parseFloat(shiftSummary?.total_sales || shiftSummary?.total_revenue || "0") - 
+                            parseFloat(shiftSummary?.total_expenses || "0") - 
+                            parseFloat(shiftSummary?.total_staff_cost || shiftSummary?.total_salaries || "0")
+                          ).toFixed(2)}`
+                        )}
+                      </div>
+                    </div>
+                    <div className="mt-2 grid grid-cols-3 gap-2 text-xs text-gray-600">
+                      <div className="text-center">
+                        <div className="font-semibold">إجمالي المبيعات</div>
+                        <div className="text-green-600">ج.م {parseFloat(shiftSummary?.total_sales || shiftSummary?.total_revenue || "0").toFixed(2)}</div>
+                      </div>
+                      <div className="text-center">
+                        <div className="font-semibold">مصاريف</div>
+                        <div className="text-red-600">-ج.م {parseFloat(shiftSummary?.total_expenses || "0").toFixed(2)}</div>
+                      </div>
+                      <div className="text-center">
+                        <div className="font-semibold">رواتب</div>
+                        <div className="text-red-600">-ج.م {parseFloat(shiftSummary?.total_staff_cost || shiftSummary?.total_salaries || "0").toFixed(2)}</div>
+                      </div>
+                    </div>
+                  </div>
+                </motion.div>
+              )}
             </>
           )}
         </CardContent>

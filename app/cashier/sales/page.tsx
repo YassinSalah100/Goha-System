@@ -13,7 +13,7 @@ import { useRouter } from "next/navigation"
 import { Textarea } from "@/components/ui/textarea"
 import { Alert, AlertDescription } from "@/components/ui/alert"
 
-const API_BASE_URL = "http://172.162.241.242:3000/api/v1"
+const API_BASE_URL = "http://192.168.1.14:3000/api/v1"
 
 interface Category {
   category_id: string
@@ -548,7 +548,7 @@ export default function SalesPage() {
             price: extra.price.toString(),
             quantity: extra.quantity,
           })),
-          total_price: item.price * item.quantity,
+          total_price: (item.basePrice * item.quantity) + (item.extras?.reduce((sum, extra) => sum + (extra.price * extra.quantity), 0) || 0),
         })),
       }
 
@@ -1573,7 +1573,7 @@ export default function SalesPage() {
                     <span className="receipt-item-name">
                       {item.name} {item.size && item.size !== "عادي" && `(${item.size})`} × {item.quantity}
                     </span>
-                    <span className="receipt-item-price">ج.م{(item.price * item.quantity).toFixed(2)}</span>
+                    <span className="receipt-item-price">ج.م{(item.basePrice * item.quantity).toFixed(2)}</span>
                   </div>
                   {item.extras && item.extras.length > 0 && (
                     <div className="receipt-item-details receipt-extras">

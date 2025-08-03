@@ -11,7 +11,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { Loader2, CheckCircle, AlertCircle, Plus, Edit, Trash2, Search, Package, Tag, Ruler, DollarSign, BarChart3, Filter, TrendingUp, X } from 'lucide-react'
 
-const API_BASE_URL = "http://172.162.241.242:3000/api/v1"
+const API_BASE_URL = "http://192.168.1.14:3000/api/v1"
 
 interface Category {
   id: string

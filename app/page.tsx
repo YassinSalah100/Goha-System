@@ -14,7 +14,7 @@ import Image from "next/image"
 import { Checkbox } from "@/components/ui/checkbox"
 import { toast } from "sonner"
 
-const API_BASE_URL = "http://172.162.241.242:3000/api/v1"
+const API_BASE_URL = "http://192.168.1.14:3000/api/v1"
 
 export default function LoginPage() {
   const router = useRouter()
