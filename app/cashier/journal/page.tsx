@@ -11,7 +11,12 @@ import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
 import { Alert, AlertDescription } from "@/components/ui/alert"
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "@/components/ui/alert-dialog"
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
+import { ScrollArea } from "@/components/ui/scroll-area"
+import { Separator } from "@/components/ui/separator"
 import { formatEgyptianCurrency, validateExpenseForm, calculateWorkHours, calculateSalary } from "@/lib/journal-utils"
+import { generateDailyReport, ReportData } from "@/lib/journal-report-utils"
+import { JournalDailyReportDialog } from "@/components/reports/DailyReportDialog"
 import { 
   Plus, 
   Minus, 
@@ -39,7 +44,9 @@ import {
   Truck,
   Phone,
   Car,
-  MoreVertical
+  MoreVertical,
+  FileText,
+  BarChart3
 } from "lucide-react"
 
 const API_BASE_URL = "http://192.168.1.14:3000/api/v1"
@@ -152,6 +159,11 @@ export default function JournalPage() {
   })
   const [formErrors, setFormErrors] = useState<any>({})
   const [message, setMessage] = useState<{ text: string; type: 'success' | 'error' } | null>(null)
+  
+  // Report state
+  const [showReportDialog, setShowReportDialog] = useState(false)
+  const [reportData, setReportData] = useState<ReportData | null>(null)
+  const [isGeneratingReport, setIsGeneratingReport] = useState(false)
 
   // API utility functions
   const fetchWithErrorHandling = async (url: string, options: RequestInit = {}) => {
@@ -558,6 +570,59 @@ export default function JournalPage() {
     }
   }
 
+  // Report generation function
+  const handleGenerateReport = async () => {
+    setIsGeneratingReport(true)
+    try {
+      // Prepare shift data
+      const shiftData = activeShift ? {
+        startTime: activeShift.start_time || new Date().toISOString(),
+        endTime: activeShift.is_closed ? new Date().toISOString() : undefined,
+        cashierName: currentUser?.full_name || 'غير محدد',
+        totalHours: activeShift.start_time ? 
+          calculateWorkHours(activeShift.start_time, activeShift.is_closed ? new Date().toISOString() : undefined) : 0
+      } : {
+        startTime: new Date().toISOString(),
+        endTime: undefined,
+        cashierName: currentUser?.full_name || 'غير محدد',
+        totalHours: 0
+      }
+
+      // Prepare expenses data
+      const expensesData = expenses.map(expense => ({
+        id: expense.expense_id,
+        category: expense.category || 'other',
+        item: expense.title,
+        amount: expense.amount,
+        description: expense.description,
+        timestamp: expense.created_at
+      }))
+
+      // Prepare workers data
+      const workersData = shiftWorkers.map(worker => ({
+        id: worker.worker_id,
+        name: worker.worker_name || worker.worker?.full_name || 'موظف غير محدد',
+        hours: worker.hours_worked || calculateWorkHours(worker.start_time, worker.end_time),
+        hourlyRate: worker.hourly_rate || 0,
+        totalSalary: worker.calculated_salary || calculateSalary(
+          worker.hours_worked || calculateWorkHours(worker.start_time, worker.end_time),
+          worker.hourly_rate || 0
+        ),
+        status: worker.is_active ? 'present' : 'absent'
+      }))
+
+      // Generate report
+      const report = generateDailyReport(expensesData, workersData, shiftData)
+      setReportData(report)
+      setShowReportDialog(true)
+    } catch (error) {
+      console.error("Error generating report:", error)
+      setMessage({ text: "خطأ في إنشاء التقرير", type: 'error' })
+    } finally {
+      setIsGeneratingReport(false)
+    }
+  }
+
   useEffect(() => {
     getCurrentUser()
     fetchAvailableWorkers()
@@ -598,9 +663,38 @@ export default function JournalPage() {
       <div className="max-w-7xl mx-auto space-y-6">
         {/* Header */}
         <div className="bg-white rounded-lg shadow-sm p-6 border-l-4 border-blue-500">
-          <h1 className="text-2xl font-bold text-gray-900 mb-2">
-            يومية المصروفات والموظفين
-          </h1>
+          <div className="flex items-center justify-between mb-2">
+            <h1 className="text-2xl font-bold text-gray-900">
+              يومية المصروفات والموظفين
+            </h1>
+            <div className="flex items-center gap-2">
+              <Button
+                onClick={handleGenerateReport}
+                disabled={isGeneratingReport}
+                className="flex items-center gap-2"
+                variant="outline"
+              >
+                {isGeneratingReport ? (
+                  <Loader2 className="w-4 h-4 animate-spin" />
+                ) : (
+                  <FileText className="w-4 h-4" />
+                )}
+                {isGeneratingReport ? "جاري الإنشاء..." : "تقرير اليومية"}
+              </Button>
+              <Button
+                onClick={handleRefresh}
+                disabled={isRefreshing}
+                variant="ghost"
+                size="sm"
+              >
+                {isRefreshing ? (
+                  <Loader2 className="w-4 h-4 animate-spin" />
+                ) : (
+                  <RefreshCw className="w-4 h-4" />
+                )}
+              </Button>
+            </div>
+          </div>
           <p className="text-gray-600">
             {new Date().toLocaleDateString('ar-EG', { 
               weekday: 'long', 
@@ -1018,6 +1112,14 @@ export default function JournalPage() {
           </div>
         </div>
       </div>
+
+      {/* Journal Daily Report Dialog */}
+      <JournalDailyReportDialog
+        isOpen={showReportDialog}
+        onClose={() => setShowReportDialog(false)}
+        reportData={reportData}
+        isLoading={isGeneratingReport}
+      />
     </div>
   )
 }
