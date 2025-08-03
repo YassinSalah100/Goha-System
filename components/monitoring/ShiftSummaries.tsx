@@ -24,8 +24,8 @@ interface ShiftSummariesProps {
 export function ShiftSummaries({ shifts, isLoading = false }: ShiftSummariesProps) {
   const getShiftTypeName = (type: string): string => {
     const types = {
-      "MORNING": "صباحية",
-      "NIGHT": "مسائية",
+      "morning": "صباحية",
+      "night": "مسائية",
     }
     return types[type as keyof typeof types] || type
   }
@@ -98,7 +98,7 @@ export function ShiftSummaries({ shifts, isLoading = false }: ShiftSummariesProp
                       <div className="text-sm text-gray-600 space-y-1">
                         <div className="flex items-center gap-2">
                           <User className="w-4 h-4" />
-                          <span>فتحت بواسطة: {shift.opened_by.full_name}</span>
+                          <span>فتحت بواسطة: {shift.opened_by?.full_name || 'غير محدد'}</span>
                         </div>
                         
                         <div className="flex items-center gap-2">
@@ -130,9 +130,9 @@ export function ShiftSummaries({ shifts, isLoading = false }: ShiftSummariesProp
                         <Receipt className="w-4 h-4 text-blue-600" />
                         <span className="text-sm font-medium text-blue-600">الطلبات</span>
                       </div>
-                      <div className="text-lg font-bold text-blue-700">{shift.total_orders}</div>
+                      <div className="text-lg font-bold text-blue-700">{shift.total_orders || 0}</div>
                       <div className="text-xs text-blue-600">
-                        متوسط: {formatPrice(shift.average_order_value)}
+                        متوسط: {formatPrice(shift.average_order_value || 0)}
                       </div>
                     </div>
 
@@ -142,7 +142,7 @@ export function ShiftSummaries({ shifts, isLoading = false }: ShiftSummariesProp
                         <span className="text-sm font-medium text-green-600">المبيعات</span>
                       </div>
                       <div className="text-lg font-bold text-green-700">
-                        {formatPrice(shift.total_sales)}
+                        {formatPrice(shift.total_sales || 0)}
                       </div>
                     </div>
 
@@ -151,9 +151,9 @@ export function ShiftSummaries({ shifts, isLoading = false }: ShiftSummariesProp
                         <Users className="w-4 h-4 text-purple-600" />
                         <span className="text-sm font-medium text-purple-600">الموظفين</span>
                       </div>
-                      <div className="text-lg font-bold text-purple-700">{shift.total_workers}</div>
+                      <div className="text-lg font-bold text-purple-700">{shift.total_workers || 0}</div>
                       <div className="text-xs text-purple-600">
-                        نشط: {shift.active_workers}
+                        نشط: {shift.active_workers || 0}
                       </div>
                     </div>
 
@@ -163,10 +163,10 @@ export function ShiftSummaries({ shifts, isLoading = false }: ShiftSummariesProp
                         <span className="text-sm font-medium text-orange-600">المصروفات</span>
                       </div>
                       <div className="text-lg font-bold text-orange-700">
-                        {formatPrice(shift.total_expenses)}
+                        {formatPrice(shift.total_expenses || 0)}
                       </div>
                       <div className="text-xs text-orange-600">
-                        {shift.expenses_count} مصروف
+                        {shift.expenses_count || 0} مصروف
                       </div>
                     </div>
                   </div>
@@ -179,19 +179,19 @@ export function ShiftSummaries({ shifts, isLoading = false }: ShiftSummariesProp
                       <div className="space-y-1 text-sm">
                         <div className="flex justify-between">
                           <span>صالة:</span>
-                          <span className="font-medium">{shift.orders_by_type["dine-in"]}</span>
+                          <span className="font-medium">{shift.orders_by_type?.["dine-in"] || 0}</span>
                         </div>
                         <div className="flex justify-between">
                           <span>تيك أواي:</span>
-                          <span className="font-medium">{shift.orders_by_type.takeaway}</span>
+                          <span className="font-medium">{shift.orders_by_type?.takeaway || 0}</span>
                         </div>
                         <div className="flex justify-between">
                           <span>توصيل:</span>
-                          <span className="font-medium">{shift.orders_by_type.delivery}</span>
+                          <span className="font-medium">{shift.orders_by_type?.delivery || 0}</span>
                         </div>
                         <div className="flex justify-between">
                           <span>كافيه:</span>
-                          <span className="font-medium">{shift.orders_by_type.cafe}</span>
+                          <span className="font-medium">{shift.orders_by_type?.cafe || 0}</span>
                         </div>
                       </div>
                     </div>
@@ -202,15 +202,15 @@ export function ShiftSummaries({ shifts, isLoading = false }: ShiftSummariesProp
                       <div className="space-y-1 text-sm">
                         <div className="flex justify-between">
                           <span>مكتملة:</span>
-                          <span className="font-medium text-green-600">{shift.orders_by_status.completed}</span>
+                          <span className="font-medium text-green-600">{shift.orders_by_status?.completed || 0}</span>
                         </div>
                         <div className="flex justify-between">
                           <span>قيد التنفيذ:</span>
-                          <span className="font-medium text-orange-600">{shift.orders_by_status.pending}</span>
+                          <span className="font-medium text-orange-600">{shift.orders_by_status?.pending || 0}</span>
                         </div>
                         <div className="flex justify-between">
                           <span>ملغية:</span>
-                          <span className="font-medium text-red-600">{shift.orders_by_status.cancelled}</span>
+                          <span className="font-medium text-red-600">{shift.orders_by_status?.cancelled || 0}</span>
                         </div>
                       </div>
                     </div>
@@ -221,11 +221,11 @@ export function ShiftSummaries({ shifts, isLoading = false }: ShiftSummariesProp
                       <div className="space-y-1 text-sm">
                         <div className="flex justify-between">
                           <span>نقدي:</span>
-                          <span className="font-medium">{shift.orders_by_payment.cash}</span>
+                          <span className="font-medium">{shift.orders_by_payment?.cash || 0}</span>
                         </div>
                         <div className="flex justify-between">
                           <span>بطاقة:</span>
-                          <span className="font-medium">{shift.orders_by_payment.card}</span>
+                          <span className="font-medium">{shift.orders_by_payment?.card || 0}</span>
                         </div>
                       </div>
                     </div>
@@ -236,13 +236,13 @@ export function ShiftSummaries({ shifts, isLoading = false }: ShiftSummariesProp
                     <div className="flex justify-between items-center text-sm">
                       <span className="text-gray-600">إجمالي تكلفة الموظفين:</span>
                       <span className="font-medium text-purple-600">
-                        {formatPrice(shift.total_staff_cost)}
+                        {formatPrice(shift.total_staff_cost || 0)}
                       </span>
                     </div>
                     <div className="flex justify-between items-center text-lg font-bold mt-2">
                       <span className="text-gray-700">صافي المبيعات:</span>
                       <span className="text-green-600">
-                        {formatPrice(shift.total_sales - shift.total_expenses - shift.total_staff_cost)}
+                        {formatPrice((shift.total_sales || 0) - (shift.total_expenses || 0) - (shift.total_staff_cost || 0))}
                       </span>
                     </div>
                   </div>

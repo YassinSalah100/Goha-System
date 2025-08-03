@@ -35,7 +35,6 @@ export function LiveOrders({ orders, isLoading = false, onRefresh }: LiveOrdersP
   const getStatusBadge = (status: string) => {
     const statuses = {
       "pending": { label: "قيد الانتظار", variant: "destructive" as const },
-      "active": { label: "جاري التحضير", variant: "default" as const },
       "completed": { label: "مكتمل", variant: "secondary" as const },
       "cancelled": { label: "ملغي", variant: "outline" as const },
     }
@@ -115,6 +114,20 @@ export function LiveOrders({ orders, isLoading = false, onRefresh }: LiveOrdersP
                           </span>
                         </div>
 
+                        {order.cashier?.full_name && (
+                          <div className="flex items-center gap-2">
+                            <User className="w-4 h-4" />
+                            <span className="font-medium">الكاشير: {order.cashier.full_name}</span>
+                          </div>
+                        )}
+
+                        {order.shift?.shift_name && (
+                          <div className="flex items-center gap-2">
+                            <Package className="w-4 h-4" />
+                            <span className="font-medium">الوردية: {order.shift.shift_name}</span>
+                          </div>
+                        )}
+
                         {order.table_number && (
                           <div className="text-sm">
                             <span className="font-medium">رقم الطاولة: </span>
@@ -131,11 +144,6 @@ export function LiveOrders({ orders, isLoading = false, onRefresh }: LiveOrdersP
                       <div className="text-xs text-gray-500">
                         {order.payment_method === 'cash' ? 'نقدي' : 'بطاقة'}
                       </div>
-                      {order.cashier?.full_name && (
-                        <div className="text-xs text-gray-500 mt-1">
-                          الكاشير: {order.cashier.full_name}
-                        </div>
-                      )}
                     </div>
                   </div>
 

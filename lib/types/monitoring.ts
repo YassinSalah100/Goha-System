@@ -120,7 +120,7 @@ export interface ShiftExpense {
 
 export interface DetailedShiftSummary {
   shift_id: string
-  type: "MORNING" | "NIGHT"
+  type: "morning" | "night"
   status: "opened" | "closed" | "REQUESTED_CLOSE"
   start_time: string
   end_time: string | null

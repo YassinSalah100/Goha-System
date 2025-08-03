@@ -270,8 +270,8 @@ export default function MonitoringPage() {
                       </SelectTrigger>
                       <SelectContent>
                         <SelectItem value="all">جميع الورديات</SelectItem>
-                        <SelectItem value="MORNING">صباحية</SelectItem>
-                        <SelectItem value="NIGHT">مسائية</SelectItem>
+                        <SelectItem value="morning">صباحية</SelectItem>
+                        <SelectItem value="night">مسائية</SelectItem>
                       </SelectContent>
                     </Select>
                   </div>

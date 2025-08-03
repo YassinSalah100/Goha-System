@@ -59,8 +59,16 @@ export class MonitoringApiService {
   // Fetch live orders - using correct endpoint structure
   static async fetchOrders(page: number = 1, limit: number = 100): Promise<Order[]> {
     try {
-      const data = await apiRequest<any>(`/orders/except-cafe?page=${page}&limit=${limit}`)
-      return data.data?.orders || data.data || []
+      // Try without pagination first, then with if that fails
+      try {
+        const data = await apiRequest<any>(`/orders/except-cafe`)
+        return data.data?.orders || data.data || []
+      } catch (noPaginationError) {
+        // If that fails, try with minimal pagination parameters
+        console.log('Trying with pagination parameters')
+        const data = await apiRequest<any>(`/orders/except-cafe?page=1&limit=10`)
+        return data.data?.orders || data.data || []
+      }
     } catch (error) {
       console.error('Error fetching orders:', error)
       return []
@@ -101,7 +109,7 @@ export class MonitoringApiService {
       }
 
       // Fallback: calculate from orders
-      const orders = await this.fetchOrders(1, 1000)
+      const orders = await this.fetchOrders()
       const today = new Date().toISOString().split('T')[0]
       
       const todayOrders = orders.filter(order => 
@@ -194,11 +202,25 @@ export class MonitoringApiService {
     }
   }
 
-  // Fetch shifts by date - using correct endpoint structure
+  // Fetch shifts by date - try multiple endpoints
   static async fetchShiftsByDate(date: string): Promise<DetailedShiftSummary[]> {
     try {
-      const data = await apiRequest<any>(`/shifts/by-date?date=${date}`)
-      return data.shifts || data.data || data || []
+      // Try the summary endpoint first
+      try {
+        const summaryData = await apiRequest<any>(`/shifts/summary/by-date?date=${date}`)
+        return summaryData.shifts || summaryData.data || summaryData || []
+      } catch (summaryError) {
+        console.log('Summary endpoint failed, trying regular shifts by date')
+      }
+
+      // If summary fails, try to get regular shifts and transform them
+      try {
+        const data = await apiRequest<any>(`/shifts/by-date?date=${date}`)
+        return data.shifts || data.data || data || []
+      } catch (regularError) {
+        console.log('Regular shifts by date also failed')
+        return []
+      }
     } catch (error) {
       console.error('Error fetching shifts by date:', error)
       return []
@@ -212,11 +234,17 @@ export class MonitoringApiService {
     status?: string
   ): Promise<DetailedShiftSummary[]> {
     try {
-      // If date is specified, try to get shifts for that date
-      if (date && date !== 'all') {
-        const dateShifts = await this.fetchShiftsByDate(date)
-        if (dateShifts.length > 0) {
-          return this.filterShifts(dateShifts, shiftType, status)
+      // Try different approaches based on what's available
+      
+      // If date and shift_type are specified, use the summary endpoint
+      if (date && date !== 'all' && shiftType && shiftType !== 'all') {
+        try {
+          const summaryData = await apiRequest<any>(`/shifts/summary/by-date?date=${date}&shift_type=${shiftType}`)
+          if (summaryData && Array.isArray(summaryData)) {
+            return this.filterShifts(summaryData, shiftType, status)
+          }
+        } catch (summaryError) {
+          console.log('Summary by date endpoint failed, trying alternatives')
         }
       }
 
@@ -256,7 +284,8 @@ export class MonitoringApiService {
   // Generate cashier activities from orders
   static async fetchCashierActivities(): Promise<CashierActivity[]> {
     try {
-      const orders = await this.fetchOrders(1, 1000)
+      // Use the simple orders endpoint without pagination
+      const orders = await this.fetchOrders()
       const today = new Date().toISOString().split('T')[0]
       
       const todayOrders = orders.filter(order => 
