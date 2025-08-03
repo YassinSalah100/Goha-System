@@ -42,30 +42,43 @@ export const generateDailyReport = (
   workers: any[],
   shiftData: any
 ): ReportData => {
+  console.log('Generate Report Input:', {
+    expensesCount: expenses?.length || 0,
+    workersCount: workers?.length || 0,
+    workersData: workers,
+    shiftData
+  })
+
+  // Ensure arrays are defined
+  const expensesArray = expenses || []
+  const workersArray = workers || []
+  
   // Calculate total expenses
-  const totalExpenses = expenses.reduce((sum, expense) => sum + expense.amount, 0)
+  const totalExpenses = expensesArray.reduce((sum, expense) => sum + (expense.amount || 0), 0)
   
   // Group expenses by category
-  const expensesByCategory = expenses.reduce((acc, expense) => {
-    acc[expense.category] = (acc[expense.category] || 0) + expense.amount
+  const expensesByCategory = expensesArray.reduce((acc, expense) => {
+    const category = expense.category || 'other'
+    acc[category] = (acc[category] || 0) + (expense.amount || 0)
     return acc
   }, {} as Record<string, number>)
   
   // Calculate worker statistics
-  const workersCount = workers.reduce(
+  const workersCount = workersArray.reduce(
     (acc, worker) => {
-      acc[worker.status || 'present']++
+      const status = worker.status || 'present'
+      acc[status] = (acc[status] || 0) + 1
       return acc
     },
     { present: 0, absent: 0, late: 0 }
   )
   
-  const totalSalaries = workers.reduce(
+  const totalSalaries = workersArray.reduce(
     (sum, worker) => sum + (worker.totalSalary || 0),
     0
   )
-  
-  return {
+
+  const reportData = {
     date: new Date().toISOString().split('T')[0],
     shift: {
       startTime: shiftData?.startTime || new Date().toISOString(),
@@ -73,20 +86,20 @@ export const generateDailyReport = (
       cashier: shiftData?.cashierName || 'غير محدد',
       totalHours: shiftData?.totalHours || 0
     },
-    expenses: expenses.map(expense => ({
-      id: expense.id,
-      category: expense.category,
-      item: expense.item,
-      amount: expense.amount,
-      description: expense.description,
-      timestamp: expense.createdAt || expense.timestamp
+    expenses: expensesArray.map(expense => ({
+      id: expense.id || expense.expense_id || '',
+      category: expense.category || 'other',
+      item: expense.item || expense.title || 'غير محدد',
+      amount: expense.amount || 0,
+      description: expense.description || '',
+      timestamp: expense.createdAt || expense.timestamp || new Date().toISOString()
     })),
-    workers: workers.map(worker => ({
-      id: worker.id,
-      name: worker.name || 'موظف غير محدد',
-      hours: worker.hours || 0,
-      hourlyRate: worker.hourlyRate || 0,
-      totalSalary: worker.totalSalary || 0,
+    workers: workersArray.map(worker => ({
+      id: worker.id || worker.worker_id || '',
+      name: worker.name || worker.worker_name || worker.worker?.full_name || 'موظف غير محدد',
+      hours: worker.hours || worker.hours_worked || 0,
+      hourlyRate: worker.hourlyRate || worker.hourly_rate || 0,
+      totalSalary: worker.totalSalary || worker.calculated_salary || 0,
       status: worker.status || 'present'
     })),
     summary: {
@@ -96,6 +109,14 @@ export const generateDailyReport = (
       workersCount
     }
   }
+
+  console.log('Generated Report Data:', {
+    workersInReport: reportData.workers.length,
+    workersDetails: reportData.workers,
+    summary: reportData.summary
+  })
+
+  return reportData
 }
 
 export const formatReportForPrint = (reportData: ReportData): string => {

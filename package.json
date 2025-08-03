@@ -49,6 +49,7 @@
     "embla-carousel-react": "8.5.1",
     "framer-motion": "latest",
     "html2canvas": "^1.4.1",
+    "html2pdf.js": "^0.10.3",
     "immer": "latest",
     "input-otp": "1.4.1",
     "jspdf": "^3.0.1",

@@ -1,30 +1,61 @@
-// PDF export utility for journal reports
+// PDF export utility for journal reports      
 import jsPDF from 'jspdf'
 import autoTable from 'jspdf-autotable'
 import { ReportData } from './journal-report-utils'
 import { formatEgyptianCurrency } from './journal-utils'
 
+// Arabic text labels for better readability - Use English only to avoid encoding issues
+const LABELS = {
+  REPORT_TITLE: 'Daily Journal Report - Expenses & Staff',
+  SHIFT_INFO: 'Shift Information',
+  CASHIER: 'Cashier',
+  START_TIME: 'Start Time',
+  END_TIME: 'End Time',
+  TOTAL_HOURS: 'Total Hours',
+  HOURS: 'hours',
+  ONGOING: 'Ongoing',
+  FINANCIAL_SUMMARY: 'Financial Summary',
+  TOTAL_EXPENSES: 'Total Expenses',
+  TOTAL_SALARIES: 'Total Salaries',
+  TOTAL_COSTS: 'Total Costs',
+  EXPENSES_BY_CATEGORY: 'Expenses by Category',
+  CATEGORY: 'Category',
+  AMOUNT: 'Amount',
+  DETAILED_EXPENSES: 'Detailed Expenses',
+  ITEM: 'Item',
+  TIME: 'Time',
+  DESCRIPTION: 'Description',
+  STAFF_DETAILS: 'Staff Details',
+  WORKER_NAME: 'Worker Name',
+  WORKED_HOURS: 'Worked Hours',
+  HOURLY_RATE: 'Hourly Rate',
+  TOTAL_SALARY: 'Total Salary',
+  STAFF_SUMMARY: 'Staff Summary',
+  TOTAL_WORKERS: 'Total Workers',
+  TOTAL_WORK_HOURS: 'Total Work Hours'
+}
+
 export const generateJournalReportPDF = (reportData: ReportData): void => {
   // Create new PDF document
   const doc = new jsPDF('p', 'mm', 'a4')
   
-  // Configure for better text rendering
+  // Configure for better text rendering - use default font which handles Unicode better
   doc.setFont('helvetica')
   
   // Header information
   const pageWidth = doc.internal.pageSize.getWidth()
-  const date = new Date(reportData.date).toLocaleDateString('ar-EG', {
+  const date = new Date(reportData.date).toLocaleDateString('en-US', {
     weekday: 'long',
     year: 'numeric',
     month: 'long',
     day: 'numeric'
   })
   
-  // Title - Arabic text centered
+  // Title - English only to avoid encoding issues
   doc.setFontSize(20)
   doc.setFont('helvetica', 'bold')
-  doc.text('Journal Expenses & Staff Report', pageWidth / 2, 15, { align: 'center' })
-  doc.text('تقرير يومية المصروفات والموظفين', pageWidth / 2, 25, { align: 'center' })
+  doc.text('Daily Journal Report', pageWidth / 2, 15, { align: 'center' })
+  doc.text('Expenses & Staff Management', pageWidth / 2, 25, { align: 'center' })
   
   // Date
   doc.setFontSize(14)
@@ -36,18 +67,18 @@ export const generateJournalReportPDF = (reportData: ReportData): void => {
   // Shift Information Section
   doc.setFontSize(16)
   doc.setFont('helvetica', 'bold')
-  doc.text('Shift Information - معلومات الوردية', 20, yPosition)
+  doc.text(LABELS.SHIFT_INFO, 20, yPosition)
   yPosition += 12
   
   doc.setFontSize(12)
   doc.setFont('helvetica', 'normal')
   
-  // Create a more organized layout for shift info
+  // Create a more organized layout for shift info using English labels only
   const shiftData = [
-    ['Cashier - الكاشير:', reportData.shift.cashier],
-    ['Start Time - وقت البداية:', new Date(reportData.shift.startTime).toLocaleTimeString('en-US')],
-    ['End Time - وقت النهاية:', reportData.shift.endTime ? new Date(reportData.shift.endTime).toLocaleTimeString('en-US') : 'Ongoing - مستمرة'],
-    ['Total Hours - إجمالي الساعات:', `${reportData.shift.totalHours.toFixed(2)} hours`]
+    [`${LABELS.CASHIER}:`, reportData.shift.cashier],
+    [`${LABELS.START_TIME}:`, new Date(reportData.shift.startTime).toLocaleTimeString('en-US')],
+    [`${LABELS.END_TIME}:`, reportData.shift.endTime ? new Date(reportData.shift.endTime).toLocaleTimeString('en-US') : LABELS.ONGOING],
+    [`${LABELS.TOTAL_HOURS}:`, `${reportData.shift.totalHours.toFixed(2)} ${LABELS.HOURS}`]
   ]
   
   // Use autoTable for better formatting
@@ -70,13 +101,13 @@ export const generateJournalReportPDF = (reportData: ReportData): void => {
   // Financial Summary Section
   doc.setFontSize(16)
   doc.setFont('helvetica', 'bold')
-  doc.text('Financial Summary - الملخص المالي', 20, yPosition)
+  doc.text(LABELS.FINANCIAL_SUMMARY, 20, yPosition)
   yPosition += 12
   
   const financialData = [
-    ['Total Expenses - إجمالي المصروفات:', formatEgyptianCurrency(reportData.summary.totalExpenses)],
-    ['Total Salaries - إجمالي الرواتب:', formatEgyptianCurrency(reportData.summary.totalSalaries)],
-    ['Total Costs - إجمالي التكاليف:', formatEgyptianCurrency(reportData.summary.totalExpenses + reportData.summary.totalSalaries)]
+    [`${LABELS.TOTAL_EXPENSES}:`, formatEgyptianCurrency(reportData.summary.totalExpenses)],
+    [`${LABELS.TOTAL_SALARIES}:`, formatEgyptianCurrency(reportData.summary.totalSalaries)],
+    [`${LABELS.TOTAL_COSTS}:`, formatEgyptianCurrency(reportData.summary.totalExpenses + reportData.summary.totalSalaries)]
   ]
   
   autoTable(doc, {
@@ -99,7 +130,7 @@ export const generateJournalReportPDF = (reportData: ReportData): void => {
   if (Object.keys(reportData.summary.expensesByCategory).length > 0) {
     doc.setFontSize(14)
     doc.setFont('helvetica', 'bold')
-    doc.text('Expenses by Category - المصروفات حسب الفئة', 20, yPosition)
+    doc.text(LABELS.EXPENSES_BY_CATEGORY, 20, yPosition)
     yPosition += 10
     
     const categoryData = Object.entries(reportData.summary.expensesByCategory).map(([category, amount]) => [
@@ -109,7 +140,7 @@ export const generateJournalReportPDF = (reportData: ReportData): void => {
     
     autoTable(doc, {
       startY: yPosition,
-      head: [['Category - الفئة', 'Amount - المبلغ']],
+      head: [[LABELS.CATEGORY, LABELS.AMOUNT]],
       body: categoryData,
       styles: {
         fontSize: 10,
@@ -138,7 +169,7 @@ export const generateJournalReportPDF = (reportData: ReportData): void => {
     
     doc.setFontSize(14)
     doc.setFont('helvetica', 'bold')
-    doc.text(`Detailed Expenses (${reportData.expenses.length}) - تفاصيل المصروفات`, 20, yPosition)
+    doc.text(`${LABELS.DETAILED_EXPENSES} (${reportData.expenses.length})`, 20, yPosition)
     yPosition += 10
     
     const expenseData = reportData.expenses.map(expense => [
@@ -151,7 +182,7 @@ export const generateJournalReportPDF = (reportData: ReportData): void => {
     
     autoTable(doc, {
       startY: yPosition,
-      head: [['Item - البند', 'Category - الفئة', 'Amount - المبلغ', 'Time - الوقت', 'Description - الوصف']],
+      head: [[LABELS.ITEM, LABELS.CATEGORY, LABELS.AMOUNT, LABELS.TIME, LABELS.DESCRIPTION]],
       body: expenseData,
       styles: {
         fontSize: 8,
@@ -183,20 +214,20 @@ export const generateJournalReportPDF = (reportData: ReportData): void => {
     
     doc.setFontSize(14)
     doc.setFont('helvetica', 'bold')
-    doc.text(`Staff Details (${reportData.workers.length}) - تفاصيل الموظفين`, 20, yPosition)
+    doc.text(`${LABELS.STAFF_DETAILS} (${reportData.workers.length})`, 20, yPosition)
     yPosition += 10
     
     const workersData = reportData.workers.map(worker => [
       worker.name,
       getStatusLabel(worker.status),
-      `${worker.hours.toFixed(2)} hrs`,
+      `${worker.hours.toFixed(2)} ${LABELS.HOURS}`,
       formatEgyptianCurrency(worker.hourlyRate),
       formatEgyptianCurrency(worker.totalSalary)
     ])
     
     autoTable(doc, {
       startY: yPosition,
-      head: [['Name - الاسم', 'Status - الحالة', 'Hours - الساعات', 'Rate - السعر/ساعة', 'Total - الإجمالي']],
+      head: [[LABELS.WORKER_NAME, 'Status', LABELS.WORKED_HOURS, LABELS.HOURLY_RATE, LABELS.TOTAL_SALARY]],
       body: workersData,
       styles: {
         fontSize: 9,
@@ -224,14 +255,14 @@ export const generateJournalReportPDF = (reportData: ReportData): void => {
   
   doc.setFontSize(14)
   doc.setFont('helvetica', 'bold')
-  doc.text('Staff Summary - ملخص الموظفين', 20, yPosition)
+  doc.text(LABELS.STAFF_SUMMARY, 20, yPosition)
   yPosition += 12
   
   const workersSummaryData = [
-    ['Present - الحاضرين:', workersCount.present.toString()],
-    ['Absent - الغائبين:', workersCount.absent.toString()],
-    ['Late - المتأخرين:', workersCount.late.toString()],
-    ['Total Staff - إجمالي الموظفين:', reportData.workers.length.toString()]
+    ['Present:', workersCount.present.toString()],
+    ['Absent:', workersCount.absent.toString()],
+    ['Late:', workersCount.late.toString()],
+    [`${LABELS.TOTAL_WORKERS}:`, reportData.workers.length.toString()]
   ]
   
   autoTable(doc, {
@@ -250,12 +281,12 @@ export const generateJournalReportPDF = (reportData: ReportData): void => {
   
   yPosition = (doc as any).lastAutoTable.finalY + 10
   
-  // Footer
+  // Footer with English text to avoid encoding issues
   const pageHeight = doc.internal.pageSize.getHeight()
   doc.setFontSize(10)
   doc.setFont('helvetica', 'normal')
   doc.text(
-    `تم إنشاء التقرير في: ${new Date().toLocaleString('ar-EG')}`,
+    `Report generated on: ${new Date().toLocaleString('en-US')}`,
     pageWidth / 2,
     pageHeight - 10,
     { align: 'center' }
@@ -266,25 +297,28 @@ export const generateJournalReportPDF = (reportData: ReportData): void => {
   doc.save(fileName)
 }
 
-// Helper functions
+// Helper functions - Use English labels to avoid encoding issues
 const getCategoryLabel = (category: string): string => {
   const categories: Record<string, string> = {
-    'food_supplies': 'مواد غذائية',
-    'beverages': 'مشروبات',
-    'utilities': 'مرافق',
-    'maintenance': 'صيانة',
-    'transport': 'مواصلات',
-    'communications': 'اتصالات',
-    'other': 'أخرى'
+    'food_supplies': 'Food Supplies',
+    'beverages': 'Beverages', 
+    'utilities': 'Utilities',
+    'maintenance': 'Maintenance',
+    'cleaning': 'Cleaning',
+    'delivery': 'Delivery',
+    'packaging': 'Packaging',
+    'communication': 'Communications',
+    'fuel': 'Fuel',
+    'other': 'Other'
   }
   return categories[category] || category
 }
 
 const getStatusLabel = (status: string): string => {
   const statusLabels: Record<string, string> = {
-    'present': 'حاضر',
-    'absent': 'غائب',
-    'late': 'متأخر'
+    'present': 'Present',
+    'absent': 'Absent', 
+    'late': 'Late'
   }
-  return statusLabels[status] || 'حاضر'
+  return statusLabels[status] || 'Present'
 }

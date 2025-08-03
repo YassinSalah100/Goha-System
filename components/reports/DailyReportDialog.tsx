@@ -7,6 +7,7 @@ import { ScrollArea } from "@/components/ui/scroll-area"
 import { Separator } from "@/components/ui/separator"
 import { ReportData, formatReportForPrint, exportReportAsJSON } from "@/lib/journal-report-utils"
 import { generateJournalReportPDF } from "@/lib/pdf-journal-utils"
+import { previewArabicJournalReportPDF, generateArabicJournalReportPDF } from "@/lib/pdf-arabic-utils"
 import { JournalReportSummary } from "./ReportSummary"
 import { JournalReportDetails } from "./ReportDetails"
 import { 
@@ -103,14 +104,27 @@ export const JournalDailyReportDialog: React.FC<JournalDailyReportDialogProps> =
     URL.revokeObjectURL(url)
   }
 
-  const handleDownloadPDF = () => {
+  const handleDownloadPDF = async () => {
     if (!reportData) return
     
     try {
-      generateJournalReportPDF(reportData)
+      // Use the new preview function to show PDF before downloading
+      await previewArabicJournalReportPDF(reportData)
     } catch (error) {
-      console.error('Error generating PDF:', error)
-      // You could add a toast notification here for error handling
+      console.error('Error previewing Arabic PDF:', error)
+      // Fallback to direct download if preview fails
+      try {
+        await generateArabicJournalReportPDF(reportData)
+      } catch (fallbackError) {
+        console.error('Error generating Arabic PDF:', fallbackError)
+        // Final fallback to original PDF generator
+        try {
+          generateJournalReportPDF(reportData)
+        } catch (finalError) {
+          console.error('Error generating PDF:', finalError)
+          // You could add a toast notification here for error handling
+        }
+      }
     }
   }
 
@@ -183,8 +197,8 @@ export const JournalDailyReportDialog: React.FC<JournalDailyReportDialogProps> =
                 </Button>
                 
                 <Button variant="outline" onClick={handleDownloadPDF} className="flex items-center gap-2 bg-red-50 hover:bg-red-100 text-red-700 border-red-200">
-                  <Download className="w-4 h-4" />
-                  تحميل PDF
+                  <Eye className="w-4 h-4" />
+                  معاينة وتحميل PDF
                 </Button>
                 
                 <Button variant="outline" onClick={handleDownloadText} className="flex items-center gap-2">
