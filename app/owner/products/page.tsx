@@ -212,49 +212,78 @@ export default function IntegratedProductManagement() {
   const fetchProducts = async () => {
     setLoadingStates((prev) => ({ ...prev, products: true }))
     try {
-      const response = await fetch(`${API_BASE_URL}/products`)
-      if (response.ok) {
-        const data = await response.json()
-        let productsArray: any[] = []
-        if (data.success && data.data && Array.isArray(data.data.products)) {
-          productsArray = data.data.products
-        } else if (Array.isArray(data)) {
-          productsArray = data
+      const allProducts: any[] = [];
+      let page = 1;
+      let hasMoreProducts = true;
+      const limit = 100; // Request maximum limit to reduce API calls
+      
+      // Keep fetching pages until no more products are returned
+      while (hasMoreProducts) {
+        console.log(`Fetching products page ${page} with limit ${limit}...`);
+        const response = await fetch(`${API_BASE_URL}/products?page=${page}&limit=${limit}`);
+        
+        if (!response.ok) {
+          console.error(`Error fetching products page ${page}:`, response.status);
+          showMessage("error", `خطأ في تحميل المنتجات: ${response.status}`);
+          break;
         }
-
-        const validProducts = productsArray
-          .map((product: any) => ({
-            id: product.product_id,
-            name: product.name,
-            image_url: product.image_url || "",
-            price:
-              product.sizePrices && product.sizePrices.length > 0 ? Number.parseFloat(product.sizePrices[0].price) : 0,
-            category_id: product.category ? product.category.category_id : "",
-            category: product.category
-              ? {
-                  id: product.category.category_id,
-                  name: product.category.name,
-                  description: "",
-                }
-              : null,
-            sizePrices:
-              product.sizePrices?.map((sp: any) => ({
-                id: sp.product_size_id,
-                product_size_id: sp.product_size_id,
-                product_id: product.product_id,
-                size_id: sp.size?.size_id,
-                price: Number.parseFloat(sp.price),
-                size: sp.size,
-              })) || [],
-            created_at: product.created_at,
-          }))
-          .filter((product: any) => product && product.id && product.name)
-
-        setProducts(validProducts)
-      } else {
-        setProducts([])
-        showMessage("error", `خطأ في تحميل المنتجات: ${response.status}`)
+        
+        const data = await response.json();
+        let productsArray: any[] = [];
+        
+        if (data.success && data.data && Array.isArray(data.data.products)) {
+          productsArray = data.data.products;
+        } else if (data.success && Array.isArray(data.data)) {
+          productsArray = data.data;
+        } else if (Array.isArray(data)) {
+          productsArray = data;
+        }
+        
+        // If no products were returned, we've reached the end
+        if (productsArray.length === 0) {
+          hasMoreProducts = false;
+        } else {
+          allProducts.push(...productsArray);
+          // If we received fewer products than the limit, we've reached the end
+          if (productsArray.length < limit) {
+            hasMoreProducts = false;
+          } else {
+            page++;
+          }
+        }
       }
+      
+      console.log(`Total products fetched: ${allProducts.length}`);
+
+      const validProducts = allProducts
+        .map((product: any) => ({
+          id: product.product_id,
+          name: product.name,
+          image_url: product.image_url || "",
+          price:
+            product.sizePrices && product.sizePrices.length > 0 ? Number.parseFloat(product.sizePrices[0].price) : 0,
+          category_id: product.category ? product.category.category_id : "",
+          category: product.category
+            ? {
+                id: product.category.category_id,
+                name: product.category.name,
+                description: "",
+              }
+            : null,
+          sizePrices:
+            product.sizePrices?.map((sp: any) => ({
+              id: sp.product_size_id,
+              product_size_id: sp.product_size_id,
+              product_id: product.product_id,
+              size_id: sp.size?.size_id,
+              price: Number.parseFloat(sp.price),
+              size: sp.size,
+            })) || [],
+          created_at: product.created_at,
+        }))
+        .filter((product: any) => product && product.id && product.name)
+
+      setProducts(validProducts)
     } catch (error) {
       console.error("Error fetching products:", error)
       setProducts([])
@@ -357,20 +386,40 @@ export default function IntegratedProductManagement() {
   const fetchAllData = async () => {
     try {
       console.log("Starting fetchAllData...")
+      setLoadingStates({
+        categories: true,
+        products: true,
+        sizes: true,
+        extras: true,
+        productSizePrices: true,
+      })
+      
       // First fetch categories
       await fetchCategories()
       // Wait longer for categories to be properly set
-      await new Promise((resolve) => setTimeout(resolve, 1000))
-      // Then fetch everything else in sequence (not parallel) to avoid race conditions
-      await fetchSizes()
-      await new Promise((resolve) => setTimeout(resolve, 300))
-      await fetchExtras()
-      await new Promise((resolve) => setTimeout(resolve, 300))
+      await new Promise((resolve) => setTimeout(resolve, 500))
+      
+      // Then fetch sizes and extras in parallel since they're smaller datasets
+      await Promise.all([
+        fetchSizes(),
+        fetchExtras()
+      ]);
+      
+      // Finally fetch products (which now handles pagination)
       await fetchProducts()
-      console.log("fetchAllData completed")
+      
+      console.log("fetchAllData completed successfully")
     } catch (error) {
       console.error("Error in fetchAllData:", error)
       showMessage("error", "خطأ في تحميل البيانات")
+    } finally {
+      setLoadingStates({
+        categories: false,
+        products: false,
+        sizes: false,
+        extras: false,
+        productSizePrices: false,
+      })
     }
   }
 
@@ -1504,35 +1553,47 @@ const removeImage = () => {
                 إضافة منتج مع الأسعار
               </Button>
             </div>
+            
+            {loadingStates.products && (
+              <div className="flex flex-col items-center justify-center py-8">
+                <Loader2 className="w-12 h-12 animate-spin text-blue-500 mb-4" />
+                <p className="text-gray-600 font-medium">جاري تحميل المنتجات...</p>
+                <p className="text-gray-500 text-sm mt-1">قد يستغرق هذا بعض الوقت إذا كان هناك الكثير من المنتجات</p>
+              </div>
+            )}
+            
+            {!loadingStates.products && products.length === 0 && (
+              <div className="bg-gray-50 rounded-lg p-8 text-center">
+                <Package className="w-12 h-12 mx-auto text-gray-400 mb-3" />
+                <h3 className="text-lg font-medium text-gray-900 mb-1">لا توجد منتجات</h3>
+                <p className="text-gray-500 mb-4">لم يتم العثور على منتجات. يمكنك إضافة منتج جديد باستخدام الزر أعلاه.</p>
+                <Button variant="outline" onClick={() => openProductDialog()}>
+                  <Plus className="w-4 h-4 mr-2" />
+                  إضافة أول منتج
+                </Button>
+              </div>
+            )}
 
-            <Card>
-              <CardContent className="p-0">
-                <Table>
-                  <TableHeader>
-                    <TableRow>
-                      <TableHead>الصورة</TableHead>
-                      <TableHead>اسم المنتج</TableHead>
-                      <TableHead>الفئة</TableHead>
-                      <TableHead>أسعار الأحجام</TableHead>
-                      <TableHead>الإجراءات</TableHead>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {loadingStates.products ? (
+            {!loadingStates.products && products.length > 0 && (
+              <Card>
+                <CardHeader className="py-2 px-4 border-b bg-slate-50">
+                  <div className="flex justify-between items-center">
+                    <div className="text-sm font-medium">إجمالي المنتجات: {products.length}</div>
+                  </div>
+                </CardHeader>
+                <CardContent className="p-0">
+                  <Table>
+                    <TableHeader>
                       <TableRow>
-                        <TableCell colSpan={5} className="text-center py-8">
-                          <Loader2 className="w-6 h-6 animate-spin mx-auto" />
-                          <p className="mt-2">جاري تحميل المنتجات...</p>
-                        </TableCell>
+                        <TableHead>الصورة</TableHead>
+                        <TableHead>اسم المنتج</TableHead>
+                        <TableHead>الفئة</TableHead>
+                        <TableHead>أسعار الأحجام</TableHead>
+                        <TableHead>الإجراءات</TableHead>
                       </TableRow>
-                    ) : filteredProducts.length === 0 ? (
-                      <TableRow>
-                        <TableCell colSpan={5} className="text-center py-8 text-gray-500">
-                          لا توجد منتجات متاحة
-                        </TableCell>
-                      </TableRow>
-                    ) : (
-                      filteredProducts.map((product) => (
+                    </TableHeader>
+                    <TableBody>
+                      {filteredProducts.map((product) => (
                         <TableRow key={product.id}>
                           <TableCell>
                             {product.image_url ? (
@@ -1584,12 +1645,12 @@ const removeImage = () => {
                             </div>
                           </TableCell>
                         </TableRow>
-                      ))
-                    )}
-                  </TableBody>
-                </Table>
-              </CardContent>
-            </Card>
+                      ))}
+                    </TableBody>
+                  </Table>
+                </CardContent>
+              </Card>
+            )}
           </TabsContent>
         </Tabs>
 

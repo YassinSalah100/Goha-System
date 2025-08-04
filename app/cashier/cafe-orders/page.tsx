@@ -540,15 +540,34 @@ export default function CafeOrdersPage() {
     setLoading(true)
     setError(null)
     try {
-      const [categoriesResponse, productsResponse, sizesResponse, extrasResponse] = await Promise.all([
+      // Fetch categories, sizes, and extras in parallel
+      const [categoriesResponse, sizesResponse, extrasResponse] = await Promise.all([
         fetch(`${API_BASE_URL}/categories`),
-        fetch(`${API_BASE_URL}/products`),
         fetch(`${API_BASE_URL}/category-sizes`),
         fetch(`${API_BASE_URL}/category-extras`),
       ])
 
+      // Fetch all products with pagination
+      let allProducts = []
+      let page = 1
+      const limit = 100
+
+      while (true) {
+        const productsResponse = await fetch(`${API_BASE_URL}/products?page=${page}&limit=${limit}`)
+        const productsData = await productsResponse.json()
+        
+        if (productsData.success && productsData.data?.products?.length > 0) {
+          allProducts = [...allProducts, ...productsData.data.products]
+          if (productsData.data.products.length < limit) {
+            break // No more products to fetch
+          }
+          page++
+        } else {
+          break // No more products or error
+        }
+      }
+
       const categoriesData = await categoriesResponse.json()
-      const productsData = await productsResponse.json()
       const sizesData = await sizesResponse.json()
       const extrasData = await extrasResponse.json()
 
@@ -558,8 +577,7 @@ export default function CafeOrdersPage() {
         setActiveCategory(categoriesList[0].category_id)
       }
 
-      const productsList = productsData.success ? productsData.data.products || productsData.data : []
-      setProducts(productsList)
+      setProducts(allProducts)
 
       const sizesList = sizesData.success ? sizesData.data.sizes || sizesData.data : []
       setSizes(sizesList)

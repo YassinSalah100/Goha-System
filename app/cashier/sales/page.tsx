@@ -264,17 +264,55 @@ export default function SalesPage() {
         setActiveCategory(categoriesList[0].category_id)
       }
 
-      // Fetch products with enhanced debugging
-      const productsResponse = await fetch(`${API_BASE_URL}/products`)
-      if (!productsResponse.ok) throw new Error("Failed to fetch products")
-      const productsData = await productsResponse.json()
-
-      console.log("Raw products data:", productsData)
-
-      const productsList = productsData.success ? productsData.data.products || productsData.data : []
+      // Fetch products with pagination to get all products
+      const allProducts: any[] = [];
+      let page = 1;
+      let hasMoreProducts = true;
+      const limit = 100; // Request maximum limit to reduce API calls
+      
+      console.log("Starting to fetch all products with pagination...");
+      
+      // Keep fetching pages until no more products are returned
+      while (hasMoreProducts) {
+        console.log(`Fetching products page ${page} with limit ${limit}...`);
+        const productsResponse = await fetch(`${API_BASE_URL}/products?page=${page}&limit=${limit}`);
+        
+        if (!productsResponse.ok) {
+          console.error(`Error fetching products page ${page}:`, productsResponse.status);
+          throw new Error("Failed to fetch products");
+        }
+        
+        const productsData = await productsResponse.json();
+        console.log(`Products page ${page} response:`, productsData);
+        
+        let productsArray: any[] = [];
+        
+        if (productsData.success && productsData.data && Array.isArray(productsData.data.products)) {
+          productsArray = productsData.data.products;
+        } else if (productsData.success && Array.isArray(productsData.data)) {
+          productsArray = productsData.data;
+        } else if (Array.isArray(productsData)) {
+          productsArray = productsData;
+        }
+        
+        // If no products were returned, we've reached the end
+        if (productsArray.length === 0) {
+          hasMoreProducts = false;
+        } else {
+          allProducts.push(...productsArray);
+          // If we received fewer products than the limit, we've reached the end
+          if (productsArray.length < limit) {
+            hasMoreProducts = false;
+          } else {
+            page++;
+          }
+        }
+      }
+      
+      console.log(`Total products fetched: ${allProducts.length}`);
 
       // Enhanced product processing with image debugging
-      const processedProducts = productsList.map((product: any) => {
+      const processedProducts = allProducts.map((product: any) => {
         console.log(`Processing product: ${product.name}`, {
           image_url: product.image_url,
           image_url_type: typeof product.image_url,
