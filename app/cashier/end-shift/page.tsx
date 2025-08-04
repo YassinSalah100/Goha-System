@@ -23,7 +23,7 @@ import {
 import { motion } from "framer-motion"
 import { useReactToPrint } from "react-to-print"
 
-const API_BASE_URL = "http://192.168.1.14:3000/api/v1"
+const API_BASE_URL = "http://20.77.41.130:3000/api/v1"
 
 interface CartItem {
   id: string

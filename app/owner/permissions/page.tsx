@@ -3,7 +3,7 @@
 import type React from "react"
 import { useState, useEffect } from "react"
 
-const API_BASE_URL = "http://192.168.1.14:3000/api/v1"
+const API_BASE_URL = "http://20.77.41.130:3000/api/v1"
 
 export default function PermissionsPage() {
   const [currentUser, setCurrentUser] = useState<any>(null)

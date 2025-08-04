@@ -21,7 +21,7 @@ import {
 } from "lucide-react"
 import { useToast } from "@/hooks/use-toast"
 
-const API_BASE_URL = "http://172.162.241.242:3000/api/v1"
+const API_BASE_URL = "http://20.77.41.130:3000/api/v1"
 
 interface StockItem {
   stock_item_id: string

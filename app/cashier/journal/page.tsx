@@ -49,7 +49,7 @@ import {
   BarChart3
 } from "lucide-react"
 
-const API_BASE_URL = "http://192.168.1.14:3000/api/v1"
+const API_BASE_URL = "http://20.77.41.130:3000/api/v1"
 
 // Simple expense categories
 const expenseCategories = [
