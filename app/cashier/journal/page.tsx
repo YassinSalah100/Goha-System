@@ -108,6 +108,7 @@ interface StaffMember {
   endTime?: string
   hourlyRate: number
   status: "present" | "absent" | "ended"
+  workerId?: string // Add worker ID for reference
 }
 
 interface ShiftWorker {
@@ -243,6 +244,21 @@ export default function JournalPage() {
     }
   }
 
+  const fetchWorkerDetails = async (workerId: string): Promise<Worker | null> => {
+    try {
+      const responseData = await fetchWithErrorHandling(`${API_BASE_URL}/workers/${workerId}`)
+      if (responseData.success && responseData.data) {
+        return responseData.data
+      } else if (responseData.worker_id) {
+        return responseData as Worker
+      }
+      return null
+    } catch (error) {
+      console.error(`Error fetching worker ${workerId}:`, error)
+      return null
+    }
+  }
+
   const fetchAvailableWorkers = async () => {
     setLoadingWorkers(true)
     try {
@@ -275,8 +291,8 @@ export default function JournalPage() {
       console.log("Raw shift workers data:", workers)
       console.log("Available workers for matching:", availableWorkers)
 
-      const enrichedWorkers = workers
-        .map((sw: any) => {
+      const enrichedWorkers = await Promise.all(
+        workers.map(async (sw: any) => {
           try {
             const standardizedSW: ShiftWorker = {
               shift_worker_id: sw.shift_worker_id || sw.id,
@@ -291,46 +307,65 @@ export default function JournalPage() {
               created_at: sw.created_at || new Date().toISOString(),
             }
 
-            // Enhanced worker matching with multiple strategies
+            // Enhanced worker matching with multiple fallback strategies
             let matchingWorker = availableWorkers.find((worker) => worker.worker_id === sw.worker_id)
             
-            // If no direct match, try matching by name or other fields from the shift worker data
-            if (!matchingWorker && sw.worker) {
-              matchingWorker = availableWorkers.find((worker) => 
-                worker.full_name === sw.worker.full_name ||
-                worker.worker_id === sw.worker.worker_id
-              )
+            // If no direct match and we have embedded worker data, try with embedded ID
+            if (!matchingWorker && sw.worker && sw.worker.worker_id) {
+              matchingWorker = availableWorkers.find((worker) => worker.worker_id === sw.worker.worker_id)
             }
 
-            // If still no match, try matching by hourly rate (as a last resort)
-            if (!matchingWorker && standardizedSW.hourly_rate > 0) {
-              matchingWorker = availableWorkers.find((worker) =>
-                Math.abs(worker.base_hourly_rate - standardizedSW.hourly_rate) < 0.01
+            // If we still don't have a match, try name-based matching as a fallback
+            if (!matchingWorker && sw.worker && sw.worker.full_name && availableWorkers.length > 0) {
+              matchingWorker = availableWorkers.find((worker) => 
+                worker.full_name.trim() === sw.worker.full_name.trim()
               )
+              if (matchingWorker) {
+                console.log(`✓ Matched by name: ${sw.worker.full_name} -> ${matchingWorker.full_name}`)
+              }
+            }
+
+            // If still no match and we have a valid worker_id, try to fetch individual worker details
+            if (!matchingWorker && sw.worker_id && sw.worker_id !== "unknown") {
+              console.log(`Attempting to fetch individual worker details for ${sw.worker_id}`)
+              matchingWorker = await fetchWorkerDetails(sw.worker_id)
             }
 
             if (matchingWorker) {
               standardizedSW.worker = matchingWorker
               console.log(`✓ Successfully matched shift worker ${sw.shift_worker_id} with ${matchingWorker.full_name}`)
             } else {
-              // If we have worker data in the shift worker response, use it
+              // Priority 1: Use embedded worker data if available
               if (sw.worker && sw.worker.full_name) {
                 standardizedSW.worker = {
-                  worker_id: sw.worker.worker_id || sw.worker_id || `unknown_${sw.shift_worker_id}`,
+                  worker_id: sw.worker.worker_id || sw.worker_id || `embedded_${sw.shift_worker_id}`,
                   full_name: sw.worker.full_name,
                   status: sw.worker.status || "موظف",
                   base_hourly_rate: sw.worker.base_hourly_rate || standardizedSW.hourly_rate,
                 }
-                console.log(`✓ Using embedded worker data for ${sw.worker.full_name}`)
-              } else {
-                // Fallback: create a placeholder with better naming
+                console.log(`✓ Using embedded worker data for ${sw.worker.full_name} (ID: ${standardizedSW.worker.worker_id})`)
+              } 
+              // Priority 2: Try to get worker info from the direct properties
+              else if (sw.worker_name || sw.full_name) {
+                const workerName = sw.worker_name || sw.full_name
                 standardizedSW.worker = {
-                  worker_id: sw.worker_id || `unknown_${sw.shift_worker_id}`,
-                  full_name: `موظف #${sw.shift_worker_id?.slice(-4) || 'غير محدد'}`,
+                  worker_id: sw.worker_id || `direct_${sw.shift_worker_id}`,
+                  full_name: workerName,
+                  status: sw.worker_status || "موظف",
+                  base_hourly_rate: sw.worker_base_hourly_rate || standardizedSW.hourly_rate,
+                }
+                console.log(`✓ Using direct worker properties for ${workerName}`)
+              }
+              // Last resort: Create a placeholder
+              else {
+                const placeholderName = `موظف #${sw.worker_id?.slice(-8) || sw.shift_worker_id?.slice(-8) || Math.random().toString(36).slice(-6)}`
+                standardizedSW.worker = {
+                  worker_id: sw.worker_id || `placeholder_${sw.shift_worker_id}`,
+                  full_name: placeholderName,
                   status: "موظف",
                   base_hourly_rate: standardizedSW.hourly_rate,
                 }
-                console.log(`⚠ No match found for shift worker ${sw.shift_worker_id}, using placeholder`)
+                console.log(`⚠ No worker info available for shift worker ${sw.shift_worker_id}, using placeholder: ${placeholderName}`)
               }
             }
 
@@ -340,23 +375,35 @@ export default function JournalPage() {
             return null
           }
         })
-        .filter((sw: ShiftWorker | null): sw is ShiftWorker => sw !== null)
+      )
 
-      setShiftWorkers(enrichedWorkers)
+      const validWorkers = enrichedWorkers.filter((sw: ShiftWorker | null): sw is ShiftWorker => sw !== null)
+
+      setShiftWorkers(validWorkers)
       
-      // Convert to simple staff format for components
-      const convertedStaff: StaffMember[] = enrichedWorkers.map((sw: ShiftWorker) => ({
-        id: sw.shift_worker_id,
-        name: sw.worker?.full_name || `موظف #${sw.shift_worker_id?.slice(-4) || 'غير محدد'}`,
-        position: sw.worker?.status || "موظف",
-        startTime: sw.start_time,
-        endTime: sw.end_time,
-        hourlyRate: sw.worker?.base_hourly_rate || sw.hourly_rate,
-        status: sw.is_active ? "present" : "ended"
-      }))
+      // Convert to simple staff format for components with strict ID preservation
+      const convertedStaff: StaffMember[] = validWorkers.map((sw: ShiftWorker) => {
+        const workerName = sw.worker?.full_name || `موظف #${sw.shift_worker_id?.slice(-8) || 'غير محدد'}`
+        return {
+          id: sw.shift_worker_id, // Use shift_worker_id as the unique identifier
+          name: workerName,
+          position: sw.worker?.status || "موظف",
+          startTime: sw.start_time,
+          endTime: sw.end_time,
+          hourlyRate: sw.worker?.base_hourly_rate || sw.hourly_rate,
+          status: sw.is_active ? "present" : "ended",
+          // Add original worker_id for reference
+          workerId: sw.worker_id
+        }
+      })
       setStaff(convertedStaff)
       
-      console.log("Final converted staff:", convertedStaff)
+      console.log("Final converted staff with proper IDs:", convertedStaff.map(s => ({
+        name: s.name,
+        id: s.id,
+        workerId: s.workerId,
+        status: s.status
+      })))
     } catch (error) {
       console.error("Error fetching shift workers:", error)
       setShiftWorkers([])
@@ -453,15 +500,33 @@ export default function JournalPage() {
       throw new Error("لا توجد وردية نشطة")
     }
 
-    const isAlreadyAssigned = shiftWorkers.some((sw) => sw.worker_id === workerId && sw.is_active)
+    // Check if worker is already assigned using strict worker_id matching
+    const isAlreadyAssigned = shiftWorkers.some((sw) => 
+      sw.worker_id === workerId && sw.is_active
+    )
+    
     if (isAlreadyAssigned) {
       throw new Error("هذا الموظف مسجل حضوره بالفعل في الوردية")
+    }
+
+    // Double-check with staff list to prevent UI inconsistencies
+    const isInStaffList = staff.some((s) => 
+      s.workerId === workerId && s.status === "present"
+    )
+    
+    if (isInStaffList) {
+      throw new Error("هذا الموظف موجود بالفعل في قائمة الحاضرين")
     }
 
     setAssigningWorker(workerId)
     try {
       const selectedWorker = availableWorkers.find((w) => w.worker_id === workerId)
-      const hourlyRate = selectedWorker?.base_hourly_rate
+      
+      if (!selectedWorker) {
+        throw new Error("الموظف المحدد غير موجود")
+      }
+
+      const hourlyRate = selectedWorker.base_hourly_rate
 
       if (!hourlyRate || hourlyRate <= 0) {
         throw new Error("يجب تحديد أجر/ساعة صحيح للموظف")
@@ -475,6 +540,8 @@ export default function JournalPage() {
         status: "ACTIVE",
         is_active: true,
       }
+
+      console.log(`Assigning worker ${selectedWorker.full_name} (ID: ${workerId}) to shift`)
 
       await fetchWithErrorHandling(`${API_BASE_URL}/shift-workers`, {
         method: "POST",
@@ -507,10 +574,21 @@ export default function JournalPage() {
     }
   }
 
+  // Helper function to check if we have any placeholder worker names
+  const hasPlaceholderNames = () => {
+    return staff.some(member => 
+      member.name.includes('موظف #') || 
+      member.name.includes('جاري التحميل')
+    )
+  }
+
   const handleRefresh = async () => {
     setIsRefreshing(true)
     try {
-      await Promise.all([fetchExpenses(), fetchShiftWorkers(), fetchAvailableWorkers()])
+      // Fetch available workers first to ensure we have the latest worker data
+      await fetchAvailableWorkers()
+      // Then fetch other data
+      await Promise.all([fetchExpenses(), fetchShiftWorkers()])
     } catch (error) {
       console.error("Error refreshing data:", error)
     } finally {
@@ -646,9 +724,8 @@ export default function JournalPage() {
   useEffect(() => {
     if (activeShift) {
       fetchExpenses()
-      if (availableWorkers.length > 0) {
-        fetchShiftWorkers()
-      }
+      // Always try to fetch shift workers, regardless of availableWorkers state
+      fetchShiftWorkers()
     }
   }, [activeShift, availableWorkers])
 
@@ -701,12 +778,14 @@ export default function JournalPage() {
                 disabled={isRefreshing}
                 variant="ghost"
                 size="sm"
+                className={hasPlaceholderNames() ? "bg-yellow-50 text-yellow-700 hover:bg-yellow-100" : ""}
               >
                 {isRefreshing ? (
                   <Loader2 className="w-4 h-4 animate-spin" />
                 ) : (
                   <RefreshCw className="w-4 h-4" />
                 )}
+                {hasPlaceholderNames() && !isRefreshing ? "تحديث الأسماء" : ""}
               </Button>
             </div>
           </div>
@@ -908,7 +987,7 @@ export default function JournalPage() {
                       </div>
                     ) : (
                       availableWorkers
-                        .filter(worker => !staff.some(s => s.id.includes(worker.worker_id) && s.status === "present"))
+                        .filter(worker => !staff.some(s => s.workerId === worker.worker_id && s.status === "present"))
                         .map((worker) => (
                           <div key={worker.worker_id} className="flex items-center justify-between p-3 border rounded-lg">
                             <div>
