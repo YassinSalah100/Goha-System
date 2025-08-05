@@ -1,5 +1,5 @@
 "use client"
-import { useState, useEffect } from "react"
+import React, { useState, useEffect } from "react"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -300,7 +300,7 @@ export default function JournalPage() {
         ? workersResponse.data 
         : []
       
-      // Update our available workers with fresh data
+      // Update our workers list for matching, but avoid updating state if unnecessary
       let workersList = [...availableWorkers]
       if (freshWorkers.length > 0) {
         workersList = freshWorkers
@@ -308,14 +308,44 @@ export default function JournalPage() {
         freshWorkers.forEach((w: Worker, i: number) => {
           console.log(`Worker ${i+1}: ${w.full_name} (ID: ${w.worker_id}, Rate: ${w.base_hourly_rate})`)
         })
+        
+        // Only update availableWorkers state if it's actually different
+        // Compare worker IDs to check for differences
+        const currentIds = new Set(availableWorkers.map(w => w.worker_id))
+        const newIds = new Set(freshWorkers.map(w => w.worker_id))
+        
+        // Check if the sets are different sizes or have different members
+        let needsUpdate = currentIds.size !== newIds.size
+        if (!needsUpdate) {
+          // Check if all current IDs are in the new set
+          for (const id of currentIds) {
+            if (!newIds.has(id)) {
+              needsUpdate = true
+              break
+            }
+          }
+        }
+        
+        // Only update state if there's an actual difference
+        if (needsUpdate) {
+          console.log("Updating available workers state with fresh data")
+          setAvailableWorkers(freshWorkers)
+        } else {
+          console.log("No change in worker data, skipping state update")
+        }
       } else {
         console.log("Using existing available workers for matching:", workersList.length)
       }
 
       // Debug: Let's see what the raw data looks like
-      console.log("First shift worker raw data:", workers[0])
-      if (workers.length > 1) {
-        console.log("Second shift worker raw data:", workers[1])
+      console.log("Raw shift workers data:", workers)
+      console.log("Available workers for matching:", workersList)
+      
+      if (workers.length > 0) {
+        console.log("First shift worker raw data:", workers[0])
+        if (workers.length > 1) {
+          console.log("Second shift worker raw data:", workers[1])
+        }
       }
 
       // Extract workers from the API response
@@ -328,15 +358,30 @@ export default function JournalPage() {
               sw.worker ? `Worker object properties: ${Object.keys(sw.worker).join(', ')}` : 'No worker object'
             );
             
-            // Extract worker_id if available
+              // Extract worker_id if available
             const workerId = sw.worker_id || "unknown";
             
             // For debugging purposes, log all available worker IDs
             console.log("Available worker IDs:", workersList.map(w => w.worker_id).join(", "));
             
+            // First check if we have a saved worker mapping in localStorage
+            let savedWorkerId = null;
+            try {
+              const savedWorkerMapping = localStorage.getItem(`shift_worker_${sw.shift_worker_id}`);
+              if (savedWorkerMapping) {
+                const savedMapping = JSON.parse(savedWorkerMapping);
+                if (savedMapping && savedMapping.worker_id) {
+                  savedWorkerId = savedMapping.worker_id;
+                  console.log(`Found saved worker mapping for shift worker ${sw.shift_worker_id} -> worker ${savedMapping.worker_id} (${savedMapping.worker_name || 'unknown name'})`);
+                }
+              }
+            } catch (e) {
+              console.warn("Error reading saved worker mapping:", e);
+            }
+            
             const standardizedSW: ShiftWorker = {
               shift_worker_id: sw.shift_worker_id || sw.id,
-              worker_id: sw.worker_id || "unknown",
+              worker_id: savedWorkerId || sw.worker_id || "unknown", // Use saved mapping if available
               shift_id: sw.shift_id || sw.shift?.shift_id || activeShift.shift_id,
               hourly_rate: Number(sw.hourly_rate) || 0,
               start_time: sw.start_time,
@@ -345,17 +390,35 @@ export default function JournalPage() {
               calculated_salary: sw.calculated_salary,
               is_active: sw.end_time === null,
               created_at: sw.created_at || new Date().toISOString(),
-            }
-
-            // Enhanced worker matching with multiple fallback strategies
-            let matchingWorker = workersList.find((worker) => worker.worker_id === sw.worker_id)
+            }            // Enhanced worker matching with multiple fallback strategies
+            // Step 1: Check if we have a saved worker association in localStorage (already used for worker_id)
+            let matchingWorker = null
             
-            // If no direct match and we have embedded worker data, try with embedded ID
+            // If we have a saved worker ID, use that to find the matching worker
+            if (standardizedSW.worker_id !== "unknown") {
+              matchingWorker = workersList.find((worker) => worker.worker_id === standardizedSW.worker_id)
+              if (matchingWorker) {
+                console.log(`✓ Matched using saved worker mapping: ${matchingWorker.full_name}`)
+              }
+            }
+            
+            // Step 2: Try direct ID matching if no match yet
+            if (!matchingWorker) {
+              matchingWorker = workersList.find((worker) => worker.worker_id === sw.worker_id)
+              if (matchingWorker) {
+                console.log(`✓ Matched by direct worker_id: ${matchingWorker.full_name}`)
+              }
+            }
+            
+            // Step 3: If no direct match and we have embedded worker data, try with embedded ID
             if (!matchingWorker && sw.worker && sw.worker.worker_id) {
               matchingWorker = workersList.find((worker) => worker.worker_id === sw.worker.worker_id)
+              if (matchingWorker) {
+                console.log(`✓ Matched by embedded worker_id: ${matchingWorker.full_name}`)
+              }
             }
 
-            // If we still don't have a match, try name-based matching as a fallback
+            // Step 4: If we still don't have a match, try name-based matching as a fallback
             if (!matchingWorker && sw.worker && sw.worker.full_name && workersList.length > 0) {
               matchingWorker = workersList.find((worker) => 
                 worker.full_name && 
@@ -391,8 +454,8 @@ export default function JournalPage() {
               }
             }
 
-            // Try to match by hourly rate for all workers, not just when worker_id is unknown
-            // This is more reliable when the API doesn't return worker objects
+            // Step 5: Try to match by hourly rate for all workers
+            // This is reliable when the API doesn't return worker objects but does return rates
             if (!matchingWorker && sw.hourly_rate && workersList.length > 0) {
               // Convert hourly rate to number for comparison
               const hourlyRate = parseFloat(sw.hourly_rate);
@@ -401,9 +464,12 @@ export default function JournalPage() {
               // Find workers with matching hourly rate
               const candidateWorkers = workersList.filter(worker => {
                 const workerRate = worker.base_hourly_rate || 0;
-                const matches = Math.abs(workerRate - hourlyRate) < 0.01;
-                console.log(`Worker ${worker.full_name} has rate ${workerRate}, match: ${matches}`);
-                return worker.base_hourly_rate && matches;
+                // Use a stricter match - exact match is better
+                const exactMatch = Math.abs(workerRate - hourlyRate) < 0.01;
+                if (exactMatch) {
+                  console.log(`Worker ${worker.full_name} has matching rate ${workerRate}`);
+                }
+                return worker.base_hourly_rate && exactMatch;
               });
               
               if (candidateWorkers.length === 1) {
@@ -411,6 +477,19 @@ export default function JournalPage() {
                 console.log(`✓ Matched by unique hourly rate: ${sw.hourly_rate} -> ${matchingWorker.full_name}`);
                 // Update the worker_id to fix the issue
                 standardizedSW.worker_id = matchingWorker.worker_id;
+                
+                // Save this association for future reference
+                try {
+                  localStorage.setItem(`shift_worker_${sw.shift_worker_id}`, JSON.stringify({
+                    worker_id: matchingWorker.worker_id,
+                    worker_name: matchingWorker.full_name,
+                    hourly_rate: sw.hourly_rate,
+                    matched_by: "unique_hourly_rate",
+                    timestamp: new Date().toISOString()
+                  }));
+                } catch (e) {
+                  console.error('Error saving shift worker association:', e);
+                }
               } else if (candidateWorkers.length > 1) {
                 // If we have multiple workers with the same hourly rate, we need more sophisticated matching
                 console.log(`⚠ Multiple workers (${candidateWorkers.length}) found with rate ${sw.hourly_rate}, trying additional matching strategies`);
@@ -553,16 +632,53 @@ export default function JournalPage() {
                 // Always use shift_worker_id for placeholder creation (more reliable)
                 // Take the last 6 characters of the shift_worker_id
                 const idSuffix = sw.shift_worker_id ? sw.shift_worker_id.slice(-6) : "unknown";
-                const placeholderName = `موظف ${idSuffix}`;
                 
-                standardizedSW.worker = {
-                  worker_id: sw.worker_id || `placeholder_${sw.shift_worker_id}`,
-                  full_name: placeholderName,
-                  status: "موظف",
-                  base_hourly_rate: standardizedSW.hourly_rate,
+                // Check if we can find a worker with matching hourly rate as a last resort
+                let potentialMatch = null;
+                if (sw.hourly_rate) {
+                  const hourlyRate = parseFloat(sw.hourly_rate);
+                  potentialMatch = workersList.find(w => 
+                    Math.abs((w.base_hourly_rate || 0) - hourlyRate) < 0.01
+                  );
                 }
-                standardizedSW.worker_name = placeholderName // Set worker_name for easy access
-                console.log(`⚠ No worker info available for shift worker ${sw.shift_worker_id}, using placeholder: ${placeholderName}`)
+                
+                // If we found a potential match by hourly rate, use that name
+                if (potentialMatch) {
+                  console.log(`✓ Using worker name from rate match: ${potentialMatch.full_name} (rate: ${potentialMatch.base_hourly_rate})`);
+                  standardizedSW.worker = {
+                    worker_id: potentialMatch.worker_id,
+                    full_name: potentialMatch.full_name,
+                    status: potentialMatch.status || "موظف",
+                    base_hourly_rate: potentialMatch.base_hourly_rate,
+                  };
+                  standardizedSW.worker_name = potentialMatch.full_name;
+                  
+                  // Save this association for future use
+                  try {
+                    localStorage.setItem(`shift_worker_${sw.shift_worker_id}`, JSON.stringify({
+                      worker_id: potentialMatch.worker_id,
+                      worker_name: potentialMatch.full_name,
+                      hourly_rate: sw.hourly_rate,
+                      matched_by: "hourly_rate",
+                      timestamp: new Date().toISOString()
+                    }));
+                  } catch (e) {
+                    console.error('Error saving shift worker association:', e);
+                  }
+                } else {
+                  // If no match, use a better placeholder with hourly rate info
+                  const hourlyInfo = sw.hourly_rate ? ` (${sw.hourly_rate}/hr)` : '';
+                  const placeholderName = `موظف #${idSuffix}${hourlyInfo}`;
+                  
+                  standardizedSW.worker = {
+                    worker_id: sw.worker_id || `placeholder_${sw.shift_worker_id}`,
+                    full_name: placeholderName,
+                    status: "موظف",
+                    base_hourly_rate: standardizedSW.hourly_rate,
+                  }
+                  standardizedSW.worker_name = placeholderName // Set worker_name for easy access
+                  console.log(`⚠ No worker info available for shift worker ${sw.shift_worker_id}, using placeholder: ${placeholderName}`)
+                }
               }
             }
 
@@ -841,16 +957,24 @@ export default function JournalPage() {
       
       // If we have a successful response with shift_worker_id, save this worker association
       // to local storage for future reference when matching
-      if (response && response.data && response.data.shift_worker_id) {
+      if (response) {
         try {
-          const shiftWorkerId = response.data.shift_worker_id;
-          localStorage.setItem(`shift_worker_${shiftWorkerId}`, JSON.stringify({
-            worker_id: workerId,
-            worker_name: selectedWorker.full_name,
-            hourly_rate: hourlyRate,
-            assigned_at: new Date().toISOString()
-          }));
-          console.log(`✓ Saved worker association for future matching: ${selectedWorker.full_name} -> ${shiftWorkerId}`);
+          const shiftWorkerId = response.data?.shift_worker_id || response.shift_worker_id;
+          
+          if (shiftWorkerId) {
+            // Save worker association with additional data for easier debugging
+            localStorage.setItem(`shift_worker_${shiftWorkerId}`, JSON.stringify({
+              worker_id: workerId,
+              worker_name: selectedWorker.full_name,
+              hourly_rate: hourlyRate,
+              position: selectedWorker.status,
+              assigned_at: new Date().toISOString(),
+              manually_assigned: true // Flag to indicate this was a direct assignment by user
+            }));
+            console.log(`✓ Saved worker association for future matching: ${selectedWorker.full_name} -> ${shiftWorkerId}`);
+          } else {
+            console.warn("Couldn't find shift_worker_id in response:", response);
+          }
         } catch (storageError) {
           console.warn("Could not save worker association to local storage:", storageError);
         }
@@ -884,24 +1008,95 @@ export default function JournalPage() {
   }
 
   // Helper function to check if we have any placeholder worker names
-  const hasPlaceholderNames = () => {
-    return staff.some(member => 
-      member.name.includes('موظف #') || 
-      member.name.includes('جاري التحميل')
-    )
-  }
+  // Memoize the result to avoid recalculating on every render
+  const hasPlaceholderNames = React.useCallback(() => {
+    // Count of potential placeholders for debugging
+    let placeholderCount = 0;
+    
+    const result = staff.some(member => {
+      const isPlaceholder = 
+        member.name.includes('موظف') || 
+        member.name.includes('جاري التحميل') ||
+        member.name.includes('unknown') ||
+        member.name.includes('placeholder') ||
+        member.name.includes('#') ||
+        !member.workerId || 
+        member.workerId === 'unknown';
+        
+      if (isPlaceholder) placeholderCount++;
+      return isPlaceholder;
+    });
+    
+    if (result) {
+      console.log(`Found ${placeholderCount} placeholder worker names that need refreshing`);
+    }
+    
+    return result;
+  }, [staff])
 
+  // Use a ref to track refresh timer
+  const refreshTimerRef = React.useRef<NodeJS.Timeout | null>(null);
+  
   const handleRefresh = async () => {
+    // Prevent multiple rapid refreshes
+    if (isRefreshing) {
+      console.log("Refresh already in progress, skipping");
+      return;
+    }
+    
+    // Clear any existing timer
+    if (refreshTimerRef.current) {
+      clearTimeout(refreshTimerRef.current);
+      refreshTimerRef.current = null;
+    }
+    
     setIsRefreshing(true)
     try {
+      // Clear any placeholder names if needed by removing problematic associations
+      if (hasPlaceholderNames()) {
+        console.log("Detected placeholder names, clearing problematic worker associations");
+        
+        // Get all keys from localStorage that match our pattern
+        const keysToCheck = [];
+        for (let i = 0; i < localStorage.length; i++) {
+          const key = localStorage.key(i);
+          if (key && key.startsWith('shift_worker_')) {
+            keysToCheck.push(key);
+          }
+        }
+        
+        // Find associations with placeholder names
+        for (const key of keysToCheck) {
+          try {
+            const data = JSON.parse(localStorage.getItem(key) || "{}");
+            if (data.worker_name && (
+                data.worker_name.includes('موظف') || 
+                data.worker_name.includes('unknown') ||
+                data.worker_name.includes('placeholder')
+              )) {
+              console.log(`Removing problematic worker association: ${key}`);
+              localStorage.removeItem(key);
+            }
+          } catch (e) {
+            console.warn(`Error processing localStorage key ${key}:`, e);
+          }
+        }
+      }
+      
       // Fetch available workers first to ensure we have the latest worker data
       await fetchAvailableWorkers()
-      // Then fetch other data
+      // Then fetch other data with a slight delay to prevent race conditions
+      await new Promise(resolve => setTimeout(resolve, 300));
       await Promise.all([fetchExpenses(), fetchShiftWorkers()])
     } catch (error) {
       console.error("Error refreshing data:", error)
     } finally {
       setIsRefreshing(false)
+      
+      // Set a cooldown period before allowing another refresh
+      refreshTimerRef.current = setTimeout(() => {
+        refreshTimerRef.current = null;
+      }, 1500);
     }
   }
 
@@ -1033,10 +1228,10 @@ export default function JournalPage() {
   useEffect(() => {
     if (activeShift) {
       fetchExpenses()
-      // Always try to fetch shift workers, regardless of availableWorkers state
+      // Fetch shift workers when activeShift changes, but not when availableWorkers changes
       fetchShiftWorkers()
     }
-  }, [activeShift, availableWorkers])
+  }, [activeShift]) // Removed availableWorkers from dependencies
 
   // Calculate totals for the converted expenses
   const mappedExpenses = expenses.map(expense => ({
@@ -1085,16 +1280,16 @@ export default function JournalPage() {
               <Button
                 onClick={handleRefresh}
                 disabled={isRefreshing}
-                variant="ghost"
+                variant={hasPlaceholderNames() ? "default" : "ghost"}
                 size="sm"
-                className={hasPlaceholderNames() ? "bg-yellow-50 text-yellow-700 hover:bg-yellow-100" : ""}
+                className={hasPlaceholderNames() ? "bg-yellow-500 text-white hover:bg-yellow-600" : ""}
               >
                 {isRefreshing ? (
-                  <Loader2 className="w-4 h-4 animate-spin" />
+                  <Loader2 className="w-4 h-4 animate-spin mr-1" />
                 ) : (
-                  <RefreshCw className="w-4 h-4" />
+                  <RefreshCw className="w-4 h-4 mr-1" />
                 )}
-                {hasPlaceholderNames() && !isRefreshing ? "تحديث الأسماء" : ""}
+                {hasPlaceholderNames() && !isRefreshing ? "تحديث أسماء الموظفين" : ""}
               </Button>
             </div>
           </div>
