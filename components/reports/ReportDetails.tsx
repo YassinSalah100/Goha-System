@@ -3,8 +3,8 @@ import React from 'react'
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { Separator } from "@/components/ui/separator"
-import { formatEgyptianCurrency } from "@/lib/journal-utils"
-import { ReportData } from "@/lib/journal-report-utils"
+import { formatEgyptianCurrency } from "@/lib/utils"
+import { ReportData } from "@/lib/utils"
 import { 
   Receipt, 
   Users, 

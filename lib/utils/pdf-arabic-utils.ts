@@ -1,5 +1,4 @@
 // Arabic PDF export utility for journal reports using HTML2PDF
-const html2pdf = require('html2pdf.js')
 import { ReportData } from './journal-report-utils'
 import { formatEgyptianCurrency } from './journal-utils'
 
@@ -173,6 +172,14 @@ export const previewArabicJournalReportPDF = (reportData: ReportData): Promise<b
 
 // Download the PDF directly
 export const generateArabicJournalReportPDF = async (reportData: ReportData): Promise<void> => {
+  // Check if we're in the browser
+  if (typeof window === 'undefined') {
+    throw new Error('PDF generation is only available in the browser')
+  }
+
+  // Dynamically import html2pdf
+  const html2pdf = (await import('html2pdf.js')).default
+
   // Create HTML content for the PDF
   const htmlContent = createSimpleArabicReportHTML(reportData)
   
@@ -189,7 +196,7 @@ export const generateArabicJournalReportPDF = async (reportData: ReportData): Pr
     },
     jsPDF: { 
       unit: 'mm', 
-      format: 'a4', 
+      format: 'a4',
       orientation: 'portrait'
     }
   }
@@ -204,9 +211,7 @@ export const generateArabicJournalReportPDF = async (reportData: ReportData): Pr
     console.error('Error generating Arabic PDF:', error)
     throw new Error('خطأ في إنشاء ملف PDF')
   }
-}
-
-// Create a simple, clean HTML version for better user experience
+}// Create a simple, clean HTML version for better user experience
 const createSimpleArabicReportHTML = (reportData: ReportData): string => {
   const date = new Date(reportData.date).toLocaleDateString('ar-EG', {
     weekday: 'long',

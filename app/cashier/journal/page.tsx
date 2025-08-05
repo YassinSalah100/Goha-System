@@ -14,8 +14,8 @@ import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, 
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { ScrollArea } from "@/components/ui/scroll-area"
 import { Separator } from "@/components/ui/separator"
-import { formatEgyptianCurrency, validateExpenseForm, calculateWorkHours, calculateSalary } from "@/lib/journal-utils"
-import { generateDailyReport, ReportData } from "@/lib/journal-report-utils"
+import { formatEgyptianCurrency, validateExpenseForm, calculateWorkHours, calculateSalary } from "@/lib/utils"
+import { generateDailyReport, ReportData } from "@/lib/utils"
 import { JournalDailyReportDialog } from "@/components/reports/DailyReportDialog"
 import { 
   Plus, 

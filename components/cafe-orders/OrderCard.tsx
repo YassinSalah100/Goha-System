@@ -15,7 +15,7 @@ import {
   ChevronDown,
   ChevronUp,
 } from "lucide-react"
-import { formatOrderNumber, formatCurrency, getOrderStatusColor } from "@/lib/cafe-orders-utils"
+import { formatOrderNumber, formatCurrency, getOrderStatusColor } from "@/lib/utils"
 
 interface CartItem {
   id: string

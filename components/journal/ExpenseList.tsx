@@ -3,7 +3,7 @@ import React from "react"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
-import { formatEgyptianCurrency } from "@/lib/journal-utils"
+import { formatEgyptianCurrency } from "@/lib/utils"
 import { Trash2, Eye, Calendar, Receipt } from "lucide-react"
 
 interface Expense {

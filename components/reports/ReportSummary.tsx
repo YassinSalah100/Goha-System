@@ -2,8 +2,8 @@
 import React from 'react'
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
-import { formatEgyptianCurrency } from "@/lib/journal-utils"
-import { ReportData, calculateReportMetrics } from "@/lib/journal-report-utils"
+import { formatEgyptianCurrency } from "@/lib/utils"
+import { ReportData, calculateReportMetrics } from "@/lib/utils"
 import { 
   DollarSign, 
   Users, 

@@ -4,7 +4,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
-import { formatEgyptianCurrency, calculateWorkHours, calculateSalary } from "@/lib/journal-utils"
+import { formatEgyptianCurrency, calculateWorkHours, calculateSalary } from "@/lib/utils"
 import { Users, Clock, DollarSign, UserCheck, UserX } from "lucide-react"
 
 interface StaffMember {

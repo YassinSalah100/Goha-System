@@ -2,7 +2,7 @@
 import React from "react"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
-import { formatEgyptianCurrency } from "@/lib/journal-utils"
+import { formatEgyptianCurrency } from "@/lib/utils"
 import { Receipt, Users, UserCheck, RefreshCw } from "lucide-react"
 
 interface JournalStatsProps {
