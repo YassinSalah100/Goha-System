@@ -150,6 +150,12 @@ export default function JournalPage() {
   const [assigningWorker, setAssigningWorker] = useState<string | null>(null)
   const [endingWorker, setEndingWorker] = useState<string | null>(null)
   const [deletingExpense, setDeletingExpense] = useState<string | null>(null)
+  // Added state for handling ambiguous worker matches
+  const [ambiguousWorkers, setAmbiguousWorkers] = useState<{
+    shiftWorkerId: string;
+    candidates: Worker[];
+    onSelect: (workerId: string) => void;
+  } | null>(null)
 
   // Form state for adding expenses
   const [expenseForm, setExpenseForm] = useState({
@@ -288,12 +294,46 @@ export default function JournalPage() {
         ? responseData.success ? responseData.data : responseData
         : []
 
-      console.log("Raw shift workers data:", workers)
-      console.log("Available workers for matching:", availableWorkers)
+      // Fetch fresh worker data directly from API to ensure we have the latest
+      const workersResponse = await fetchWithErrorHandling(`${API_BASE_URL}/workers`)
+      const freshWorkers = workersResponse.success && Array.isArray(workersResponse.data) 
+        ? workersResponse.data 
+        : []
+      
+      // Update our available workers with fresh data
+      let workersList = [...availableWorkers]
+      if (freshWorkers.length > 0) {
+        workersList = freshWorkers
+        console.log(`✓ Fetched ${freshWorkers.length} workers directly from API`)
+        freshWorkers.forEach((w: Worker, i: number) => {
+          console.log(`Worker ${i+1}: ${w.full_name} (ID: ${w.worker_id}, Rate: ${w.base_hourly_rate})`)
+        })
+      } else {
+        console.log("Using existing available workers for matching:", workersList.length)
+      }
 
+      // Debug: Let's see what the raw data looks like
+      console.log("First shift worker raw data:", workers[0])
+      if (workers.length > 1) {
+        console.log("Second shift worker raw data:", workers[1])
+      }
+
+      // Extract workers from the API response
       const enrichedWorkers = await Promise.all(
         workers.map(async (sw: any) => {
           try {
+            // Debug the raw shift worker data to understand what properties are available
+            console.log(`Raw shift worker data structure:`, 
+              Object.keys(sw).map(key => `${key}: ${typeof sw[key]}`).join(', '),
+              sw.worker ? `Worker object properties: ${Object.keys(sw.worker).join(', ')}` : 'No worker object'
+            );
+            
+            // Extract worker_id if available
+            const workerId = sw.worker_id || "unknown";
+            
+            // For debugging purposes, log all available worker IDs
+            console.log("Available worker IDs:", workersList.map(w => w.worker_id).join(", "));
+            
             const standardizedSW: ShiftWorker = {
               shift_worker_id: sw.shift_worker_id || sw.id,
               worker_id: sw.worker_id || "unknown",
@@ -308,17 +348,19 @@ export default function JournalPage() {
             }
 
             // Enhanced worker matching with multiple fallback strategies
-            let matchingWorker = availableWorkers.find((worker) => worker.worker_id === sw.worker_id)
+            let matchingWorker = workersList.find((worker) => worker.worker_id === sw.worker_id)
             
             // If no direct match and we have embedded worker data, try with embedded ID
             if (!matchingWorker && sw.worker && sw.worker.worker_id) {
-              matchingWorker = availableWorkers.find((worker) => worker.worker_id === sw.worker.worker_id)
+              matchingWorker = workersList.find((worker) => worker.worker_id === sw.worker.worker_id)
             }
 
             // If we still don't have a match, try name-based matching as a fallback
-            if (!matchingWorker && sw.worker && sw.worker.full_name && availableWorkers.length > 0) {
-              matchingWorker = availableWorkers.find((worker) => 
-                worker.full_name.trim() === sw.worker.full_name.trim()
+            if (!matchingWorker && sw.worker && sw.worker.full_name && workersList.length > 0) {
+              matchingWorker = workersList.find((worker) => 
+                worker.full_name && 
+                sw.worker.full_name && 
+                worker.full_name.trim().toLowerCase() === sw.worker.full_name.trim().toLowerCase()
               )
               if (matchingWorker) {
                 console.log(`✓ Matched by name: ${sw.worker.full_name} -> ${matchingWorker.full_name}`)
@@ -327,12 +369,160 @@ export default function JournalPage() {
 
             // If still no match and we have a valid worker_id, try to fetch individual worker details
             if (!matchingWorker && sw.worker_id && sw.worker_id !== "unknown") {
-              console.log(`Attempting to fetch individual worker details for ${sw.worker_id}`)
+              console.log(`Attempting to fetch individual worker details for worker_id ${sw.worker_id}`)
               matchingWorker = await fetchWorkerDetails(sw.worker_id)
+              
+              if (!matchingWorker && sw.shift_worker_id) {
+                // Try one more lookup - check if the shift_worker_id is associated with any worker
+                console.log(`Trying to lookup worker by shift_worker_id ${sw.shift_worker_id}`)
+                try {
+                  // Look for workers who might have this shift worker assigned to them
+                  const shiftWorkerLookupResponse = await fetchWithErrorHandling(`${API_BASE_URL}/shift-workers/lookup/${sw.shift_worker_id}`)
+                  if (shiftWorkerLookupResponse.success && shiftWorkerLookupResponse.data && shiftWorkerLookupResponse.data.worker_id) {
+                    console.log(`✓ Found worker_id ${shiftWorkerLookupResponse.data.worker_id} for shift_worker_id ${sw.shift_worker_id}`)
+                    // Update the worker_id in our data
+                    standardizedSW.worker_id = shiftWorkerLookupResponse.data.worker_id
+                    // Now fetch the worker details
+                    matchingWorker = await fetchWorkerDetails(shiftWorkerLookupResponse.data.worker_id)
+                  }
+                } catch (lookupError) {
+                  console.warn(`Error looking up worker by shift_worker_id: ${lookupError}`)
+                }
+              }
+            }
+
+            // Try to match by hourly rate for all workers, not just when worker_id is unknown
+            // This is more reliable when the API doesn't return worker objects
+            if (!matchingWorker && sw.hourly_rate && workersList.length > 0) {
+              // Convert hourly rate to number for comparison
+              const hourlyRate = parseFloat(sw.hourly_rate);
+              console.log(`Looking for workers with hourly rate ${hourlyRate}`);
+              
+              // Find workers with matching hourly rate
+              const candidateWorkers = workersList.filter(worker => {
+                const workerRate = worker.base_hourly_rate || 0;
+                const matches = Math.abs(workerRate - hourlyRate) < 0.01;
+                console.log(`Worker ${worker.full_name} has rate ${workerRate}, match: ${matches}`);
+                return worker.base_hourly_rate && matches;
+              });
+              
+              if (candidateWorkers.length === 1) {
+                matchingWorker = candidateWorkers[0];
+                console.log(`✓ Matched by unique hourly rate: ${sw.hourly_rate} -> ${matchingWorker.full_name}`);
+                // Update the worker_id to fix the issue
+                standardizedSW.worker_id = matchingWorker.worker_id;
+              } else if (candidateWorkers.length > 1) {
+                // If we have multiple workers with the same hourly rate, we need more sophisticated matching
+                console.log(`⚠ Multiple workers (${candidateWorkers.length}) found with rate ${sw.hourly_rate}, trying additional matching strategies`);
+                
+                // Strategy 1: Check if any worker_id matches part of the shift_worker_id
+                const idSuffix = sw.shift_worker_id.slice(-6).toLowerCase();
+                let exactMatch = candidateWorkers.find(worker => 
+                  worker.worker_id && worker.worker_id.toLowerCase().includes(idSuffix)
+                );
+                
+                if (exactMatch) {
+                  matchingWorker = exactMatch;
+                  console.log(`✓ Found match among candidates by ID suffix: ${exactMatch.full_name}`);
+                  standardizedSW.worker_id = matchingWorker.worker_id;
+                } else {
+                  // Strategy 2: Check if any worker's name appears in any order metadata
+                  exactMatch = candidateWorkers.find(worker =>
+                    sw.metadata && 
+                    typeof sw.metadata === 'string' && 
+                    worker.full_name && 
+                    sw.metadata.toLowerCase().includes(worker.full_name.toLowerCase())
+                  );
+                  
+                  if (exactMatch) {
+                    matchingWorker = exactMatch;
+                    console.log(`✓ Found match through metadata: ${exactMatch.full_name}`);
+                    standardizedSW.worker_id = matchingWorker.worker_id;
+                  } else {
+                    // Strategy 3: Try to see if the shift_worker was previously assigned to a specific worker
+                    // by checking previous assignments in our worker history
+                    const shiftWorkerHistory = localStorage.getItem(`shift_worker_${sw.shift_worker_id}`);
+                    if (shiftWorkerHistory) {
+                      try {
+                        const historyData = JSON.parse(shiftWorkerHistory);
+                        if (historyData && historyData.worker_id) {
+                          exactMatch = candidateWorkers.find(w => w.worker_id === historyData.worker_id);
+                          if (exactMatch) {
+                            matchingWorker = exactMatch;
+                            console.log(`✓ Found match from local history: ${exactMatch.full_name}`);
+                            standardizedSW.worker_id = matchingWorker.worker_id;
+                          }
+                        }
+                      } catch (e) {
+                        console.warn("Error parsing shift worker history:", e);
+                      }
+                    }
+                    
+                    if (!matchingWorker) {
+                      console.log(`⚠ Could not automatically determine correct worker among multiple with rate ${sw.hourly_rate}`);
+                      
+                      // If we've already tried all automatic matching strategies and failed,
+                      // provide UI for manual selection by setting ambiguousWorkers state
+                      // This will trigger a dialog for the user to select the correct worker
+                      if (candidateWorkers.length > 1) {
+                        setAmbiguousWorkers({
+                          shiftWorkerId: sw.shift_worker_id,
+                          candidates: candidateWorkers,
+                          onSelect: (selectedWorkerId) => {
+                            console.log(`User manually selected worker ${selectedWorkerId} for shift worker ${sw.shift_worker_id}`);
+                            
+                            // Save this selection for future reference
+                            try {
+                              localStorage.setItem(`shift_worker_${sw.shift_worker_id}`, JSON.stringify({
+                                worker_id: selectedWorkerId,
+                                worker_name: candidateWorkers.find(w => w.worker_id === selectedWorkerId)?.full_name,
+                                hourly_rate: sw.hourly_rate,
+                                assigned_at: new Date().toISOString(),
+                                manually_selected: true
+                              }));
+                            } catch (e) {
+                              console.warn("Could not save manual worker selection:", e);
+                            }
+                            
+                            // Refresh data to update UI with the manual selection
+                            fetchShiftWorkers();
+                            
+                            // Clear the dialog
+                            setAmbiguousWorkers(null);
+                          }
+                        });
+                      }
+                      
+                      // Log candidates for debugging
+                      candidateWorkers.forEach(w => 
+                        console.log(`- Candidate: ${w.full_name}, ID: ${w.worker_id}, Rate: ${w.base_hourly_rate}`)
+                      );
+                    }
+                  }
+                }
+              } else {
+                console.log(`⚠ No workers found with rate ${sw.hourly_rate}`);
+              }
+            }
+            
+            // Try one more matching strategy: compare the last digits of shift_worker_id with worker names
+            // This helps when workers have been previously assigned and their shift_worker_id is in their name
+            if (!matchingWorker && sw.shift_worker_id && workersList.length > 0) {
+              const lastSixChars = sw.shift_worker_id.slice(-6).toLowerCase();
+              const matchingWorkerByIdSuffix = workersList.find(worker => 
+                worker.full_name && worker.full_name.toLowerCase().includes(lastSixChars)
+              );
+              
+              if (matchingWorkerByIdSuffix) {
+                matchingWorker = matchingWorkerByIdSuffix;
+                console.log(`✓ Matched by ID suffix in name: ${lastSixChars} -> ${matchingWorker.full_name}`);
+                standardizedSW.worker_id = matchingWorker.worker_id;
+              }
             }
 
             if (matchingWorker) {
               standardizedSW.worker = matchingWorker
+              standardizedSW.worker_name = matchingWorker.full_name // Set worker_name for easy access
               console.log(`✓ Successfully matched shift worker ${sw.shift_worker_id} with ${matchingWorker.full_name}`)
             } else {
               // Priority 1: Use embedded worker data if available
@@ -343,6 +533,7 @@ export default function JournalPage() {
                   status: sw.worker.status || "موظف",
                   base_hourly_rate: sw.worker.base_hourly_rate || standardizedSW.hourly_rate,
                 }
+                standardizedSW.worker_name = sw.worker.full_name // Set worker_name for easy access
                 console.log(`✓ Using embedded worker data for ${sw.worker.full_name} (ID: ${standardizedSW.worker.worker_id})`)
               } 
               // Priority 2: Try to get worker info from the direct properties
@@ -354,17 +545,23 @@ export default function JournalPage() {
                   status: sw.worker_status || "موظف",
                   base_hourly_rate: sw.worker_base_hourly_rate || standardizedSW.hourly_rate,
                 }
+                standardizedSW.worker_name = workerName // Set worker_name for easy access
                 console.log(`✓ Using direct worker properties for ${workerName}`)
               }
               // Last resort: Create a placeholder
               else {
-                const placeholderName = `موظف #${sw.worker_id?.slice(-8) || sw.shift_worker_id?.slice(-8) || Math.random().toString(36).slice(-6)}`
+                // Always use shift_worker_id for placeholder creation (more reliable)
+                // Take the last 6 characters of the shift_worker_id
+                const idSuffix = sw.shift_worker_id ? sw.shift_worker_id.slice(-6) : "unknown";
+                const placeholderName = `موظف ${idSuffix}`;
+                
                 standardizedSW.worker = {
                   worker_id: sw.worker_id || `placeholder_${sw.shift_worker_id}`,
                   full_name: placeholderName,
                   status: "موظف",
                   base_hourly_rate: standardizedSW.hourly_rate,
                 }
+                standardizedSW.worker_name = placeholderName // Set worker_name for easy access
                 console.log(`⚠ No worker info available for shift worker ${sw.shift_worker_id}, using placeholder: ${placeholderName}`)
               }
             }
@@ -383,8 +580,102 @@ export default function JournalPage() {
       
       // Convert to simple staff format for components with strict ID preservation
       const convertedStaff: StaffMember[] = validWorkers.map((sw: ShiftWorker) => {
-        const workerName = sw.worker?.full_name || `موظف #${sw.shift_worker_id?.slice(-8) || 'غير محدد'}`
-        return {
+        // Enhanced worker name resolution with multiple fallback strategies
+        let workerName = sw.worker?.full_name || 
+                         sw.worker_name || 
+                         (sw as any).full_name || 
+                         (sw as any).name
+        
+        // If still no name or it's a placeholder, try to construct from available data
+        if (!workerName || workerName.includes('موظف')) {
+          // Try to extract from any nested properties
+          if (sw.worker && sw.worker.full_name) {
+            workerName = sw.worker.full_name
+          } else if ((sw as any).worker_name) {
+            workerName = (sw as any).worker_name
+          } else if ((sw as any).full_name) {
+            workerName = (sw as any).full_name
+          }
+          
+          // Check local storage for previously saved worker association
+          try {
+            const savedAssociation = localStorage.getItem(`shift_worker_${sw.shift_worker_id}`);
+            if (savedAssociation) {
+              const workerData = JSON.parse(savedAssociation);
+              if (workerData && workerData.worker_name) {
+                console.log(`Found saved worker name in local storage: ${workerData.worker_name}`);
+                workerName = workerData.worker_name;
+              }
+            }
+          } catch (e) {
+            console.warn("Error retrieving worker name from local storage:", e);
+          }
+        }
+        
+          // Final fallback to a more descriptive placeholder
+          if (!workerName || workerName.includes('موظف') || workerName.includes('undefined') || workerName.includes('unknown')) {
+            // Try one more time to match by hourly rate
+            const hourlyRate = parseFloat(String(sw.hourly_rate)) || 0;
+            let matchFound = false;
+            
+            if (hourlyRate > 0 && workersList.length > 0) {
+              // Look for a worker with matching hourly rate - last resort
+              const matchingWorkers = workersList.filter(worker => {
+                const workerRate = worker.base_hourly_rate || 0;
+                return Math.abs(workerRate - hourlyRate) < 0.01;
+              });
+              
+              if (matchingWorkers.length === 1) {
+                // Only use if exactly one worker matches to avoid confusion
+                console.log(`✓ Last chance match by unique hourly rate: ${matchingWorkers[0].full_name}`);
+                workerName = matchingWorkers[0].full_name;
+                matchFound = true;
+              } else if (matchingWorkers.length > 1) {
+                // For multiple matches, try to find the one that was most recently assigned
+                console.log(`Found ${matchingWorkers.length} workers with rate ${hourlyRate}, checking assignment history`);
+                
+                // Check local storage for assignment history
+                try {
+                  const shiftWorkerHistory = localStorage.getItem(`shift_worker_${sw.shift_worker_id}`);
+                  if (shiftWorkerHistory) {
+                    const historyData = JSON.parse(shiftWorkerHistory);
+                    if (historyData && historyData.worker_id) {
+                      const exactMatch = matchingWorkers.find(w => w.worker_id === historyData.worker_id);
+                      if (exactMatch) {
+                        workerName = exactMatch.full_name;
+                        matchFound = true;
+                        console.log(`✓ Found exact match from history: ${exactMatch.full_name}`);
+                      }
+                    }
+                  }
+                } catch (e) {
+                  console.warn("Error checking assignment history:", e);
+                }
+              }
+            }
+            
+            // If still no match, use the placeholder with ID suffix
+            if (!matchFound) {
+              // Get the last 6 characters of shift_worker_id for consistent naming
+              const idSuffix = sw.shift_worker_id ? sw.shift_worker_id.slice(-6) : "unknown";
+              workerName = `موظف ${idSuffix}`;
+              
+              // If we have available workers, try one more time to find a match by ID suffix
+              if (workersList.length > 0) {
+                for (const worker of workersList) {
+                  if (worker.full_name && (
+                      worker.full_name.includes(idSuffix) || 
+                      (worker.worker_id && worker.worker_id.includes(idSuffix))
+                    )) {
+                    console.log(`Found potential name match: ${worker.full_name} for ID suffix ${idSuffix}`);
+                    workerName = worker.full_name;
+                    break;
+                  }
+                }
+              }
+            }
+          }          console.log(`Converting staff member: ${workerName} (ID: ${sw.shift_worker_id}, Worker ID: ${sw.worker_id})`)
+                  return {
           id: sw.shift_worker_id, // Use shift_worker_id as the unique identifier
           name: workerName,
           position: sw.worker?.status || "موظف",
@@ -543,11 +834,29 @@ export default function JournalPage() {
 
       console.log(`Assigning worker ${selectedWorker.full_name} (ID: ${workerId}) to shift`)
 
-      await fetchWithErrorHandling(`${API_BASE_URL}/shift-workers`, {
+      const response = await fetchWithErrorHandling(`${API_BASE_URL}/shift-workers`, {
         method: "POST",
         body: JSON.stringify(payload),
       })
+      
+      // If we have a successful response with shift_worker_id, save this worker association
+      // to local storage for future reference when matching
+      if (response && response.data && response.data.shift_worker_id) {
+        try {
+          const shiftWorkerId = response.data.shift_worker_id;
+          localStorage.setItem(`shift_worker_${shiftWorkerId}`, JSON.stringify({
+            worker_id: workerId,
+            worker_name: selectedWorker.full_name,
+            hourly_rate: hourlyRate,
+            assigned_at: new Date().toISOString()
+          }));
+          console.log(`✓ Saved worker association for future matching: ${selectedWorker.full_name} -> ${shiftWorkerId}`);
+        } catch (storageError) {
+          console.warn("Could not save worker association to local storage:", storageError);
+        }
+      }
 
+      console.log(`✓ Worker ${selectedWorker.full_name} successfully assigned to shift`)
       await fetchShiftWorkers()
     } catch (error: any) {
       throw new Error(error.message || "خطأ في تسجيل الحضور")
