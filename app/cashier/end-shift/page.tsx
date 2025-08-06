@@ -451,14 +451,15 @@ export default function EndShiftPageFixed() {
     
     try {
       setLoadingSummary(true)
-      console.log(`🔍 Fetching shift summary for ${shiftId}`)
+      console.log(`🔍 Fetching shift summary with details for ${shiftId}`)
       
-      // Try the working URL format first based on your logs
+      // Try the updated endpoint with detailed information first
       let response;
       
       try {
-        console.log(`Trying URL: ${API_BASE_URL}/shifts/summary/${shiftId}`)
-        response = await fetch(`${API_BASE_URL}/shifts/summary/${shiftId}`, {
+        // First try the detailed summary endpoint which includes expenses, workers, etc.
+        console.log(`Trying URL: ${API_BASE_URL}/shifts/summary/${shiftId}/details`)
+        response = await fetch(`${API_BASE_URL}/shifts/summary/${shiftId}/details`, {
           method: "GET",
           headers: {
             Authorization: `Bearer ${localStorage.getItem("authToken") || ""}`,
@@ -467,11 +468,11 @@ export default function EndShiftPageFixed() {
         });
         
         if (!response.ok) {
-          console.log(`First URL attempt failed with status ${response.status}, trying alternate URL format...`);
+          console.log(`Detailed summary failed with status ${response.status}, trying basic summary...`);
           
-          // If first attempt fails, try the alternate URL format
-          console.log(`Trying URL: ${API_BASE_URL}/shifts/${shiftId}/summary`)
-          response = await fetch(`${API_BASE_URL}/shifts/${shiftId}/summary`, {
+          // Fall back to basic summary endpoint
+          console.log(`Trying URL: ${API_BASE_URL}/shifts/summary/${shiftId}`)
+          response = await fetch(`${API_BASE_URL}/shifts/summary/${shiftId}`, {
             method: "GET",
             headers: {
               Authorization: `Bearer ${localStorage.getItem("authToken") || ""}`,
@@ -480,11 +481,11 @@ export default function EndShiftPageFixed() {
           });
         }
       } catch (error) {
-        console.error("Error trying first URL format:", error);
+        console.error("Error trying detailed summary:", error);
         
-        // Fallback to the second URL format
-        console.log(`Trying URL: ${API_BASE_URL}/shifts/${shiftId}/summary`)
-        response = await fetch(`${API_BASE_URL}/shifts/${shiftId}/summary`, {
+        // Fallback to the basic URL format
+        console.log(`Trying URL: ${API_BASE_URL}/shifts/summary/${shiftId}`)
+        response = await fetch(`${API_BASE_URL}/shifts/summary/${shiftId}`, {
           method: "GET",
           headers: {
             Authorization: `Bearer ${localStorage.getItem("authToken") || ""}`,
@@ -496,27 +497,54 @@ export default function EndShiftPageFixed() {
       if (response.ok) {
         const result = await response.json()
         console.log("✅ Shift summary retrieved:", result)
-        // Additional logging to understand structure
         console.log("API Response Keys:", Object.keys(result))
+        
+        // Log specific fields for debugging
         if (result.final_number !== undefined) {
           console.log("Found final_number in response:", result.final_number)
         }
+        if (result.cafe_revenue !== undefined) {
+          console.log("Found cafe_revenue in response:", result.cafe_revenue)
+        }
+        if (result.expenses) {
+          console.log("Found expenses array with", result.expenses.length, "items")
+        }
+        if (result.workers) {
+          console.log("Found workers array with", result.workers.length, "items")
+        }
         
-        // Simplify the API response to only use what we actually have
-        // Don't create placeholder structures that might confuse users
+        // Normalize the API response to ensure consistent structure
         const normalizedResult = {
-          ...result,
-          // Map total_revenue to total_sales if it exists
-          total_sales: result.total_sales || result.total_revenue || 0,
-          // Include final_number if it exists
-          final_number: result.final_number !== undefined ? result.final_number : undefined,
-          // Map total_salaries to total_staff_cost if it exists
-          total_staff_cost: result.total_staff_cost || result.total_salaries || 0,
-          // Don't create empty placeholder objects that mislead users
-          // Only include these if the API actually returns them
+          shift_id: result.shift_id,
+          shift_type: result.shift_type,
+          start_time: result.start_time,
+          end_time: result.end_time,
+          total_orders: result.total_orders || 0,
+          total_revenue: result.total_revenue || result.total_sales || 0,
+          cafe_revenue: result.cafe_revenue || 0,
+          total_expenses: result.total_expenses || 0,
+          total_salaries: result.total_salaries || result.total_staff_cost || 0,
+          final_number: result.final_number !== undefined ? result.final_number : 
+                       (result.total_revenue || result.total_sales || 0) - 
+                       (result.total_expenses || 0) - 
+                       (result.total_salaries || result.total_staff_cost || 0),
+          
+          // Keep the cashiers array if it exists
+          cashiers: result.cashiers || [],
+          
+          // Detailed breakdowns - only include if present
+          expenses: result.expenses || [],
+          workers: result.workers || [],
+          
+          // Order analysis - only include if present
           orders_by_type: result.orders_by_type || null,
           orders_by_payment: result.orders_by_payment || null,
-          orders_by_status: result.orders_by_status || null
+          orders_by_status: result.orders_by_status || null,
+          
+          // Additional useful fields
+          top_selling_items: result.top_selling_items || [],
+          average_order_value: result.total_orders > 0 ? 
+            (result.total_revenue || result.total_sales || 0) / result.total_orders : 0
         }
         
         console.log("✅ Normalized shift summary:", normalizedResult)
@@ -1107,170 +1135,208 @@ export default function EndShiftPageFixed() {
                 )}
               </div>
               
-              {/* Shift Summary Section */}
+              {/* Enhanced Shift Summary Section */}
               {showSummary && shiftSummary && (
                 <motion.div 
                   initial={{ opacity: 0, height: 0 }}
                   animate={{ opacity: 1, height: "auto" }}
                   className="mt-6 border rounded-lg p-6 bg-gradient-to-r from-green-50 to-blue-50 border-green-200"
                 >
-                  {/* Shift Header */}
-                  <div className="flex items-center justify-between mb-4">
+                  {/* Shift Header with Enhanced Info */}
+                  <div className="flex items-center justify-between mb-6">
                     <div className="flex items-center gap-3">
                       <div className="h-12 w-12 rounded-full flex items-center justify-center bg-green-100">
                         <Coffee className="h-6 w-6 text-green-600" />
                       </div>
                       <div>
                         <h3 className="font-bold text-lg">{getShiftDisplayName(currentShift)}</h3>
-                        <p className="text-sm text-muted-foreground">الكاشير: {currentUser?.name || currentUser?.full_name}</p>
+                        <p className="text-sm text-muted-foreground">
+                          الكاشير: {shiftSummary?.cashiers?.length > 0 ? 
+                            shiftSummary.cashiers.map(c => c.username).join(", ") : 
+                            currentUser?.name || currentUser?.full_name}
+                        </p>
                         <p className="text-xs text-muted-foreground">
-                          بدأت:{" "}
-                          {new Date(currentUser?.loginTime).toLocaleTimeString("ar-EG", {
-                            hour: "2-digit",
-                            minute: "2-digit",
-                          })}
+                          {shiftSummary?.start_time ? 
+                            `بدأت: ${new Date(shiftSummary.start_time).toLocaleTimeString("ar-EG", {
+                              hour: "2-digit",
+                              minute: "2-digit",
+                            })}` :
+                            `بدأت: ${new Date(currentUser?.loginTime).toLocaleTimeString("ar-EG", {
+                              hour: "2-digit",
+                              minute: "2-digit",
+                            })}`
+                          }
+                          {shiftSummary?.end_time && 
+                            ` - انتهت: ${new Date(shiftSummary.end_time).toLocaleTimeString("ar-EG", {
+                              hour: "2-digit",
+                              minute: "2-digit",
+                            })}`
+                          }
                         </p>
                       </div>
                     </div>
                     <div className="text-right">
                       <div className="text-2xl font-bold text-green-600">
-                        {shiftSummary?.total_sales || shiftSummary?.total_revenue ? 
-                          `ج.م ${parseFloat(shiftSummary.total_sales || shiftSummary.total_revenue || "0").toFixed(2)}` : 
-                          `ج.م ${shiftStats.totalSales.toFixed(2)}`}
+                        ج.م {parseFloat(shiftSummary?.total_revenue?.toString() || "0").toFixed(2)}
                       </div>
                       <p className="text-sm text-muted-foreground">
-                        {shiftSummary?.total_orders || shiftStats.totalOrders} طلب
+                        {shiftSummary?.total_orders || 0} طلب إجمالي
                       </p>
+                      {shiftSummary?.cafe_revenue > 0 && (
+                        <p className="text-xs text-orange-600 font-medium">
+                          كافيه: ج.م {parseFloat(shiftSummary.cafe_revenue.toString()).toFixed(2)}
+                        </p>
+                      )}
                       <Badge variant="default" className="mt-1">
-                        نشطة
+                        {shiftSummary?.end_time ? "مكتملة" : "نشطة"}
                       </Badge>
                     </div>
                   </div>
-                  
-                  {/* Only show order types section if we actually have the data */}
-                  {shiftSummary?.orders_by_type ? (
-                    <div className="my-4 border-t border-b py-4 border-gray-200">
-                      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+
+                  {/* Enhanced Revenue Breakdown */}
+                  <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
+                    <div className="bg-white p-4 rounded-lg border border-green-200">
+                      <div className="text-center">
+                        <div className="text-lg font-bold text-green-600">
+                          ج.م {parseFloat(shiftSummary?.total_revenue?.toString() || "0").toFixed(2)}
+                        </div>
+                        <p className="text-xs text-muted-foreground">إجمالي الإيرادات</p>
+                      </div>
+                    </div>
+                    {shiftSummary?.cafe_revenue > 0 && (
+                      <div className="bg-white p-4 rounded-lg border border-orange-200">
                         <div className="text-center">
+                          <div className="text-lg font-bold text-orange-600">
+                            ج.م {parseFloat(shiftSummary.cafe_revenue.toString()).toFixed(2)}
+                          </div>
+                          <p className="text-xs text-muted-foreground">إيرادات الكافيه</p>
+                        </div>
+                      </div>
+                    )}
+                    <div className="bg-white p-4 rounded-lg border border-red-200">
+                      <div className="text-center">
+                        <div className="text-lg font-bold text-red-600">
+                          ج.م {parseFloat(shiftSummary?.total_expenses?.toString() || "0").toFixed(2)}
+                        </div>
+                        <p className="text-xs text-muted-foreground">إجمالي المصاريف</p>
+                      </div>
+                    </div>
+                    <div className="bg-white p-4 rounded-lg border border-blue-200">
+                      <div className="text-center">
+                        <div className="text-lg font-bold text-blue-600">
+                          ج.م {parseFloat(shiftSummary?.total_salaries?.toString() || "0").toFixed(2)}
+                        </div>
+                        <p className="text-xs text-muted-foreground">رواتب الموظفين</p>
+                      </div>
+                    </div>
+                  </div>
+                  
+                  {/* Order Types Analysis - Enhanced */}
+                  {shiftSummary?.orders_by_type ? (
+                    <div className="mb-6">
+                      <h4 className="font-semibold text-sm mb-3">تحليل الطلبات حسب النوع</h4>
+                      <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+                        <div className="bg-white p-3 rounded-lg border text-center">
                           <div className="text-lg font-bold text-blue-600">
                             {shiftSummary.orders_by_type["dine-in"] || 0}
                           </div>
                           <p className="text-xs text-muted-foreground">تناول في المطعم</p>
                         </div>
-                        <div className="text-center">
+                        <div className="bg-white p-3 rounded-lg border text-center">
                           <div className="text-lg font-bold text-green-600">
                             {shiftSummary.orders_by_type.takeaway || 0}
                           </div>
                           <p className="text-xs text-muted-foreground">تيك اواي</p>
                         </div>
-                        <div className="text-center">
+                        <div className="bg-white p-3 rounded-lg border text-center">
                           <div className="text-lg font-bold text-purple-600">
                             {shiftSummary.orders_by_type.delivery || 0}
                           </div>
                           <p className="text-xs text-muted-foreground">توصيل</p>
                         </div>
-                        <div className="text-center">
+                        <div className="bg-white p-3 rounded-lg border text-center">
                           <div className="text-lg font-bold text-orange-600">
                             {shiftSummary.orders_by_type.cafe || 0}
                           </div>
-                          <p className="text-xs text-muted-foreground">كافية</p>
+                          <p className="text-xs text-muted-foreground">كافيه</p>
                         </div>
                       </div>
                     </div>
-                  ) : (
-                    <div className="my-4 border-t border-b py-4 border-gray-200 text-center">
-                      <p className="text-muted-foreground">بيانات الطلبات حسب النوع غير متوفرة</p>
-                    </div>
-                  )}
+                  ) : null}
                   
-                  <div className="grid grid-cols-2 md:grid-cols-3 gap-4 mb-4">
-                    {/* Only show payment methods if we have the data */}
+                  {/* Payment Methods and Order Status */}
+                  <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
                     {shiftSummary?.orders_by_payment ? (
-                      <div className="bg-white p-3 rounded-lg border">
-                        <h4 className="font-medium text-sm mb-2">طرق الدفع</h4>
-                        <div className="space-y-1">
+                      <div className="bg-white p-4 rounded-lg border">
+                        <h4 className="font-medium text-sm mb-3">طرق الدفع</h4>
+                        <div className="space-y-2">
                           <div className="flex justify-between">
-                            <span className="text-xs text-muted-foreground">نقدي:</span>
-                            <span className="text-xs font-medium">
-                              {shiftSummary.orders_by_payment.cash || 0}
+                            <span className="text-sm text-muted-foreground">نقدي:</span>
+                            <span className="text-sm font-medium">
+                              {shiftSummary.orders_by_payment.cash || 0} طلب
                             </span>
                           </div>
                           <div className="flex justify-between">
-                            <span className="text-xs text-muted-foreground">كارت:</span>
-                            <span className="text-xs font-medium">
-                              {shiftSummary.orders_by_payment.card || 0}
+                            <span className="text-sm text-muted-foreground">كارت:</span>
+                            <span className="text-sm font-medium">
+                              {shiftSummary.orders_by_payment.card || 0} طلب
                             </span>
                           </div>
                         </div>
                       </div>
-                    ) : (
-                      <div className="bg-white p-3 rounded-lg border">
-                        <h4 className="font-medium text-sm mb-2">طرق الدفع</h4>
-                        <p className="text-xs text-muted-foreground text-center">بيانات غير متوفرة</p>
-                      </div>
-                    )}
+                    ) : null}
                     
-                    {/* Only show order status if we have the data */}
                     {shiftSummary?.orders_by_status ? (
-                      <div className="bg-white p-3 rounded-lg border">
-                        <h4 className="font-medium text-sm mb-2">حالة الطلبات</h4>
-                        <div className="space-y-1">
+                      <div className="bg-white p-4 rounded-lg border">
+                        <h4 className="font-medium text-sm mb-3">حالة الطلبات</h4>
+                        <div className="space-y-2">
                           <div className="flex justify-between">
-                            <span className="text-xs text-muted-foreground">مكتملة:</span>
-                            <span className="text-xs font-medium text-green-600">
+                            <span className="text-sm text-muted-foreground">مكتملة:</span>
+                            <span className="text-sm font-medium text-green-600">
                               {shiftSummary.orders_by_status.completed || 0}
                             </span>
                           </div>
                           <div className="flex justify-between">
-                            <span className="text-xs text-muted-foreground">قيد التنفيذ:</span>
-                            <span className="text-xs font-medium text-yellow-600">
+                            <span className="text-sm text-muted-foreground">قيد التنفيذ:</span>
+                            <span className="text-sm font-medium text-yellow-600">
                               {shiftSummary.orders_by_status.pending || 0}
                             </span>
                           </div>
                           <div className="flex justify-between">
-                            <span className="text-xs text-muted-foreground">ملغاة:</span>
-                            <span className="text-xs font-medium text-red-600">
+                            <span className="text-sm text-muted-foreground">ملغاة:</span>
+                            <span className="text-sm font-medium text-red-600">
                               {shiftSummary.orders_by_status.cancelled || 0}
                             </span>
                           </div>
                         </div>
                       </div>
-                    ) : (
-                      <div className="bg-white p-3 rounded-lg border">
-                        <h4 className="font-medium text-sm mb-2">حالة الطلبات</h4>
-                        <p className="text-xs text-muted-foreground text-center">بيانات غير متوفرة</p>
-                      </div>
-                    )}
+                    ) : null}
                     
-                    <div className="bg-white p-3 rounded-lg border">
-                      <h4 className="font-medium text-sm mb-2">الأداء</h4>
-                      <div className="space-y-1">
+                    <div className="bg-white p-4 rounded-lg border">
+                      <h4 className="font-medium text-sm mb-3">مؤشرات الأداء</h4>
+                      <div className="space-y-2">
                         <div className="flex justify-between">
-                          <span className="text-xs text-muted-foreground">متوسط الطلب:</span>
-                          <span className="text-xs font-medium">
-                            ج.م {
-                              shiftSummary?.total_orders && (shiftSummary?.total_sales || shiftSummary?.total_revenue) ? 
-                              (parseFloat(shiftSummary.total_sales || shiftSummary.total_revenue) / shiftSummary.total_orders).toFixed(2) : 
-                              shiftStats.avgOrderValue.toFixed(2)
-                            }
+                          <span className="text-sm text-muted-foreground">متوسط الطلب:</span>
+                          <span className="text-sm font-medium">
+                            ج.م {shiftSummary?.average_order_value?.toFixed(2) || "0.00"}
                           </span>
                         </div>
                         <div className="flex justify-between">
-                          <span className="text-xs text-muted-foreground">إجمالي الطلبات:</span>
-                          <span className="text-xs font-medium">
-                            {shiftSummary?.total_orders || shiftStats.totalOrders || 0}
+                          <span className="text-sm text-muted-foreground">إجمالي الطلبات:</span>
+                          <span className="text-sm font-medium">
+                            {shiftSummary?.total_orders || 0}
                           </span>
                         </div>
                       </div>
                     </div>
                   </div>
                   
-                  {/* Top Items */}
+                  {/* Top Selling Items */}
                   {shiftSummary?.top_selling_items && shiftSummary.top_selling_items.length > 0 && (
-                    <div className="bg-white p-4 rounded-lg border mb-4">
+                    <div className="bg-white p-4 rounded-lg border mb-6">
                       <h4 className="font-medium text-sm mb-3 flex items-center gap-2">
                         <Package className="w-4 h-4" />
-                        أكثر الأصناف طلباً
+                        أكثر الأصناف مبيعاً
                       </h4>
                       <div className="space-y-2">
                         {shiftSummary.top_selling_items.slice(0, 5).map((item: any, idx: number) => (
@@ -1292,62 +1358,129 @@ export default function EndShiftPageFixed() {
                     </div>
                   )}
                   
-                  {/* Expenses Section */}
+                  {/* Detailed Expenses Section */}
                   {shiftSummary?.expenses && shiftSummary.expenses.length > 0 && (
-                    <div className="bg-white p-4 rounded-lg border mb-4">
+                    <div className="bg-white p-4 rounded-lg border mb-6">
                       <h4 className="font-medium flex items-center gap-2 mb-3">
                         <FileText className="w-4 h-4" />
-                        المصروفات ({shiftSummary.expenses.length})
+                        تفاصيل المصروفات ({shiftSummary.expenses.length})
                       </h4>
-                      <div className="max-h-40 overflow-y-auto">
+                      <div className="max-h-48 overflow-y-auto">
                         <div className="space-y-2">
                           {shiftSummary.expenses.map((expense: any, i: number) => (
-                            <div key={expense.expense_id || `expense-${i}`} className="flex items-center justify-between p-2 bg-gray-50 rounded text-sm">
-                              <div>
-                                <div className="font-medium">{expense.title}</div>
-                                <div className="text-xs text-gray-500">
-                                  {expense.category} • بواسطة: {expense.created_by?.full_name || "غير محدد"}
+                            <div key={expense.expense_id || `expense-${i}`} className="flex items-center justify-between p-3 bg-red-50 rounded border border-red-100">
+                              <div className="flex-1">
+                                <div className="font-medium text-gray-900">{expense.title}</div>
+                                {expense.description && (
+                                  <div className="text-xs text-gray-600 mt-1">{expense.description}</div>
+                                )}
+                                <div className="text-xs text-gray-500 mt-1">
+                                  {expense.category && `${expense.category} • `}
+                                  بواسطة: {expense.created_by?.full_name || "غير محدد"} • 
+                                  {expense.created_at && 
+                                    ` ${new Date(expense.created_at).toLocaleString("ar-EG", {
+                                      hour: "2-digit",
+                                      minute: "2-digit"
+                                    })}`
+                                  }
                                 </div>
                               </div>
-                              <div className="font-medium text-red-600 text-right">ج.م {parseFloat(expense.amount || "0").toFixed(2)}</div>
+                              <div className="font-bold text-red-600 text-right">
+                                ج.م {parseFloat(expense.amount?.toString() || "0").toFixed(2)}
+                              </div>
                             </div>
                           ))}
+                        </div>
+                        <div className="mt-3 pt-3 border-t border-red-200 flex justify-between items-center">
+                          <span className="text-sm font-medium">إجمالي المصروفات:</span>
+                          <span className="text-lg font-bold text-red-600">
+                            ج.م {parseFloat(shiftSummary.total_expenses?.toString() || "0").toFixed(2)}
+                          </span>
                         </div>
                       </div>
                     </div>
                   )}
                   
-                  {/* Net Profit Section */}
-                  <div className="p-4 bg-green-50 rounded-lg border border-green-200">
-                    <div className="flex items-center justify-between">
-                      <h4 className="font-medium flex items-center gap-2">
-                        <TrendingUp className="w-4 h-4 text-green-600" />
-                        صافي الربح بعد المصاريف
+                  {/* Worker Details Section */}
+                  {shiftSummary?.workers && shiftSummary.workers.length > 0 && (
+                    <div className="bg-white p-4 rounded-lg border mb-6">
+                      <h4 className="font-medium flex items-center gap-2 mb-3">
+                        <Users className="w-4 h-4" />
+                        تفاصيل الموظفين ({shiftSummary.workers.length})
                       </h4>
-                      <div className="text-lg font-bold text-green-700">
-                        {shiftSummary?.final_number !== undefined ? (
-                          `ج.م ${parseFloat(shiftSummary.final_number.toString()).toFixed(2)}`
-                        ) : (
-                          `ج.م ${(
-                            parseFloat(shiftSummary?.total_sales || shiftSummary?.total_revenue || "0") - 
-                            parseFloat(shiftSummary?.total_expenses || "0") - 
-                            parseFloat(shiftSummary?.total_staff_cost || shiftSummary?.total_salaries || "0")
-                          ).toFixed(2)}`
-                        )}
+                      <div className="space-y-2">
+                        {shiftSummary.workers.map((worker: any, i: number) => (
+                          <div key={worker.shift_worker_id || `worker-${i}`} className="flex items-center justify-between p-3 bg-blue-50 rounded border border-blue-100">
+                            <div className="flex-1">
+                              <div className="font-medium text-gray-900">{worker.worker_name}</div>
+                              <div className="text-xs text-gray-500 mt-1">
+                                {worker.start_time && 
+                                  `بداية: ${new Date(worker.start_time).toLocaleTimeString("ar-EG", {
+                                    hour: "2-digit",
+                                    minute: "2-digit"
+                                  })}`
+                                }
+                                {worker.end_time && 
+                                  ` - نهاية: ${new Date(worker.end_time).toLocaleTimeString("ar-EG", {
+                                    hour: "2-digit",
+                                    minute: "2-digit"
+                                  })}`
+                                }
+                              </div>
+                              <div className="text-xs text-gray-600 mt-1">
+                                أجر الساعة: ج.م {parseFloat(worker.hourly_rate?.toString() || "0").toFixed(2)}
+                              </div>
+                            </div>
+                            <div className="text-right">
+                              <div className="font-bold text-blue-600">
+                                ج.م {parseFloat(worker.calculated_salary?.toString() || "0").toFixed(2)}
+                              </div>
+                              <div className="text-xs text-gray-500">
+                                {(((new Date(worker.end_time || new Date()).getTime() - new Date(worker.start_time).getTime()) / (1000 * 60 * 60)).toFixed(1))} ساعة
+                              </div>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                      <div className="mt-3 pt-3 border-t border-blue-200 flex justify-between items-center">
+                        <span className="text-sm font-medium">إجمالي الرواتب:</span>
+                        <span className="text-lg font-bold text-blue-600">
+                          ج.م {parseFloat(shiftSummary.total_salaries?.toString() || "0").toFixed(2)}
+                        </span>
                       </div>
                     </div>
-                    <div className="mt-2 grid grid-cols-3 gap-2 text-xs text-gray-600">
-                      <div className="text-center">
-                        <div className="font-semibold">إجمالي المبيعات</div>
-                        <div className="text-green-600">ج.م {parseFloat(shiftSummary?.total_sales || shiftSummary?.total_revenue || "0").toFixed(2)}</div>
+                  )}
+                  
+                  {/* Final Net Profit Section - Enhanced */}
+                  <div className="p-6 bg-gradient-to-r from-green-100 to-emerald-100 rounded-lg border-2 border-green-300">
+                    <div className="text-center">
+                      <h4 className="font-bold text-lg flex items-center justify-center gap-2 mb-4">
+                        <TrendingUp className="w-6 h-6 text-green-600" />
+                        صافي الربح النهائي
+                      </h4>
+                      <div className="text-4xl font-bold text-green-700 mb-4">
+                        ج.م {parseFloat(shiftSummary?.final_number?.toString() || "0").toFixed(2)}
                       </div>
-                      <div className="text-center">
-                        <div className="font-semibold">مصاريف</div>
-                        <div className="text-red-600">-ج.م {parseFloat(shiftSummary?.total_expenses || "0").toFixed(2)}</div>
+                    </div>
+                    
+                    <div className="grid grid-cols-3 gap-4 mt-4 text-center">
+                      <div className="bg-white p-3 rounded-lg">
+                        <div className="text-sm font-semibold text-gray-600">الإيرادات</div>
+                        <div className="text-lg font-bold text-green-600">
+                          +ج.م {parseFloat(shiftSummary?.total_revenue?.toString() || "0").toFixed(2)}
+                        </div>
                       </div>
-                      <div className="text-center">
-                        <div className="font-semibold">رواتب</div>
-                        <div className="text-red-600">-ج.م {parseFloat(shiftSummary?.total_staff_cost || shiftSummary?.total_salaries || "0").toFixed(2)}</div>
+                      <div className="bg-white p-3 rounded-lg">
+                        <div className="text-sm font-semibold text-gray-600">المصاريف</div>
+                        <div className="text-lg font-bold text-red-600">
+                          -ج.م {parseFloat(shiftSummary?.total_expenses?.toString() || "0").toFixed(2)}
+                        </div>
+                      </div>
+                      <div className="bg-white p-3 rounded-lg">
+                        <div className="text-sm font-semibold text-gray-600">الرواتب</div>
+                        <div className="text-lg font-bold text-red-600">
+                          -ج.م {parseFloat(shiftSummary?.total_salaries?.toString() || "0").toFixed(2)}
+                        </div>
                       </div>
                     </div>
                   </div>
