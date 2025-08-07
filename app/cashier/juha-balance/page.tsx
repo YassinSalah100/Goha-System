@@ -696,7 +696,19 @@ export default function JuhaBalancePage() {
               </tr>
             </thead>
             <tbody>
-              {entries.map((entry, idx) => {
+              {entries
+                .sort((a, b) => {
+                  // First sort by date chronologically (earliest first)
+                  const dateCompare = new Date(a.date).getTime() - new Date(b.date).getTime()
+                  if (dateCompare !== 0) return dateCompare
+                  
+                  // If same date, sort by shift type (morning first, then evening)
+                  if (a.shiftType === "morning" && b.shiftType === "evening") return -1
+                  if (a.shiftType === "evening" && b.shiftType === "morning") return 1
+                  
+                  return 0
+                })
+                .map((entry, idx) => {
                 const dayExpenses = getExpensesForDate(entry.date, entry.shiftType)
                 const totalExpense = getExpenseTotalForDate(entry.date, entry.shiftType)
                 const netAmount = entry.amount - totalExpense
@@ -740,18 +752,26 @@ export default function JuhaBalancePage() {
                   </tr>
                 </thead>
                 <tbody>
-                  {expenses.map((expense, idx) => (
+                  {[...expenses, ...standaloneExpenses.map(exp => ({
+                    ...exp,
+                    shiftType: "standalone" as const
+                  }))]
+                    .sort((a, b) => {
+                      // Sort by date chronologically (earliest first)
+                      const dateCompare = new Date(a.date).getTime() - new Date(b.date).getTime()
+                      if (dateCompare !== 0) return dateCompare
+                      
+                      // If same date, sort by shift type (morning first, then evening, then standalone)
+                      const shiftOrder = { "morning": 1, "evening": 2, "standalone": 3 }
+                      return shiftOrder[a.shiftType] - shiftOrder[b.shiftType]
+                    })
+                    .map((expense, idx) => (
                     <tr key={expense.id} style={{ background: idx % 2 === 0 ? "#fff" : "#fef2f2" }}>
                       <td style={{ border: "1.5px solid #fecaca", padding: 10 }}>{formatDate(expense.date)}</td>
-                      <td style={{ border: "1.5px solid #fecaca", padding: 10 }}>{expense.shiftType === "morning" ? "صباحي" : "مسائي"}</td>
-                      <td style={{ border: "1.5px solid #fecaca", padding: 10, fontWeight: 700, color: '#dc2626' }}>{expense.expenseName}</td>
-                      <td style={{ border: "1.5px solid #fecaca", padding: 10, fontWeight: 700, color: '#dc2626' }}>{formatCurrency(expense.amount)}</td>
-                    </tr>
-                  ))}
-                  {standaloneExpenses.map((expense, idx) => (
-                    <tr key={expense.id} style={{ background: (expenses.length + idx) % 2 === 0 ? "#fff" : "#fef2f2" }}>
-                      <td style={{ border: "1.5px solid #fecaca", padding: 10 }}>{formatDate(expense.date)}</td>
-                      <td style={{ border: "1.5px solid #fecaca", padding: 10 }}>مستقل</td>
+                      <td style={{ border: "1.5px solid #fecaca", padding: 10 }}>
+                        {expense.shiftType === "morning" ? "صباحي" : 
+                         expense.shiftType === "evening" ? "مسائي" : "مستقل"}
+                      </td>
                       <td style={{ border: "1.5px solid #fecaca", padding: 10, fontWeight: 700, color: '#dc2626' }}>{expense.expenseName}</td>
                       <td style={{ border: "1.5px solid #fecaca", padding: 10, fontWeight: 700, color: '#dc2626' }}>{formatCurrency(expense.amount)}</td>
                     </tr>
@@ -805,9 +825,14 @@ export default function JuhaBalancePage() {
 
             <div style={{ fontSize: 12, color: '#6b7280', textAlign: 'center', marginTop: 16 }}>
               الشهر: {getMonthLabel()} • تاريخ التقرير: {formatDate(new Date().toISOString())}
-              {entries.length > 0 && (
-                <span> • الفترة: من {formatDate(entries.sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime())[0].date)} إلى {formatDate(entries.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime())[0].date)}</span>
-              )}
+              {entries.length > 0 && (() => {
+                const sortedEntries = [...entries].sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime())
+                const earliestDate = sortedEntries[0].date
+                const latestDate = sortedEntries[sortedEntries.length - 1].date
+                return (
+                  <span> • الفترة: من {formatDate(earliestDate)} إلى {formatDate(latestDate)}</span>
+                )
+              })()}
             </div>
           </div>
         </div>
@@ -838,7 +863,19 @@ export default function JuhaBalancePage() {
                       <td colSpan={7} className="py-8 text-gray-400">لا توجد بيانات</td>
                     </tr>
                   ) : (
-                    entries.map((entry, idx) => {
+                    entries
+                      .sort((a, b) => {
+                        // First sort by date chronologically (earliest first)
+                        const dateCompare = new Date(a.date).getTime() - new Date(b.date).getTime()
+                        if (dateCompare !== 0) return dateCompare
+                        
+                        // If same date, sort by shift type (morning first, then evening)
+                        if (a.shiftType === "morning" && b.shiftType === "evening") return -1
+                        if (a.shiftType === "evening" && b.shiftType === "morning") return 1
+                        
+                        return 0
+                      })
+                      .map((entry, idx) => {
                       const dayExpenses = getExpensesForDate(entry.date, entry.shiftType)
                       const totalExpense = getExpenseTotalForDate(entry.date, entry.shiftType)
                       const netAmount = entry.amount - totalExpense
