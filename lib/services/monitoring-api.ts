@@ -8,27 +8,34 @@ import {
   CashierActivity,
   CashierDto
 } from '@/lib/types/monitoring'
+import { AuthApiService } from './auth-api'
 
 const API_BASE_URL = "http://20.77.41.130:3000/api/v1"
 
-// Utility function for API calls with error handling
+// Utility function for API calls with error handling and authentication
 const apiRequest = async <T>(
   endpoint: string, 
   options: RequestInit = {}
 ): Promise<T> => {
   try {
+    const authHeaders = AuthApiService.createAuthHeaders()
+    
     const response = await fetch(`${API_BASE_URL}${endpoint}`, {
       headers: {
-        'Content-Type': 'application/json',
+        ...authHeaders,
         'Accept': 'application/json',
         ...options.headers,
       },
-      // Remove credentials to avoid CORS issues with wildcard origin
-      // credentials: 'include',
       ...options,
     })
 
     if (!response.ok) {
+      // Handle auth errors
+      if (response.status === 401) {
+        AuthApiService.clearAuthData()
+        throw new Error('Unauthorized - please login again')
+      }
+      
       throw new Error(`HTTP ${response.status}: ${response.statusText}`)
     }
 
@@ -179,11 +186,35 @@ export class MonitoringApiService {
     }
   }
 
-  // Fetch low stock items - these don't exist in your backend, removing  
+  // Fetch low stock items - use correct endpoint or return empty array
   static async fetchLowStockItems(): Promise<StockItem[]> {
     try {
-      // Since there's no stock items endpoint, return empty array
-      console.log('Stock items endpoint not available in backend')
+      // Try different possible endpoints for stock/inventory
+      const possibleEndpoints = [
+        '/stock-items/low-stock',
+        '/inventory/low-stock', 
+        '/stock/low-stock',
+        '/stock-items',
+        '/inventory',
+        '/stock'
+      ]
+
+      for (const endpoint of possibleEndpoints) {
+        try {
+          const data = await apiRequest<any>(endpoint)
+          if (data && (data.success || Array.isArray(data))) {
+            const items = data.data || data
+            if (Array.isArray(items)) {
+              return items.filter(item => item.quantity <= (item.min_quantity || 10))
+            }
+          }
+        } catch (error) {
+          console.log(`Endpoint ${endpoint} not available`)
+          continue
+        }
+      }
+
+      console.log('No stock endpoints available, returning empty array')
       return []
     } catch (error) {
       console.error('Error fetching low stock items:', error)
@@ -235,26 +266,45 @@ export class MonitoringApiService {
   ): Promise<DetailedShiftSummary[]> {
     try {
       // Try different approaches based on what's available
-      
-      // If date and shift_type are specified, use the summary endpoint
-      if (date && date !== 'all' && shiftType && shiftType !== 'all') {
+      const possibleEndpoints = [
+        '/shifts/summaries/all',
+        '/shifts/summary',
+        '/shifts/summaries',
+        '/shifts'
+      ]
+
+      let allShifts: DetailedShiftSummary[] = []
+
+      // Try each endpoint until we find one that works
+      for (const endpoint of possibleEndpoints) {
         try {
-          const summaryData = await apiRequest<any>(`/shifts/summary/by-date?date=${date}&shift_type=${shiftType}`)
-          if (summaryData && Array.isArray(summaryData)) {
-            return this.filterShifts(summaryData, shiftType, status)
+          const data = await apiRequest<any>(endpoint)
+          if (data && (data.success || Array.isArray(data))) {
+            allShifts = data.data || data
+            if (Array.isArray(allShifts) && allShifts.length > 0) {
+              console.log(`Successfully fetched ${allShifts.length} shifts from ${endpoint}`)
+              break
+            }
           }
-        } catch (summaryError) {
-          console.log('Summary by date endpoint failed, trying alternatives')
+        } catch (error) {
+          console.log(`Endpoint ${endpoint} not available, trying next...`)
+          continue
         }
       }
 
-      // Fallback: combine opened and closed shifts
-      const [openedShifts, closedShifts] = await Promise.all([
-        this.fetchShiftsByStatus('opened'),
-        this.fetchShiftsByStatus('closed')
-      ])
+      // If no summary endpoints work, try combining opened and closed shifts
+      if (allShifts.length === 0) {
+        try {
+          const [openedShifts, closedShifts] = await Promise.all([
+            this.fetchShiftsByStatus('opened'),
+            this.fetchShiftsByStatus('closed')
+          ])
+          allShifts = [...openedShifts, ...closedShifts]
+        } catch (error) {
+          console.log('Failed to fetch shifts by status as well')
+        }
+      }
 
-      const allShifts = [...openedShifts, ...closedShifts]
       return this.filterShifts(allShifts, shiftType, status)
     } catch (error) {
       console.error('Error fetching detailed shift summaries:', error)

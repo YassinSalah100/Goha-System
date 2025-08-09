@@ -1,6 +1,7 @@
 "use client"
 
 import { useState, useEffect, useMemo } from "react"
+import { AuthApiService } from "@/lib/services/auth-api"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -128,13 +129,8 @@ function StockReportsTab() {
   const fetchDailyReport = async () => {
     try {
       setLoading(true)
-      const response = await fetch(`${API_BASE_URL}/stock-reports/daily?date=${reportDate}`)
+      const result = await AuthApiService.apiRequest<any>(`/stock-reports/daily?date=${reportDate}`)
       
-      if (!response.ok) {
-        throw new Error('Failed to fetch daily report')
-      }
-      
-      const result = await response.json()
       setDailyReport(result.data)
       
       toast({
@@ -164,13 +160,8 @@ function StockReportsTab() {
 
     try {
       setLoading(true)
-      const response = await fetch(`${API_BASE_URL}/stock-reports/shift/${selectedShiftId}?date=${reportDate}`)
+      const result = await AuthApiService.apiRequest<any>(`/stock-reports/shift/${selectedShiftId}?date=${reportDate}`)
       
-      if (!response.ok) {
-        throw new Error('Failed to fetch shift report')
-      }
-      
-      const result = await response.json()
       setShiftReport(result.data)
       
       toast({
@@ -191,13 +182,8 @@ function StockReportsTab() {
   const fetchAllTransactions = async () => {
     try {
       setLoading(true)
-      const response = await fetch(`${API_BASE_URL}/stock-transactions?limit=50`)
+      const result = await AuthApiService.apiRequest<any>('/stock-transactions?limit=50')
       
-      if (!response.ok) {
-        throw new Error('Failed to fetch transactions')
-      }
-      
-      const result = await response.json()
       setAllTransactions(result.data.transactions || [])
       
       toast({
@@ -229,18 +215,16 @@ function StockReportsTab() {
       setLoading(true)
       
       // Fetch transactions for the item
-      const transactionsResponse = await fetch(`${API_BASE_URL}/stock-transactions/stock-item/${selectedStockItemId}`)
-      if (!transactionsResponse.ok) {
-        throw new Error('Failed to fetch item transactions')
-      }
-      const transactionsResult = await transactionsResponse.json()
+      const transactionsResult = await AuthApiService.apiRequest<any>(`/stock-transactions/stock-item/${selectedStockItemId}`)
       setItemTransactions(transactionsResult.data || [])
 
       // Fetch stats for the item
-      const statsResponse = await fetch(`${API_BASE_URL}/stock-transactions/stats/${selectedStockItemId}`)
-      if (statsResponse.ok) {
-        const statsResult = await statsResponse.json()
+      try {
+        const statsResult = await AuthApiService.apiRequest<any>(`/stock-transactions/stats/${selectedStockItemId}`)
         setItemStats(statsResult.data || null)
+      } catch (statsError) {
+        console.warn("Could not fetch item stats:", statsError)
+        setItemStats(null)
       }
       
       toast({
@@ -1101,10 +1085,8 @@ export default function EnhancedStockPage() {
   const fetchStockItems = async () => {
     try {
       setLoading(true)
-      const response = await fetch(`${API_BASE_URL}/stock-items`)
-      if (!response.ok) throw new Error("Failed to fetch stock items")
-      const result = await response.json()
-
+      const result = await AuthApiService.apiRequest<any>('/stock-items')
+      
       const items = result.data?.stockItems || []
       setStockItems(items)
     } catch (error) {
@@ -1122,10 +1104,8 @@ export default function EnhancedStockPage() {
 
   const fetchLowStockItems = async () => {
     try {
-      const response = await fetch(`${API_BASE_URL}/stock-items/low-stock`)
-      if (!response.ok) throw new Error("Failed to fetch low stock items")
-      const result = await response.json()
-
+      const result = await AuthApiService.apiRequest<any>('/stock-items/low-stock')
+      
       const items = Array.isArray(result) ? result : result.data || []
       setLowStockItems(items)
     } catch (error) {
@@ -1137,10 +1117,8 @@ export default function EnhancedStockPage() {
   const fetchStockItemsByType = async (type: string) => {
     try {
       setLoading(true)
-      const response = await fetch(`${API_BASE_URL}/stock-items/type/${type}`)
-      if (!response.ok) throw new Error("Failed to fetch stock items by type")
-      const result = await response.json()
-
+      const result = await AuthApiService.apiRequest<any>(`/stock-items/type/${type}`)
+      
       const items = result.data?.stockItems || []
       setStockItems(items)
     } catch (error) {
@@ -1186,27 +1164,22 @@ export default function EnhancedStockPage() {
         status: StockItemStatus.AVAILABLE, // always use correct value
       }
 
-      const response = await fetch(`${API_BASE_URL}/stock-items`, {
+      const result = await AuthApiService.apiRequest<any>('/stock-items', {
         method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
         body: JSON.stringify(requestBody),
       })
 
-      if (!response.ok) {
-        const errorData = await response.json()
-        if (errorData.errors && Array.isArray(errorData.errors)) {
-          const errorMessages = errorData.errors
+      if (!result.success) {
+        if (result.errors && Array.isArray(result.errors)) {
+          const errorMessages = result.errors
             .map((err: any) => `${err.path || err.param}: ${err.msg || err.message}`)
             .join(", ")
           throw new Error(`Validation failed: ${errorMessages}`)
         }
-        const errorMessage = errorData.message || errorData.error || "Unknown error"
+        const errorMessage = result.message || result.error || "Unknown error"
         throw new Error(`Failed to create stock item: ${errorMessage}`)
       }
 
-      const result = await response.json()
       const createdItem = result.data
 
       // Create initial transaction for the newly added item
@@ -1224,19 +1197,12 @@ export default function EnhancedStockPage() {
             notes: `Initial stock for new item: ${createdItem.name}`,
           }
 
-          const transactionResponse = await fetch(`${API_BASE_URL}/stock-transactions`, {
+          await AuthApiService.apiRequest<any>('/stock-transactions', {
             method: "POST",
-            headers: {
-              "Content-Type": "application/json",
-            },
             body: JSON.stringify(transactionData),
           })
 
-          if (!transactionResponse.ok) {
-            console.warn("Failed to create initial transaction record:", await transactionResponse.text())
-          } else {
-            console.log("Initial transaction recorded successfully")
-          }
+          console.log("Initial transaction recorded successfully")
         } catch (transactionError) {
           console.warn("Error creating initial transaction:", transactionError)
           // Don't fail the main operation if transaction creation fails
@@ -1278,11 +1244,8 @@ export default function EnhancedStockPage() {
           : Math.max(0, selectedItem.current_quantity - updateQuantity)
 
       // First, update the stock item
-      const response = await fetch(`${API_BASE_URL}/stock-items/${selectedItem.stock_item_id}`, {
+      const updatedItem = await AuthApiService.apiRequest<any>(`/stock-items/${selectedItem.stock_item_id}`, {
         method: "PUT",
-        headers: {
-          "Content-Type": "application/json",
-        },
         body: JSON.stringify({
           name: selectedItem.name,
           type: selectedItem.type,
@@ -1292,11 +1255,6 @@ export default function EnhancedStockPage() {
           status: selectedItem.status || "available",
         }),
       })
-
-      if (!response.ok) throw new Error("Failed to update stock item")
-
-      const result = await response.json()
-      const updatedItem = result.data
 
       // Create a transaction record
       try {
@@ -1312,19 +1270,12 @@ export default function EnhancedStockPage() {
           notes: `Stock ${updateType === "add" ? "addition" : "reduction"} for ${selectedItem.name}`,
         }
 
-        const transactionResponse = await fetch(`${API_BASE_URL}/stock-transactions`, {
+        await AuthApiService.apiRequest<any>('/stock-transactions', {
           method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-          },
           body: JSON.stringify(transactionData),
         })
 
-        if (!transactionResponse.ok) {
-          console.warn("Failed to create transaction record:", await transactionResponse.text())
-        } else {
-          console.log("Transaction recorded successfully")
-        }
+        console.log("Transaction recorded successfully")
       } catch (transactionError) {
         console.warn("Error creating transaction:", transactionError)
         // Don't fail the main operation if transaction creation fails
@@ -1355,11 +1306,8 @@ export default function EnhancedStockPage() {
     if (!selectedItem) return
 
     try {
-      const response = await fetch(`${API_BASE_URL}/stock-items/${selectedItem.stock_item_id}`, {
+      const updatedItem = await AuthApiService.apiRequest<any>(`/stock-items/${selectedItem.stock_item_id}`, {
         method: "PUT",
-        headers: {
-          "Content-Type": "application/json",
-        },
         body: JSON.stringify({
           name: selectedItem.name,
           type: selectedItem.type,
@@ -1369,12 +1317,8 @@ export default function EnhancedStockPage() {
           status: selectedItem.status || "available",
         }),
       })
-
-      if (!response.ok) throw new Error("Failed to update stock item")
-
-      const result = await response.json()
-      const updatedItem = result.data
-      setStockItems(stockItems.map((item) => (item.stock_item_id === selectedItem.stock_item_id ? updatedItem : item)))
+      
+      setStockItems(stockItems.map((item) => (item.stock_item_id === selectedItem.stock_item_id ? updatedItem.data : item)))
 
       setShowEditDialog(false)
       setSelectedItem(null)
@@ -1396,11 +1340,9 @@ export default function EnhancedStockPage() {
     if (!confirm("هل أنت متأكد من حذف هذا العنصر؟")) return
 
     try {
-      const response = await fetch(`${API_BASE_URL}/stock-items/${itemId}`, {
+      await AuthApiService.apiRequest<any>(`/stock-items/${itemId}`, {
         method: "DELETE",
       })
-
-      if (!response.ok) throw new Error("Failed to delete stock item")
 
       setStockItems(stockItems.filter((item) => item.stock_item_id !== itemId))
 

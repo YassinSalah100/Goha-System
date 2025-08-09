@@ -12,6 +12,7 @@ import { useReactToPrint } from "react-to-print"
 import { useRouter } from "next/navigation"
 import { Textarea } from "@/components/ui/textarea"
 import { Alert, AlertDescription } from "@/components/ui/alert"
+import { AuthApiService } from "@/lib/services/auth-api"
 
 const API_BASE_URL = "http://20.77.41.130:3000/api/v1"
 
@@ -206,7 +207,21 @@ export default function SalesPage() {
 
   // Enhanced user and shift data fetching
   useEffect(() => {
-    fetchAllData()
+    // Add a small delay to ensure localStorage is ready after navigation
+    const initializeData = async () => {
+      // Check localStorage state
+      console.log('Cashier page loading - checking localStorage...')
+      console.log('AuthToken:', localStorage.getItem('authToken') ? 'Present' : 'Missing')
+      console.log('CurrentUser:', localStorage.getItem('currentUser') ? 'Present' : 'Missing')
+      
+      // Small delay to ensure localStorage is fully committed after navigation
+      await new Promise(resolve => setTimeout(resolve, 100))
+      
+      fetchAllData()
+    }
+    
+    initializeData()
+    
     // Set cashier and shift from localStorage with better error handling
     if (typeof window !== "undefined") {
       const user = JSON.parse(localStorage.getItem("currentUser") || "{}")
@@ -255,9 +270,8 @@ export default function SalesPage() {
     setError(null)
     try {
       // Fetch categories
-      const categoriesResponse = await fetch(`${API_BASE_URL}/categories`)
-      if (!categoriesResponse.ok) throw new Error("Failed to fetch categories")
-      const categoriesData = await categoriesResponse.json()
+      const categoriesData = await AuthApiService.apiRequest<any>('/categories')
+      if (!categoriesData.success) throw new Error("Failed to fetch categories")
       const categoriesList = categoriesData.success ? categoriesData.data.categories || categoriesData.data : []
       setCategories(categoriesList)
       if (categoriesList.length > 0 && !activeCategory) {
@@ -275,14 +289,13 @@ export default function SalesPage() {
       // Keep fetching pages until no more products are returned
       while (hasMoreProducts) {
         console.log(`Fetching products page ${page} with limit ${limit}...`);
-        const productsResponse = await fetch(`${API_BASE_URL}/products?page=${page}&limit=${limit}`);
+        const productsData = await AuthApiService.apiRequest<any>(`/products?page=${page}&limit=${limit}`);
         
-        if (!productsResponse.ok) {
-          console.error(`Error fetching products page ${page}:`, productsResponse.status);
+        if (!productsData.success) {
+          console.error(`Error fetching products page ${page}:`, productsData.message);
           throw new Error("Failed to fetch products");
         }
         
-        const productsData = await productsResponse.json();
         console.log(`Products page ${page} response:`, productsData);
         
         let productsArray: any[] = [];
@@ -342,7 +355,21 @@ export default function SalesPage() {
       setExtras(extrasList)
     } catch (err) {
       console.error("Error fetching data:", err)
-      setError(err instanceof Error ? err.message : "Failed to fetch data")
+      
+      // Handle specific error types
+      let errorMessage = "حدث خطأ غير متوقع"
+      
+      if (err instanceof Error) {
+        if (err.message.includes('Unauthorized') || err.message.includes('Authentication required')) {
+          errorMessage = "لا تملك صلاحية للوصول إلى هذه البيانات. يرجى الاتصال بالمدير لإضافة الصلاحيات المطلوبة."
+        } else if (err.message.includes('Failed to fetch')) {
+          errorMessage = "فشل في الاتصال بالخادم. يرجى التحقق من الاتصال بالإنترنت."
+        } else {
+          errorMessage = err.message
+        }
+      }
+      
+      setError(errorMessage)
     } finally {
       setLoading(false)
     }

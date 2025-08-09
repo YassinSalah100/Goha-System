@@ -1,18 +1,27 @@
 import { Product, Category, CategorySize, Extra, ProductSubmissionData, ApiResponse } from '@/lib/types/products'
+import { AuthApiService } from './auth-api'
 
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:3002/api"
 
-// Helper function for API calls
+// Helper function for API calls with authentication
 async function apiCall<T>(endpoint: string, options?: RequestInit): Promise<T> {
+  const authHeaders = AuthApiService.createAuthHeaders()
+  
   const response = await fetch(`${API_BASE_URL}${endpoint}`, {
     headers: {
-      'Content-Type': 'application/json',
+      ...authHeaders,
       ...options?.headers,
     },
     ...options,
   })
 
   if (!response.ok) {
+    // Handle auth errors
+    if (response.status === 401) {
+      AuthApiService.clearAuthData()
+      throw new Error('Unauthorized - please login again')
+    }
+    
     const error = await response.json().catch(() => ({ message: 'Network error' }))
     throw new Error(error.message || `HTTP error! status: ${response.status}`)
   }

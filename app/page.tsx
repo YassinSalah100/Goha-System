@@ -13,6 +13,8 @@ import { Eye, EyeOff, User, Lock, Clock, LogIn, KeyRound, AlertCircle } from "lu
 import Image from "next/image"
 import { Checkbox } from "@/components/ui/checkbox"
 import { toast } from "sonner"
+import { AuthApiService } from "@/lib/services/auth-api"
+import { LoginDto, CurrentUser, AuthResponseDto } from "@/lib/types/auth"
 
 const API_BASE_URL = "http://20.77.41.130:3000/api/v1"
 
@@ -66,33 +68,34 @@ export default function LoginPage() {
   // Check if user has active shift session
   const checkActiveShift = async (userId: string, authToken: string) => {
     try {
-      const response = await fetch(`${API_BASE_URL}/shifts/cashier/${userId}`, {
-        method: "GET",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${authToken}`,
-        },
-      })
+      // Temporarily store the token for the API call
+      const previousToken = localStorage.getItem('authToken')
+      localStorage.setItem('authToken', authToken)
+      
+      const response = await AuthApiService.apiRequest<any>(`/shifts/cashier/${userId}`)
 
-      if (response.ok) {
-        const result = await response.json()
-        console.log("All shifts for user:", result)
-        if (result.success && result.data && result.data.length > 0) {
-          // Find TRULY active shift - handle backend that sets end_time = start_time for new shifts
-          const activeShift = result.data.find(
-            (shift: any) =>
-              !shift.is_closed &&
-              (shift.status === "ACTIVE" ||
-                shift.status === "active" ||
-                shift.status === "open" ||
-                shift.status === "OPEN" ||
-                shift.status === "Open") &&
-              // If end_time equals start_time, it's a newly created active shift
-              (!shift.end_time || shift.end_time === shift.start_time),
-          )
-          console.log("Found truly active shift:", activeShift)
-          return activeShift
-        }
+      // Restore previous token state
+      if (previousToken) {
+        localStorage.setItem('authToken', previousToken)
+      } else {
+        localStorage.removeItem('authToken')
+      }
+
+      if (response.success && response.data && response.data.length > 0) {
+        // Find TRULY active shift - handle backend that sets end_time = start_time for new shifts
+        const activeShift = response.data.find(
+          (shift: any) =>
+            !shift.is_closed &&
+            (shift.status === "ACTIVE" ||
+              shift.status === "active" ||
+              shift.status === "open" ||
+              shift.status === "OPEN" ||
+              shift.status === "Open") &&
+            // If end_time equals start_time, it's a newly created active shift
+            (!shift.end_time || shift.end_time === shift.start_time),
+        )
+        console.log("Found truly active shift:", activeShift)
+        return activeShift
       }
       return null
     } catch (error) {
@@ -103,6 +106,10 @@ export default function LoginPage() {
 
   // Create new shift session
   const createShiftSession = async (userId: string, shiftType: string, authToken: string) => {
+    // Temporarily store the token for the API call
+    const previousToken = localStorage.getItem('authToken')
+    localStorage.setItem('authToken', authToken)
+    
     try {
       // Try different enum values until one works
       const possibleShiftTypes = [
@@ -124,28 +131,22 @@ export default function LoginPage() {
 
         console.log(`Attempting shift creation with shift_type: "${tryShiftType}"`)
 
-        const response = await fetch(`${API_BASE_URL}/shifts`, {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            Authorization: `Bearer ${authToken}`,
-          },
-          body: JSON.stringify(payload),
-        })
+        try {
+          const result = await AuthApiService.apiRequest<any>('/shifts', {
+            method: "POST",
+            body: JSON.stringify(payload),
+          })
 
-        if (response.ok) {
-          const result = await response.json()
           console.log(`SUCCESS with shift_type: "${tryShiftType}"`, result)
           if (result.success && result.data) {
             return result.data
           }
-        } else {
-          const errorData = await response.json()
-          console.log(`FAILED with shift_type: "${tryShiftType}"`, errorData)
+        } catch (error: any) {
+          console.log(`FAILED with shift_type: "${tryShiftType}"`, error.message)
 
           // If this is the last attempt, throw the error
           if (tryShiftType === possibleShiftTypes[possibleShiftTypes.length - 1]) {
-            throw new Error(errorData.message || `Backend error: ${response.status}`)
+            throw new Error(error.message || `Backend error: ${error.status || 'Unknown'}`)
           }
         }
       }
@@ -154,6 +155,13 @@ export default function LoginPage() {
     } catch (error) {
       console.error("Error creating shift session:", error)
       throw error
+    } finally {
+      // Restore previous token state
+      if (previousToken) {
+        localStorage.setItem('authToken', previousToken)
+      } else {
+        localStorage.removeItem('authToken')
+      }
     }
   }
 
@@ -163,226 +171,207 @@ export default function LoginPage() {
     setError("")
 
     try {
-      console.log("Attempting login with:", { username, shift })
+      console.log("Attempting login with:", { username, selectedRole })
 
-      const loginPayload = {
+      // Create login DTO matching backend expectations
+      const loginPayload: LoginDto = {
         username: username.trim(),
         password: password.trim(),
-        shift: shift,
       }
 
       console.log("Login payload:", loginPayload)
 
-      const response = await fetch(`${API_BASE_URL}/auth/login`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify(loginPayload),
+      // Use the AuthApiService for login
+      const authData: AuthResponseDto = await AuthApiService.login(loginPayload)
+      console.log("Login success response:", authData)
+
+      const userData = authData.user
+      const authToken = authData.token
+
+      if (!userData) {
+        throw new Error("No user data in response")
+      }
+
+      // Handle both id and user_id fields from backend
+      const userId = userData.user_id || userData.id
+      if (!userId) {
+        throw new Error("Invalid user data: Missing user ID")
+      }
+
+      // Handle both fullName and full_name fields from backend
+      const fullName = userData.full_name || userData.fullName || userData.username
+      if (!fullName && !userData.username) {
+        throw new Error("Invalid user data: Missing name")
+      }
+
+      let activeShift = null
+
+      // For cashiers, check/create shift session
+      if (selectedRole === "cashier") {
+        console.log("Checking for active shift session...")
+
+        // First check if user has an active shift
+        activeShift = await checkActiveShift(userId, authToken)
+
+        if (!activeShift) {
+          console.log("No active shift found, creating new shift session...")
+
+          try {
+            // Create new shift session
+            activeShift = await createShiftSession(userId, shift, authToken)
+
+            if (!activeShift) {
+              throw new Error("لم يتم إرجاع بيانات الوردية من الخادم")
+            }
+
+            toast.success("تم إنشاء جلسة وردية جديدة", {
+              description: `تم بدء وردية ${shift === "morning" ? "صباحية" : "مسائية"}`,
+            })
+          } catch (shiftError: any) {
+            console.error("Shift creation failed:", shiftError)
+
+            // Provide specific error message based on the error
+            let errorMessage = "فشل في إنشاء جلسة الوردية"
+
+            if (shiftError.message.includes("Backend error: 400")) {
+              errorMessage = "بيانات الوردية غير صحيحة - يرجى المحاولة مرة أخرى"
+            } else if (shiftError.message.includes("Backend error: 401")) {
+              errorMessage = "انتهت صلاحية تسجيل الدخول - يرجى تسجيل الدخول مرة أخرى"
+            } else if (shiftError.message.includes("Backend error: 403")) {
+              errorMessage = "غير مصرح لك بإنشاء وردية جديدة"
+            } else if (shiftError.message.includes("Backend error: 500")) {
+              errorMessage = "خطأ في الخادم - يرجى الاتصال بالمدير التقني"
+            } else if (shiftError.message) {
+              errorMessage = shiftError.message
+            }
+
+            throw new Error(errorMessage)
+          }
+        } else {
+          console.log("Active shift found:", activeShift)
+          toast.success("تم العثور على جلسة وردية نشطة", {
+            description: `الوردية ${activeShift.shift_type === "MORNING" || activeShift.shift_type === "morning" ? "الصباحية" : "المسائية"} نشطة`,
+          })
+        }
+      }
+
+      // Clear any existing user data
+      AuthApiService.clearAuthData()
+
+      // Store user data in the EXACT format your cashier page expects
+      const userToStore: CurrentUser = {
+        user_id: userId,
+        id: userId, // Add both formats
+        full_name: fullName,
+        fullName: fullName, // Add both formats
+        username: userData.username || username,
+        name: fullName, // Add this for cashier pages
+        role: selectedRole as 'owner' | 'admin' | 'cashier',
+        permissions: userData.userPermissions || [], // Add user permissions
+        shift: activeShift
+          ? {
+              shift_id: activeShift.shift_id,
+              type: activeShift.shift_type.toLowerCase(),
+              start_time: activeShift.start_time,
+              status: "active", // Your cashier pages check for "active" status
+              is_active: true,
+              is_closed: false,
+              opened_by: activeShift.opened_by,
+              shift_type: activeShift.shift_type,
+              workers: activeShift.workers || [],
+              shift_name: activeShift.shift_type.toLowerCase(), // Add this for orders page
+              // Store the raw shift data exactly as your cashier pages expect
+              ...activeShift,
+              end_time: null, // Override the backend's end_time
+            }
+          : null,
+        loginTime: new Date().toISOString(),
+      }
+
+      // Store user data and tokens
+      try {
+        localStorage.setItem("currentUser", JSON.stringify(userToStore))
+        
+        // Ensure token is stored properly
+        if (authToken && typeof authToken === 'string') {
+          localStorage.setItem("authToken", authToken)
+          console.log("Token stored successfully:", authToken.substring(0, 20) + "...")
+        } else {
+          console.error("Invalid token format:", authToken)
+          throw new Error("Invalid authentication token received")
+        }
+        
+        if (authData.expiresIn) {
+          // Convert seconds to milliseconds for expiration time
+          const expirationTime = Date.now() + (authData.expiresIn * 1000)
+          localStorage.setItem("tokenExpiration", expirationTime.toString())
+        }
+
+        // Save credentials if remember me is checked
+        if (rememberMe) {
+          localStorage.setItem(
+            "savedCredentials",
+            JSON.stringify({
+              username: username,
+              password: password,
+            }),
+          )
+        } else {
+          localStorage.removeItem("savedCredentials")
+        }
+      } catch (storageError) {
+        console.error("Failed to store user data:", storageError)
+        throw new Error("Failed to store user data")
+      }
+
+      setLoggedInUser(userToStore)
+
+      // Show success toast
+      toast.success("تم تسجيل الدخول بنجاح", {
+        description: `مرحباً ${userToStore.full_name}!`,
       })
 
-      console.log("Response status:", response.status)
+      console.log("Final user data stored:", userToStore)
 
-      if (response.ok) {
-        const loginData = await response.json()
-        console.log("Login success response:", loginData)
+      // Redirect based on selected role
+      console.log("Redirecting based on selected role:", selectedRole)
 
-        if (!loginData.success || !loginData.data) {
-          throw new Error("Invalid response format")
-        }
-
-        const authData = loginData.data
-        const userData = authData.user || authData
-        const authToken = authData.token || authData.accessToken
-
-        console.log("userData:", userData)
-
-        if (!userData) {
-          throw new Error("No user data in response")
-        }
-
-        if (!userData.user_id && !userData.id) {
-          throw new Error("Invalid user data: Missing user ID")
-        }
-
-        if (!userData.full_name && !userData.fullName && !userData.name && !userData.username) {
-          throw new Error("Invalid user data: Missing name")
-        }
-
-        const userId = userData.user_id || userData.id
-        let activeShift = null
-
-        // For cashiers, check/create shift session
-        if (selectedRole === "cashier") {
-          console.log("Checking for active shift session...")
-
-          // First check if user has an active shift
-          activeShift = await checkActiveShift(userId, authToken)
-
-          if (!activeShift) {
-            console.log("No active shift found, creating new shift session...")
-
-            try {
-              // Create new shift session
-              activeShift = await createShiftSession(userId, shift, authToken)
-
-              if (!activeShift) {
-                throw new Error("لم يتم إرجاع بيانات الوردية من الخادم")
-              }
-
-              toast.success("تم إنشاء جلسة وردية جديدة", {
-                description: `تم بدء وردية ${shift === "morning" ? "صباحية" : "مسائية"}`,
-              })
-            } catch (shiftError: any) {
-              console.error("Shift creation failed:", shiftError)
-
-              // Provide specific error message based on the error
-              let errorMessage = "فشل في إنشاء جلسة الوردية"
-
-              if (shiftError.message.includes("Backend error: 400")) {
-                errorMessage = "بيانات الوردية غير صحيحة - يرجى المحاولة مرة أخرى"
-              } else if (shiftError.message.includes("Backend error: 401")) {
-                errorMessage = "انتهت صلاحية تسجيل الدخول - يرجى تسجيل الدخول مرة أخرى"
-              } else if (shiftError.message.includes("Backend error: 403")) {
-                errorMessage = "غير مصرح لك بإنشاء وردية جديدة"
-              } else if (shiftError.message.includes("Backend error: 500")) {
-                errorMessage = "خطأ في الخادم - يرجى الاتصال بالمدير التقني"
-              } else if (shiftError.message) {
-                errorMessage = shiftError.message
-              }
-
-              throw new Error(errorMessage)
-            }
+      switch (selectedRole) {
+        case "cashier":
+          if (activeShift) {
+            console.log("Redirecting to cashier page with active shift:", userToStore.shift)
+            router.push("/cashier/sales")
           } else {
-            console.log("Active shift found:", activeShift)
-            toast.success("تم العثور على جلسة وردية نشطة", {
-              description: `الوردية ${activeShift.shift_type === "MORNING" || activeShift.shift_type === "morning" ? "الصباحية" : "المسائية"} نشطة`,
-            })
+            throw new Error("لا يمكن الوصول لصفحة الكاشير بدون جلسة وردية نشطة")
           }
-        }
-
-        // Clear any existing user data
-        localStorage.removeItem("currentUser")
-        localStorage.removeItem("authToken")
-        localStorage.removeItem("refreshToken")
-
-        // Store user data in the EXACT format your cashier page expects
-        const userToStore = {
-          user_id: userId,
-          full_name: userData.full_name || userData.fullName || userData.name || userData.username,
-          username: userData.username || username,
-          name: userData.full_name || userData.fullName || userData.name || userData.username, // Add this for cashier pages
-          role: selectedRole,
-          shift: activeShift
-            ? {
-                shift_id: activeShift.shift_id,
-                type: activeShift.shift_type.toLowerCase(),
-                start_time: activeShift.start_time,
-                status: "active", // Your cashier pages check for "active" status
-                is_active: true,
-                is_closed: false,
-                opened_by: activeShift.opened_by,
-                shift_type: activeShift.shift_type,
-                workers: activeShift.workers || [],
-                shift_name: activeShift.shift_type.toLowerCase(), // Add this for orders page
-                // Store the raw shift data exactly as your cashier pages expect
-                ...activeShift,
-                end_time: null, // Override the backend's end_time
-              }
-            : null,
-          loginTime: new Date().toISOString(),
-        }
-
-        // Store user data
-        try {
-          localStorage.setItem("currentUser", JSON.stringify(userToStore))
-          if (authToken) {
-            localStorage.setItem("authToken", authToken)
-          }
-          if (authData.refreshToken) {
-            localStorage.setItem("refreshToken", authData.refreshToken)
-          }
-
-          // Save credentials if remember me is checked
-          if (rememberMe) {
-            localStorage.setItem(
-              "savedCredentials",
-              JSON.stringify({
-                username: username,
-                password: password,
-              }),
-            )
-          } else {
-            localStorage.removeItem("savedCredentials")
-          }
-        } catch (storageError) {
-          console.error("Failed to store user data:", storageError)
-          throw new Error("Failed to store user data")
-        }
-
-        setLoggedInUser(userToStore)
-
-        // Show success toast
-        toast.success("تم تسجيل الدخول بنجاح", {
-          description: `مرحباً ${userToStore.full_name}!`,
-        })
-
-        console.log("Final user data stored:", userToStore)
-
-        // Redirect based on selected role
-        console.log("Redirecting based on selected role:", selectedRole)
-
-        switch (selectedRole) {
-          case "cashier":
-            if (activeShift) {
-              console.log("Redirecting to cashier page with active shift:", userToStore.shift)
-              router.push("/cashier/sales")
-            } else {
-              throw new Error("لا يمكن الوصول لصفحة الكاشير بدون جلسة وردية نشطة")
-            }
-            break
-          case "admin":
-            router.push("/admin")
-            break
-          case "owner":
-            router.push("/owner")
-            break
-          default:
-            router.push("/owner")
-        }
-      } else {
-        const errorData = await response.json()
-        console.error("Login error response:", errorData)
-
-        let errorMessage = "اسم المستخدم أو كلمة المرور غير صحيحة"
-
-        if (response.status === 401) {
-          errorMessage = errorData.message || "اسم المستخدم أو كلمة المرور غير صحيحة"
-          localStorage.removeItem("currentUser")
-          localStorage.removeItem("authToken")
-          localStorage.removeItem("refreshToken")
-        } else if (response.status === 400) {
-          if (errorData.errors && Array.isArray(errorData.errors)) {
-            errorMessage = errorData.errors.map((err: any) => err.msg || err.message).join(", ")
-          } else {
-            errorMessage = errorData.message || "بيانات تسجيل الدخول غير صحيحة"
-          }
-        } else if (response.status === 403) {
-          errorMessage = "غير مصرح لهذا المستخدم بالدخول كـ " + selectedRole
-        } else if (response.status === 500) {
-          errorMessage = "خطأ في الخادم - حاول مرة أخرى لاحقاً"
-        } else {
-          errorMessage = errorData.message || "حدث خطأ أثناء تسجيل الدخول"
-        }
-
-        setError(errorMessage)
-        toast.error("فشل تسجيل الدخول", {
-          description: errorMessage,
-        })
+          break
+        case "admin":
+          router.push("/admin")
+          break
+        case "owner":
+          router.push("/owner")
+          break
+        default:
+          router.push("/owner")
       }
     } catch (error: any) {
-      console.error("Login network error:", error)
-      const errorMessage = error.message || "حدث خطأ في الاتصال بالخادم"
+      console.error("Login error:", error)
+      
+      let errorMessage = "اسم المستخدم أو كلمة المرور غير صحيحة"
+
+      if (error.message?.includes('401') || error.message?.includes('Unauthorized')) {
+        errorMessage = "اسم المستخدم أو كلمة المرور غير صحيحة"
+        AuthApiService.clearAuthData()
+      } else if (error.message?.includes('400')) {
+        errorMessage = "بيانات تسجيل الدخول غير صحيحة"
+      } else if (error.message?.includes('403')) {
+        errorMessage = "غير مصرح لهذا المستخدم بالدخول كـ " + selectedRole
+      } else if (error.message?.includes('500')) {
+        errorMessage = "خطأ في الخادم - حاول مرة أخرى لاحقاً"
+      } else if (error.message) {
+        errorMessage = error.message
+      }
+
       setError(errorMessage)
       toast.error("فشل تسجيل الدخول", {
         description: errorMessage,
@@ -431,9 +420,7 @@ export default function LoginPage() {
   }
 
   const handleLogout = () => {
-    localStorage.removeItem("currentUser")
-    localStorage.removeItem("authToken")
-    localStorage.removeItem("refreshToken")
+    AuthApiService.clearAuthData()
     setLoggedInUser(null)
     setUsername("")
     setPassword("")

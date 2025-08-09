@@ -16,6 +16,8 @@ import { Pie } from "react-chartjs-2"
 import { Chart as ChartJS, ArcElement, Tooltip as ChartTooltip, Legend } from "chart.js"
 import { Avatar } from "@/components/ui/avatar"
 import { Tooltip } from "@/components/ui/tooltip"
+import { AuthApiService } from "@/lib/services/auth-api"
+import { RegisterDto } from "@/lib/types/auth"
 ChartJS.register(ArcElement, ChartTooltip, Legend)
 
 const API_BASE_URL = "http://20.77.41.130:3000/api/v1"
@@ -73,50 +75,30 @@ export default function AccountsPageFixed() {
   const [expandedPermissions, setExpandedPermissions] = useState<Set<string>>(new Set())
   const [userPermissionsMap, setUserPermissionsMap] = useState<Map<string, Permission[]>>(new Map())
 
-  // Get auth token
-  const getAuthToken = () => {
-    return localStorage.getItem("authToken")
-  }
-
   // Fetch accounts from API
   const fetchAccounts = async () => {
     setIsLoading(true)
     try {
-      const token = getAuthToken()
-      if (!token) {
-        toast.error("غير مصرح - يرجى تسجيل الدخول مرة أخرى")
-        return
-      }
-
-      const response = await fetch(`${API_BASE_URL}/users`, {
-        method: "GET",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${token}`,
-        },
-      })
-
+      const response = await AuthApiService.apiRequest<any>('/users')
+      
       console.log("Accounts API response:", response)
 
-      if (response.ok) {
-        const result = await response.json()
-        if (result.success && result.data) {
-          setAccounts(result.data)
-          // Fetch permissions for each user
-          await fetchAllUserPermissions(result.data)
-          toast.success(`تم تحميل ${result.data.length} حساب بنجاح`)
-        } else {
-          toast.error("فشل في تحميل الحسابات")
-        }
-      } else if (response.status === 401) {
+      if (response.success && response.data) {
+        setAccounts(response.data)
+        // Fetch permissions for each user
+        await fetchAllUserPermissions(response.data)
+        toast.success(`تم تحميل ${response.data.length} حساب بنجاح`)
+      } else {
+        toast.error("فشل في تحميل الحسابات")
+      }
+    } catch (error: any) {
+      console.error("Error fetching accounts:", error)
+      
+      if (error.message?.includes('Unauthorized')) {
         toast.error("انتهت صلاحية تسجيل الدخول - يرجى تسجيل الدخول مرة أخرى")
       } else {
-        const errorData = await response.json()
-        toast.error(errorData.message || "فشل في تحميل الحسابات")
+        toast.error("خطأ في الاتصال بالخادم")
       }
-    } catch (error) {
-      console.error("Error fetching accounts:", error)
-      toast.error("خطأ في الاتصال بالخادم")
     } finally {
       setIsLoading(false)
     }
@@ -128,42 +110,25 @@ export default function AccountsPageFixed() {
     
     try {
       // Fetch permissions for each user using the correct endpoints
-      const token = getAuthToken()
-      
       for (const user of users) {
         try {
           // Try the all-permissions endpoint first
-          const response = await fetch(`${API_BASE_URL}/permissions/user/${user.id}/all-permissions`, {
-            headers: {
-              "Content-Type": "application/json",
-              Authorization: `Bearer ${token}`,
-            },
-          })
+          const response = await AuthApiService.apiRequest<any>(`/permissions/user/${user.id}/all-permissions`)
 
-          if (response.ok) {
-            const result = await response.json()
-            if (result.success && result.data) {
-              permissionsMap.set(user.id, result.data)
-              continue
-            }
+          if (response.success && response.data) {
+            permissionsMap.set(user.id, response.data)
+            continue
           }
 
           // If that fails, try the regular permissions endpoint
-          const altResponse = await fetch(`${API_BASE_URL}/permissions/user/${user.id}/permissions`, {
-            headers: {
-              "Content-Type": "application/json",
-              Authorization: `Bearer ${token}`,
-            },
-          })
-
-          if (altResponse.ok) {
-            const altResult = await altResponse.json()
-            if (altResult.success && altResult.data) {
-              permissionsMap.set(user.id, altResult.data)
+          try {
+            const altResponse = await AuthApiService.apiRequest<any>(`/permissions/user/${user.id}/permissions`)
+            if (altResponse.success && altResponse.data) {
+              permissionsMap.set(user.id, altResponse.data)
             } else {
               permissionsMap.set(user.id, [])
             }
-          } else {
+          } catch (altError) {
             permissionsMap.set(user.id, [])
           }
         } catch (error) {
@@ -185,40 +150,26 @@ export default function AccountsPageFixed() {
   // Fetch permissions for a specific user
   const fetchUserPermissions = async (userId: string) => {
     try {
-      const token = getAuthToken()
       // Use the correct endpoint: /user/:userId/all-permissions
-      const response = await fetch(`${API_BASE_URL}/permissions/user/${userId}/all-permissions`, {
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${token}`,
-        },
-      })
+      const response = await AuthApiService.apiRequest<any>(`/permissions/user/${userId}/all-permissions`)
 
-      if (response.ok) {
-        const result = await response.json()
-        if (result.success && result.data) {
-          const newMap = new Map(userPermissionsMap)
-          newMap.set(userId, result.data)
-          setUserPermissionsMap(newMap)
-          return result.data
-        }
-      } else if (response.status === 404) {
+      if (response.success && response.data) {
+        const newMap = new Map(userPermissionsMap)
+        newMap.set(userId, response.data)
+        setUserPermissionsMap(newMap)
+        return response.data
+      } else {
         // Try alternative endpoint: /user/:userId/permissions
-        const altResponse = await fetch(`${API_BASE_URL}/permissions/user/${userId}/permissions`, {
-          headers: {
-            "Content-Type": "application/json",
-            Authorization: `Bearer ${token}`,
-          },
-        })
-
-        if (altResponse.ok) {
-          const altResult = await altResponse.json()
-          if (altResult.success && altResult.data) {
+        try {
+          const altResponse = await AuthApiService.apiRequest<any>(`/permissions/user/${userId}/permissions`)
+          if (altResponse.success && altResponse.data) {
             const newMap = new Map(userPermissionsMap)
-            newMap.set(userId, altResult.data)
+            newMap.set(userId, altResponse.data)
             setUserPermissionsMap(newMap)
-            return altResult.data
+            return altResponse.data
           }
+        } catch (altError) {
+          // Ignore alternative endpoint errors
         }
       }
       return []
@@ -289,35 +240,53 @@ export default function AccountsPageFixed() {
     setIsLoading(true)
     try {
       // Prepare data for API - match register DTO
-      const userData = {
+      const userData: RegisterDto = {
         username: formData.username.trim(),
         fullName: formData.fullName.trim(),
         password: formData.password.trim(),
-        ...(formData.phone.trim() ? { phone: formData.phone.trim() } : { phone: generateUniquePhone() }),
-        ...(formData.hourRate ? { hourRate: Number(formData.hourRate) } : {}),
+        phone: formData.phone.trim() || generateUniquePhone(),
+        hourRate: formData.hourRate ? Number(formData.hourRate) : 0,
       }
 
       console.log("Sending to /auth/register:", userData)
-      console.log("API URL:", `${API_BASE_URL}/auth/register`)
 
-      const response = await fetch(`${API_BASE_URL}/auth/register`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify(userData),
+      const result = await AuthApiService.register(userData)
+      console.log("Success response:", result)
+
+      toast.success("تم إنشاء الحساب بنجاح")
+
+      // Reset form
+      setFormData({
+        username: "",
+        fullName: "",
+        password: "",
+        phone: "",
+        hourRate: "",
       })
+      setShowCreateForm(false)
 
-      console.log("Response status:", response.status)
-
-      if (response.ok) {
-        const result = await response.json()
-        console.log("Success response:", result)
-
-        if (result.success) {
-          toast.success("تم إنشاء الحساب بنجاح")
-
-          // Reset form
+      // Refresh accounts list
+      await fetchAccounts()
+    } catch (error: any) {
+      console.error("Error creating account:", error)
+      
+      let errorMessage = "فشل في إنشاء الحساب"
+      
+      if (error.message?.includes("username")) {
+        errorMessage = "اسم المستخدم موجود بالفعل"
+      } else if (error.message?.includes("phone")) {
+        errorMessage = "رقم الهاتف موجود بالفعل - سيتم إنشاء رقم تلقائي"
+        // Retry with generated phone number
+        try {
+          const retryUserData: RegisterDto = {
+            username: formData.username.trim(),
+            fullName: formData.fullName.trim(),
+            password: formData.password.trim(),
+            phone: generateUniquePhone(),
+            hourRate: formData.hourRate ? Number(formData.hourRate) : 0,
+          }
+          const retryResult = await AuthApiService.register(retryUserData)
+          toast.success(`تم إنشاء الحساب بنجاح برقم هاتف: ${retryUserData.phone}`)
           setFormData({
             username: "",
             fullName: "",
@@ -326,56 +295,16 @@ export default function AccountsPageFixed() {
             hourRate: "",
           })
           setShowCreateForm(false)
-
-          // Refresh accounts list
           await fetchAccounts()
-        } else {
-          toast.error(result.message || "فشل في إنشاء الحساب")
+          return
+        } catch (retryError) {
+          errorMessage = "فشل في إنشاء الحساب حتى مع رقم هاتف جديد"
         }
-      } else {
-        const errorData = await response.json()
-        let errorMessage = "فشل في إنشاء الحساب"
-        if (response.status === 409) {
-          if (errorData.message?.includes("username")) {
-            errorMessage = "اسم المستخدم موجود بالفعل"
-          } else if (errorData.message?.includes("phone")) {
-            errorMessage = "رقم الهاتف موجود بالفعل - سيتم إنشاء رقم تلقائي"
-            // Retry with generated phone number
-            userData.phone = generateUniquePhone()
-            const retryResponse = await fetch(`${API_BASE_URL}/auth/register`, {
-              method: "POST",
-              headers: {
-                "Content-Type": "application/json",
-              },
-              body: JSON.stringify(userData),
-            })
-
-            if (retryResponse.ok) {
-              const retryResult = await retryResponse.json()
-              if (retryResult.success) {
-                toast.success(`تم إنشاء الحساب بنجاح برقم هاتف: ${userData.phone}`)
-                setFormData({
-                  username: "",
-                  fullName: "",
-                  password: "",
-                  phone: "",
-                  hourRate: "",
-                })
-                setShowCreateForm(false)
-                await fetchAccounts()
-                return
-              }
-            }
-          }
-        } else if (response.status === 400) {
-          errorMessage = errorData.message || "بيانات غير صحيحة"
-        }
-        console.log("Parsed error data:", errorData)
-        toast.error(errorMessage)
+      } else if (error.message) {
+        errorMessage = error.message
       }
-    } catch (error) {
-      console.error("Error creating account:", error)
-      toast.error("خطأ في الاتصال بالخادم")
+      
+      toast.error(errorMessage)
     } finally {
       setIsLoading(false)
     }
@@ -389,29 +318,20 @@ export default function AccountsPageFixed() {
 
     setIsLoading(true)
     try {
-      const token = getAuthToken()
-      if (!token) {
-        toast.error("غير مصرح - يرجى تسجيل الدخول مرة أخرى")
-        return
-      }
-
-      const response = await fetch(`${API_BASE_URL}/users/${userId}`, {
+      await AuthApiService.apiRequest(`/users/${userId}`, {
         method: "DELETE",
-        headers: {
-          Authorization: `Bearer ${token}`,
-        },
       })
 
-      if (response.ok) {
-        toast.success(`تم حذف حساب "${username}" بنجاح`)
-        await fetchAccounts()
-      } else {
-        const errorData = await response.json()
-        toast.error(errorData.message || "فشل في حذف الحساب")
-      }
-    } catch (error) {
+      toast.success(`تم حذف حساب "${username}" بنجاح`)
+      await fetchAccounts()
+    } catch (error: any) {
       console.error("Error deleting account:", error)
-      toast.error("خطأ في الاتصال بالخادم")
+      
+      if (error.message?.includes('Unauthorized')) {
+        toast.error("غير مصرح - يرجى تسجيل الدخول مرة أخرى")
+      } else {
+        toast.error(error.message || "فشل في حذف الحساب")
+      }
     } finally {
       setIsLoading(false)
     }
@@ -420,14 +340,7 @@ export default function AccountsPageFixed() {
   // Fetch all permissions for assign modal
   const fetchAllPermissions = async () => {
     try {
-      const token = getAuthToken()
-      const res = await fetch(`${API_BASE_URL}/permissions`, {
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${token}`,
-        },
-      })
-      const data = await res.json()
+      const data = await AuthApiService.apiRequest<any>('/permissions')
       if (data.success) {
         setAllPermissions(data.data || [])
       } else {
@@ -463,23 +376,19 @@ export default function AccountsPageFixed() {
     setAssignError(null)
     setAssignSuccess(null)
     try {
-      const token = getAuthToken()
-      const currentUser = JSON.parse(localStorage.getItem("currentUser") || '{}')
-      const grantedBy = currentUser.user_id || currentUser.id
-      const res = await fetch(`${API_BASE_URL}/permissions/assign`, {
+      const currentUser = AuthApiService.getCurrentUser()
+      const grantedBy = currentUser?.user_id || currentUser?.id
+
+      const data = await AuthApiService.apiRequest<any>('/permissions/assign', {
         method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${token}`,
-        },
         body: JSON.stringify({
           userId: selectedAccount.id,
           permissionIds: selectedPermissions,
           grantedBy,
         }),
       })
-      const data = await res.json()
-      if (res.ok && data.success) {
+
+      if (data.success) {
         setAssignSuccess("تم تعيين الأذونات بنجاح")
         setShowAssignModal(false)
         fetchAccounts()

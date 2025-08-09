@@ -30,7 +30,7 @@ export default function ShiftGuard({ children, requiredRole = "cashier", require
         if (!currentUser || !authToken) {
           console.log("ShiftGuard: No user data found")
           toast.error("يرجى تسجيل الدخول أولاً")
-          router.push("/login")
+          router.push("/")
           return
         }
 
@@ -41,7 +41,7 @@ export default function ShiftGuard({ children, requiredRole = "cashier", require
         if (userData.role !== requiredRole && requiredRole !== "owner") {
           console.log(`ShiftGuard: Role mismatch. Required: ${requiredRole}, Got: ${userData.role}`)
           toast.error(`غير مصرح لك بالوصول لهذه الصفحة`)
-          router.push("/login")
+          router.push("/")
           return
         }
 
@@ -57,7 +57,7 @@ export default function ShiftGuard({ children, requiredRole = "cashier", require
             localStorage.removeItem("authToken")
             localStorage.removeItem("refreshToken")
 
-            router.push("/login")
+            router.push("/")
             return
           }
 
@@ -97,7 +97,7 @@ export default function ShiftGuard({ children, requiredRole = "cashier", require
                   localStorage.removeItem("authToken")
                   localStorage.removeItem("refreshToken")
 
-                  router.push("/login")
+                  router.push("/")
                   return
                 }
 
@@ -105,7 +105,7 @@ export default function ShiftGuard({ children, requiredRole = "cashier", require
               } else {
                 console.log("ShiftGuard: No shift data in API response")
                 toast.error("لا يمكن التحقق من حالة الوردية")
-                router.push("/login")
+                router.push("/")
                 return
               }
             } else {
@@ -129,7 +129,7 @@ export default function ShiftGuard({ children, requiredRole = "cashier", require
         localStorage.removeItem("authToken")
         localStorage.removeItem("refreshToken")
 
-        router.push("/login")
+        router.push("/")
       } finally {
         setIsLoading(false)
       }

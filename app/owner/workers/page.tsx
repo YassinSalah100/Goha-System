@@ -3,6 +3,7 @@
 import type React from "react"
 import { useState, useEffect } from "react"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
+import { AuthApiService } from "@/lib/services/auth-api"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
@@ -145,12 +146,9 @@ export default function WorkerManagementPage() {
   const fetchWorkers = async () => {
     setLoadingWorkers(true)
     try {
-      const res = await fetch(`${API_BASE_URL}/workers`, {
-        headers: { Accept: "application/json" },
-      })
-      const responseData = await res.json()
-
-      if (res.ok && responseData.success) {
+      const responseData = await AuthApiService.apiRequest<any>('/workers')
+      
+      if (responseData.success) {
         setWorkers(responseData.data || [])
       }
     } catch (error) {
@@ -163,14 +161,11 @@ export default function WorkerManagementPage() {
   const handleDeleteWorker = async (workerId: string, workerName: string) => {
     setDeletingWorker(workerId)
     try {
-      const res = await fetch(`${API_BASE_URL}/workers/${workerId}`, {
-        method: "DELETE",
-        headers: { Accept: "application/json" },
+      const responseData = await AuthApiService.apiRequest<any>(`/workers/${workerId}`, {
+        method: "DELETE"
       })
 
-      const responseData = await res.json()
-
-      if (res.ok && responseData.success) {
+      if (responseData.success) {
         setMsg(`${arabicLabels.delete_success}: ${workerName}`)
         setMsgType("success")
         // Remove worker from local state
@@ -219,18 +214,12 @@ export default function WorkerManagementPage() {
         payload.phone = formattedPhone
       }
 
-      const res = await fetch(`${API_BASE_URL}/workers`, {
+      const responseData = await AuthApiService.apiRequest<any>('/workers', {
         method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Accept: "application/json",
-        },
         body: JSON.stringify(payload),
       })
 
-      const responseData = await res.json()
-
-      if (!res.ok) {
+      if (!responseData.success) {
         if (responseData.message) {
           throw new Error(responseData.message)
         } else if (responseData.errors && Array.isArray(responseData.errors)) {
@@ -243,7 +232,7 @@ export default function WorkerManagementPage() {
           setErrors(backendErrors)
           throw new Error(arabicLabels.validation_error)
         } else {
-          throw new Error(`HTTP ${res.status}: ${res.statusText}`)
+          throw new Error("Failed to create worker")
         }
       }
 

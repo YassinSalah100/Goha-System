@@ -5,6 +5,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { ScrollArea } from "@/components/ui/scroll-area"
+import { AuthApiService } from "@/lib/services/auth-api"
 import {
   Plus,
   Minus,
@@ -541,20 +542,19 @@ export default function CafeOrdersPage() {
     setError(null)
     try {
       // Fetch categories, sizes, and extras in parallel
-      const [categoriesResponse, sizesResponse, extrasResponse] = await Promise.all([
-        fetch(`${API_BASE_URL}/categories`),
-        fetch(`${API_BASE_URL}/category-sizes`),
-        fetch(`${API_BASE_URL}/category-extras`),
+      const [categoriesData, sizesData, extrasData] = await Promise.all([
+        AuthApiService.apiRequest<any>('/categories'),
+        AuthApiService.apiRequest<any>('/category-sizes'),
+        AuthApiService.apiRequest<any>('/category-extras'),
       ])
 
       // Fetch all products with pagination
-      let allProducts = []
+      let allProducts: any[] = []
       let page = 1
       const limit = 100
 
       while (true) {
-        const productsResponse = await fetch(`${API_BASE_URL}/products?page=${page}&limit=${limit}`)
-        const productsData = await productsResponse.json()
+        const productsData = await AuthApiService.apiRequest<any>(`/products?page=${page}&limit=${limit}`)
         
         if (productsData.success && productsData.data?.products?.length > 0) {
           allProducts = [...allProducts, ...productsData.data.products]
@@ -566,10 +566,6 @@ export default function CafeOrdersPage() {
           break // No more products or error
         }
       }
-
-      const categoriesData = await categoriesResponse.json()
-      const sizesData = await sizesResponse.json()
-      const extrasData = await extrasResponse.json()
 
       const categoriesList = categoriesData.success ? categoriesData.data.categories || categoriesData.data : []
       setCategories(categoriesList)

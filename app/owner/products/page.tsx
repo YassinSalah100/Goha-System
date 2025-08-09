@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from "react"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
+import { AuthApiService } from "@/lib/services/auth-api"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
@@ -172,34 +173,28 @@ export default function IntegratedProductManagement() {
   const fetchCategories = async () => {
     setLoadingStates((prev) => ({ ...prev, categories: true }))
     try {
-      const response = await fetch(`${API_BASE_URL}/categories`)
-      if (response.ok) {
-        const data = await response.json()
-        let categoriesArray: any[] = []
-        if (Array.isArray(data)) {
-          categoriesArray = data
-        } else if (data.data && Array.isArray(data.data)) {
-          categoriesArray = data.data
-        } else if (data.categories && Array.isArray(data.categories)) {
-          categoriesArray = data.categories
-        } else if (data.data && data.data.categories && Array.isArray(data.data.categories)) {
-          categoriesArray = data.data.categories
-        }
-
-        const validCategories = categoriesArray
-          .map((cat: any) => ({
-            id: cat.category_id || cat.id,
-            name: cat.name,
-            description: cat.description || "",
-            created_at: cat.created_at,
-          }))
-          .filter((cat: any) => cat && cat.id && cat.id !== "undefined" && cat.name)
-
-        setCategories(validCategories)
-      } else {
-        setCategories([])
-        showMessage("error", `خطأ في تحميل الفئات: ${response.status}`)
+      const data = await AuthApiService.apiRequest<any>('/categories')
+      let categoriesArray: any[] = []
+      if (Array.isArray(data)) {
+        categoriesArray = data
+      } else if (data.data && Array.isArray(data.data)) {
+        categoriesArray = data.data
+      } else if (data.categories && Array.isArray(data.categories)) {
+        categoriesArray = data.categories
+      } else if (data.data && data.data.categories && Array.isArray(data.data.categories)) {
+        categoriesArray = data.data.categories
       }
+
+      const validCategories = categoriesArray
+        .map((cat: any) => ({
+          id: cat.category_id || cat.id,
+          name: cat.name,
+          description: cat.description || "",
+          created_at: cat.created_at,
+        }))
+        .filter((cat: any) => cat && cat.id && cat.id !== "undefined" && cat.name)
+
+      setCategories(validCategories)
     } catch (error) {
       console.error("Error fetching categories:", error)
       setCategories([])
@@ -220,15 +215,8 @@ export default function IntegratedProductManagement() {
       // Keep fetching pages until no more products are returned
       while (hasMoreProducts) {
         console.log(`Fetching products page ${page} with limit ${limit}...`);
-        const response = await fetch(`${API_BASE_URL}/products?page=${page}&limit=${limit}`);
+        const data = await AuthApiService.apiRequest<any>(`/products?page=${page}&limit=${limit}`);
         
-        if (!response.ok) {
-          console.error(`Error fetching products page ${page}:`, response.status);
-          showMessage("error", `خطأ في تحميل المنتجات: ${response.status}`);
-          break;
-        }
-        
-        const data = await response.json();
         let productsArray: any[] = [];
         
         if (data.success && data.data && Array.isArray(data.data.products)) {
@@ -296,20 +284,18 @@ export default function IntegratedProductManagement() {
   const fetchSizes = async () => {
     setLoadingStates((prev) => ({ ...prev, sizes: true }))
     try {
-      const response = await fetch(`${API_BASE_URL}/category-sizes`)
-      if (response.ok) {
-        const data = await response.json()
-        let sizesArray: any[] = []
-        if (data.success && data.data && data.data.sizes && Array.isArray(data.data.sizes)) {
-          sizesArray = data.data.sizes
-        } else if (data.success && data.data && Array.isArray(data.data)) {
-          sizesArray = data.data
-        } else if (Array.isArray(data)) {
-          sizesArray = data
-        }
+      const data = await AuthApiService.apiRequest<any>('/category-sizes')
+      let sizesArray: any[] = []
+      if (data.success && data.data && data.data.sizes && Array.isArray(data.data.sizes)) {
+        sizesArray = data.data.sizes
+      } else if (data.success && data.data && Array.isArray(data.data)) {
+        sizesArray = data.data
+      } else if (Array.isArray(data)) {
+        sizesArray = data
+      }
 
-        const validSizes = sizesArray
-          .map((size: any) => ({
+      const validSizes = sizesArray
+        .map((size: any) => ({
             id: size.size_id,
             name: size.size_name,
             category_id: size.category ? size.category.category_id : "",
@@ -324,10 +310,6 @@ export default function IntegratedProductManagement() {
           .filter((size: any) => size && size.id && size.name)
 
         setSizes(validSizes)
-      } else {
-        setSizes([])
-        showMessage("error", `خطأ في تحميل الأحجام: ${response.status}`)
-      }
     } catch (error) {
       console.error("Error fetching sizes:", error)
       setSizes([])
@@ -340,15 +322,13 @@ export default function IntegratedProductManagement() {
   const fetchExtras = async () => {
     setLoadingStates((prev) => ({ ...prev, extras: true }))
     try {
-      const response = await fetch(`${API_BASE_URL}/category-extras`)
-      if (response.ok) {
-        const data = await response.json()
-        let extrasArray: any[] = []
-        // Handle the new API response structure for extras
-        if (data.success && data.data && data.data.extras && Array.isArray(data.data.extras)) {
-          extrasArray = data.data.extras
-        } else if (data.success && data.data && Array.isArray(data.data)) {
-          extrasArray = data.data
+      const data = await AuthApiService.apiRequest<any>('/category-extras')
+      let extrasArray: any[] = []
+      // Handle the new API response structure for extras
+      if (data.success && data.data && data.data.extras && Array.isArray(data.data.extras)) {
+        extrasArray = data.data.extras
+      } else if (data.success && data.data && Array.isArray(data.data)) {
+        extrasArray = data.data
         } else if (Array.isArray(data)) {
           extrasArray = data
         }
@@ -370,10 +350,6 @@ export default function IntegratedProductManagement() {
           .filter((extra: any) => extra && extra.id && extra.name)
 
         setExtras(extrasWithCategories)
-      } else {
-        setExtras([])
-        showMessage("error", `خطأ في تحميل الإضافات: ${response.status}`)
-      }
     } catch (error) {
       console.error("Error fetching extras:", error)
       setExtras([])
@@ -546,24 +522,16 @@ export default function IntegratedProductManagement() {
       }
 
       const categoryUrl = editingCategory
-        ? `${API_BASE_URL}/categories/${categoryForm.id}`
-        : `${API_BASE_URL}/categories`
+        ? `/categories/${categoryForm.id}`
+        : `/categories`
 
       console.log("Submitting category:", categoryData, "to:", categoryUrl)
 
-      const categoryResponse = await fetch(categoryUrl, {
+      const categoryResult = await AuthApiService.apiRequest<any>(categoryUrl, {
         method: editingCategory ? "PUT" : "POST",
-        headers: { "Content-Type": "application/json" },
         body: JSON.stringify(categoryData),
       })
 
-      if (!categoryResponse.ok) {
-        const errorText = await categoryResponse.text()
-        console.error("Category submission failed:", categoryResponse.status, errorText)
-        throw new Error(`فشل في حفظ الفئة: ${categoryResponse.status}`)
-      }
-
-      const categoryResult = await categoryResponse.json()
       const categoryId = editingCategory ? categoryForm.id : categoryResult.data?.category_id || categoryResult.id
 
       console.log("Category saved successfully, ID:", categoryId)
@@ -581,34 +549,18 @@ export default function IntegratedProductManagement() {
             if (size.id && !size.tempId) {
               // Update existing size
               console.log("Updating size:", size.id, sizeData)
-              const sizeResponse = await fetch(`${API_BASE_URL}/category-sizes/${size.id}`, {
+              await AuthApiService.apiRequest<any>(`/category-sizes/${size.id}`, {
                 method: "PUT",
-                headers: { "Content-Type": "application/json" },
                 body: JSON.stringify(sizeData),
               })
-
-              if (!sizeResponse.ok) {
-                const errorText = await sizeResponse.text()
-                console.error("Failed to update size:", errorText)
-              } else {
-                console.log("Size updated successfully")
-              }
+              console.log("Size updated successfully")
             } else {
               // Create new size
               console.log("Creating new size:", sizeData)
-              const sizeResponse = await fetch(`${API_BASE_URL}/category-sizes`, {
+              await AuthApiService.apiRequest<any>('/category-sizes', {
                 method: "POST",
-                headers: { "Content-Type": "application/json" },
                 body: JSON.stringify(sizeData),
               })
-
-              if (!sizeResponse.ok) {
-                const errorText = await sizeResponse.text()
-                console.error("Failed to create size:", errorText)
-              } else {
-                const result = await sizeResponse.json()
-                console.log("Size created successfully:", result)
-              }
             }
           } catch (sizeError) {
             console.error("Error processing size:", sizeError)
@@ -616,9 +568,7 @@ export default function IntegratedProductManagement() {
         }
       } else {
         console.log("No sizes to process")
-      }
-
-      // Handle extras - only process if there are extras to add/update
+      }      // Handle extras - only process if there are extras to add/update
       if (categoryForm.extras.length > 0) {
         console.log("Processing extras:", categoryForm.extras)
         for (const extra of categoryForm.extras) {
@@ -632,34 +582,19 @@ export default function IntegratedProductManagement() {
             if (extra.id && !extra.tempId) {
               // Update existing extra
               console.log("Updating extra:", extra.id, extraData)
-              const extraResponse = await fetch(`${API_BASE_URL}/category-extras/${extra.id}`, {
+              await AuthApiService.apiRequest<any>(`/category-extras/${extra.id}`, {
                 method: "PUT",
-                headers: { "Content-Type": "application/json" },
                 body: JSON.stringify(extraData),
               })
-
-              if (!extraResponse.ok) {
-                const errorText = await extraResponse.text()
-                console.error("Failed to update extra:", errorText)
-              } else {
-                console.log("Extra updated successfully")
-              }
+              console.log("Extra updated successfully")
             } else {
               // Create new extra
               console.log("Creating new extra:", extraData)
-              const extraResponse = await fetch(`${API_BASE_URL}/category-extras`, {
+              await AuthApiService.apiRequest<any>('/category-extras', {
                 method: "POST",
-                headers: { "Content-Type": "application/json" },
                 body: JSON.stringify(extraData),
               })
-
-              if (!extraResponse.ok) {
-                const errorText = await extraResponse.text()
-                console.error("Failed to create extra:", errorText)
-              } else {
-                const result = await extraResponse.json()
-                console.log("Extra created successfully:", result)
-              }
+              console.log("Extra created successfully")
             }
           } catch (extraError) {
             console.error("Error processing extra:", extraError)
@@ -905,19 +840,13 @@ const removeImage = () => {
       price: productForm.pricing.length > 0 ? productForm.pricing[0].price : 0, // Base price
     }
 
-    const productUrl = editingProduct ? `${API_BASE_URL}/products/${productForm.id}` : `${API_BASE_URL}/products`
+    const productUrl = editingProduct ? `/products/${productForm.id}` : `/products`
 
-    const productResponse = await fetch(productUrl, {
+    const productResult = await AuthApiService.apiRequest<any>(productUrl, {
       method: editingProduct ? "PUT" : "POST",
-      headers: { "Content-Type": "application/json" },
       body: JSON.stringify(productData),
     })
 
-    if (!productResponse.ok) {
-      throw new Error("فشل في حفظ المنتج")
-    }
-
-    const productResult = await productResponse.json()
     const productId = editingProduct ? productForm.id : productResult.data?.product_id || productResult.id
 
     // Handle product size pricing
@@ -935,16 +864,14 @@ const removeImage = () => {
 
       if (existingPricing) {
         // Update existing pricing
-        await fetch(`${API_BASE_URL}/product-size-prices/${existingPricing.id}`, {
+        await AuthApiService.apiRequest<any>(`/product-size-prices/${existingPricing.id}`, {
           method: "PUT",
-          headers: { "Content-Type": "application/json" },
           body: JSON.stringify(pricingData),
         })
       } else {
         // Create new pricing
-        await fetch(`${API_BASE_URL}/product-size-prices`, {
+        await AuthApiService.apiRequest<any>('/product-size-prices', {
           method: "POST",
-          headers: { "Content-Type": "application/json" },
           body: JSON.stringify(pricingData),
         })
       }
@@ -970,37 +897,28 @@ const removeImage = () => {
       console.log("Deleting size and related data:", sizeId)
       // Step 1: Delete all product-size-prices for this size
       try {
-        const productSizePricesResponse = await fetch(`${API_BASE_URL}/product-size-prices?size_id=${sizeId}`)
-        if (productSizePricesResponse.ok) {
-          const pricingData = await productSizePricesResponse.json()
-          const pricingArray = Array.isArray(pricingData) ? pricingData : pricingData.data || []
-          // Delete each pricing record
-          for (const pricing of pricingArray) {
-            await fetch(`${API_BASE_URL}/product-size-prices/${pricing.id || pricing.product_size_id}`, {
-              method: "DELETE",
-            })
-          }
+        const pricingData = await AuthApiService.apiRequest<any>(`/product-size-prices?size_id=${sizeId}`)
+        const pricingArray = Array.isArray(pricingData) ? pricingData : pricingData.data || []
+        // Delete each pricing record
+        for (const pricing of pricingArray) {
+          await AuthApiService.apiRequest<any>(`/product-size-prices/${pricing.id || pricing.product_size_id}`, {
+            method: "DELETE",
+          })
         }
       } catch (error) {
         console.warn("Error deleting product size prices:", error)
       }
 
       // Step 2: Delete the size
-      const response = await fetch(`${API_BASE_URL}/category-sizes/${sizeId}`, {
+      await AuthApiService.apiRequest<any>(`/category-sizes/${sizeId}`, {
         method: "DELETE",
       })
-
-      if (response.ok) {
-        showMessage("success", "تم حذف الحجم بنجاح")
-        await fetchAllData()
-      } else {
-        const errorText = await response.text()
-        console.error("Size delete failed:", response.status, errorText)
-        showMessage("error", `خطأ في حذف الحجم: ${response.status}`)
-      }
+      
+      showMessage("success", "تم حذف الحجم بنجاح")
+      await fetchAllData()
     } catch (error) {
       console.error("Error deleting size:", error)
-      showMessage("error", "خطأ في الاتصال")
+      showMessage("error", "خطأ في حذف الحجم")
     } finally {
       setLoading(false)
     }
@@ -1011,21 +929,15 @@ const removeImage = () => {
 
     setLoading(true)
     try {
-      const response = await fetch(`${API_BASE_URL}/category-extras/${extraId}`, {
+      await AuthApiService.apiRequest<any>(`/category-extras/${extraId}`, {
         method: "DELETE",
       })
 
-      if (response.ok) {
-        showMessage("success", "تم حذف الإضافة بنجاح")
-        await fetchAllData()
-      } else {
-        const errorText = await response.text()
-        console.error("Extra delete failed:", response.status, errorText)
-        showMessage("error", `خطأ في حذف الإضافة: ${response.status}`)
-      }
+      showMessage("success", "تم حذف الإضافة بنجاح")
+      await fetchAllData()
     } catch (error) {
       console.error("Error deleting extra:", error)
-      showMessage("error", "خطأ في الاتصال")
+      showMessage("error", "خطأ في حذف الإضافة")
     } finally {
       setLoading(false)
     }
