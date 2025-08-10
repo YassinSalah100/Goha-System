@@ -206,9 +206,9 @@ export default function LoginPage() {
 
       let activeShift = null
 
-      // For cashiers, check/create shift session
+      // For cashiers, check/create shift session (not needed for owner)
       if (selectedRole === "cashier") {
-        console.log("Checking for active shift session...")
+        console.log("Processing cashier login - checking for active shift session...")
 
         // First check if user has an active shift
         activeShift = await checkActiveShift(userId, authToken)
@@ -253,6 +253,8 @@ export default function LoginPage() {
             description: `الوردية ${activeShift.shift_type === "MORNING" || activeShift.shift_type === "morning" ? "الصباحية" : "المسائية"} نشطة`,
           })
         }
+      } else {
+        console.log("Non-cashier login - skipping shift creation for role:", selectedRole)
       }
 
       // Clear any existing user data
@@ -290,12 +292,13 @@ export default function LoginPage() {
 
       // Store user data and tokens
       try {
+        console.log("Storing user data for owner:", userToStore)
         localStorage.setItem("currentUser", JSON.stringify(userToStore))
         
         // Ensure token is stored properly
         if (authToken && typeof authToken === 'string') {
           localStorage.setItem("authToken", authToken)
-          console.log("Token stored successfully:", authToken.substring(0, 20) + "...")
+          console.log("Token stored successfully for owner:", authToken.substring(0, 20) + "...")
         } else {
           console.error("Invalid token format:", authToken)
           throw new Error("Invalid authentication token received")
@@ -335,6 +338,12 @@ export default function LoginPage() {
 
       // Redirect based on selected role
       console.log("Redirecting based on selected role:", selectedRole)
+      
+      // Verify data is actually stored before redirect
+      const storedUser = JSON.parse(localStorage.getItem("currentUser") || "{}")
+      const storedToken = localStorage.getItem("authToken")
+      console.log("Verification - Stored user:", storedUser)
+      console.log("Verification - Stored token:", storedToken ? "Present" : "Missing")
 
       switch (selectedRole) {
         case "cashier":
@@ -346,13 +355,20 @@ export default function LoginPage() {
           }
           break
         case "admin":
-          router.push("/admin")
+          console.log("Redirecting to admin page")
+          router.push("/admin/")
           break
         case "owner":
-          router.push("/owner")
+          console.log("Redirecting to owner page")
+          // Use window.location.replace with trailing slash
+          setTimeout(() => {
+            console.log("Executing owner page redirect with trailing slash")
+            window.location.replace("/owner/")
+          }, 100)
           break
         default:
-          router.push("/owner")
+          console.log("Redirecting to default owner page")
+          router.push("/owner/")
       }
     } catch (error: any) {
       console.error("Login error:", error)
@@ -514,7 +530,7 @@ export default function LoginPage() {
                                 ? "مالك"
                                 : "مستخدم"}
                         </p>
-                        {loggedInUser.shift && (
+                        {loggedInUser.shift && loggedInUser.role === "cashier" && (
                           <p className="text-xs text-green-600 font-medium">
                             وردية {loggedInUser.shift.type === "morning" ? "صباحية" : "مسائية"} نشطة
                           </p>
@@ -605,39 +621,42 @@ export default function LoginPage() {
                 </div>
               </motion.div>
 
-              <motion.div
-                initial={{ opacity: 0, x: -20 }}
-                animate={{ opacity: 1, x: 0 }}
-                transition={{ delay: 0.9, duration: 0.5 }}
-                className="space-y-3"
-              >
-                <Label className="text-base md:text-lg font-semibold text-gray-700 flex items-center">
-                  <Clock className="ml-2 h-5 w-5 text-orange-600" />
-                  نوع الوردية
-                </Label>
-                <RadioGroup defaultValue="morning" value={shift} onValueChange={setShift} className="space-y-3">
-                  <motion.div
-                    whileHover={{ scale: 1.02 }}
-                    whileTap={{ scale: 0.98 }}
-                    className="flex items-center space-x-3 bg-gradient-to-r from-orange-50 to-amber-50 p-3 md:p-4 rounded-xl border-2 border-orange-200 hover:border-orange-300 transition-all duration-300 cursor-pointer"
-                  >
-                    <RadioGroupItem value="morning" id="morning" className="text-orange-600" />
-                    <Label htmlFor="morning" className="text-base md:text-lg cursor-pointer font-medium">
-                      الوردية الصباحية (8:00 ص - 8:00 م)
-                    </Label>
-                  </motion.div>
-                  <motion.div
-                    whileHover={{ scale: 1.02 }}
-                    whileTap={{ scale: 0.98 }}
-                    className="flex items-center space-x-3 bg-gradient-to-r from-blue-50 to-indigo-50 p-3 md:p-4 rounded-xl border-2 border-blue-200 hover:border-blue-300 transition-all duration-300 cursor-pointer"
-                  >
-                    <RadioGroupItem value="evening" id="evening" className="text-blue-600" />
-                    <Label htmlFor="evening" className="text-base md:text-lg cursor-pointer font-medium">
-                      الوردية المسائية (8:00 م - 8:00 ص)
-                    </Label>
-                  </motion.div>
-                </RadioGroup>
-              </motion.div>
+              {/* Only show shift selection for cashier role */}
+              {selectedRole === "cashier" && (
+                <motion.div
+                  initial={{ opacity: 0, x: -20 }}
+                  animate={{ opacity: 1, x: 0 }}
+                  transition={{ delay: 0.9, duration: 0.5 }}
+                  className="space-y-3"
+                >
+                  <Label className="text-base md:text-lg font-semibold text-gray-700 flex items-center">
+                    <Clock className="ml-2 h-5 w-5 text-orange-600" />
+                    نوع الوردية
+                  </Label>
+                  <RadioGroup defaultValue="morning" value={shift} onValueChange={setShift} className="space-y-3">
+                    <motion.div
+                      whileHover={{ scale: 1.02 }}
+                      whileTap={{ scale: 0.98 }}
+                      className="flex items-center space-x-3 bg-gradient-to-r from-orange-50 to-amber-50 p-3 md:p-4 rounded-xl border-2 border-orange-200 hover:border-orange-300 transition-all duration-300 cursor-pointer"
+                    >
+                      <RadioGroupItem value="morning" id="morning" className="text-orange-600" />
+                      <Label htmlFor="morning" className="text-base md:text-lg cursor-pointer font-medium">
+                        الوردية الصباحية (8:00 ص - 8:00 م)
+                      </Label>
+                    </motion.div>
+                    <motion.div
+                      whileHover={{ scale: 1.02 }}
+                      whileTap={{ scale: 0.98 }}
+                      className="flex items-center space-x-3 bg-gradient-to-r from-blue-50 to-indigo-50 p-3 md:p-4 rounded-xl border-2 border-blue-200 hover:border-blue-300 transition-all duration-300 cursor-pointer"
+                    >
+                      <RadioGroupItem value="evening" id="evening" className="text-blue-600" />
+                      <Label htmlFor="evening" className="text-base md:text-lg cursor-pointer font-medium">
+                        الوردية المسائية (8:00 م - 8:00 ص)
+                      </Label>
+                    </motion.div>
+                  </RadioGroup>
+                </motion.div>
+              )}
 
               <motion.div
                 initial={{ opacity: 0, x: -20 }}

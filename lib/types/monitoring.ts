@@ -21,7 +21,7 @@ export interface Order {
   order_type: "dine-in" | "takeaway" | "delivery" | "cafe"
   phone_number?: string
   total_price: string | number
-  status: "pending" | "active" | "completed" | "cancelled"
+  status: "pending" | "active" | "completed" | "cancelled" // Note: backend may only support "pending", "completed", "cancelled"
   payment_method: "cash" | "card"
   created_at: string
   updated_at?: string
@@ -39,7 +39,7 @@ export interface Order {
     shift_name?: string
     shift_type?: "morning" | "night"
     start_time?: string
-    status?: "opened" | "closed"
+    status?: "opened" | "closed" // Backend only supports "opened" and "closed", not "active"
   }
 }
 
@@ -210,5 +210,12 @@ export interface TodayStats {
 export interface MonitoringFilters {
   selectedDate: string
   selectedShiftType: string
-  selectedShiftStatus: string
+  /**
+   * The selected shift status for filtering:
+   * - 'all': Show shifts of all statuses
+   * - 'opened': Show only open/active shifts
+   * - 'closed': Show only closed shifts
+   * - 'active': Will be mapped to 'opened' since backend only supports 'opened' and 'closed'
+   */
+  selectedShiftStatus: string  // Can be 'all', 'opened', 'closed', or 'active' (which maps to 'opened')
 }

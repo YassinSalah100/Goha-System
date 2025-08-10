@@ -17,13 +17,17 @@ export default function OwnerLayout({
 
   useEffect(() => {
     // Check if user is logged in and is an owner
+    console.log("OwnerLayout: Starting authorization check")
     const currentUser = JSON.parse(localStorage.getItem("currentUser") || "{}")
+    console.log("OwnerLayout: Found user data:", currentUser)
 
     if (!currentUser.username || currentUser.role !== "owner") {
+      console.log("OwnerLayout: User not authorized, redirecting to login")
       router.push("/")
       return
     }
 
+    console.log("OwnerLayout: User authorized, setting loading to false")
     setLoading(false)
   }, [router])
 

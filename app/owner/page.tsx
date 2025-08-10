@@ -18,7 +18,7 @@ interface OrderStats {
   averageOrderValue: number
   ordersByStatus: {
     pending: number
-    active: number
+    active: number // Note: in UI we use 'active', but API might expect different terminology
     completed: number
     cancelled: number
   }
@@ -196,9 +196,9 @@ export default function OwnerDashboard() {
   // Fetch all shift summaries
   const fetchShiftSummaries = async () => {
     try {
-      // Use the correct endpoint that exists on backend: /shifts/status/:status
-      // Let's try to get all shifts (you can adjust the status as needed)
-      const response = await AuthApiService.apiRequest<any>('/shifts/status/active')
+      // Use the correct shift status from backend enums: OPENED, CLOSED
+      console.log("Fetching opened shifts from /shifts/status/opened")
+      const response = await AuthApiService.apiRequest<any>('/shifts/status/opened')
       if (response.success && response.data) {
         let shiftsArr = Array.isArray(response.data)
           ? response.data
@@ -206,29 +206,33 @@ export default function OwnerDashboard() {
             ? response.data.shifts
             : []
         setRecentShifts(shiftsArr.slice(0, 5))
-        const activeShifts = shiftsArr.filter((shift: any) => shift.status === "active").length
-        return activeShifts
+        // Count opened shifts as "active" shifts
+        const openedShifts = shiftsArr.filter((shift: any) => shift.status === "opened").length
+        return openedShifts
       }
     } catch (error) {
-      console.log("Shifts endpoint not available on backend:", error)
-      // If that fails, try getting shifts by date
+      console.log("Opened shifts endpoint failed:", error)
+      
+      // Try to get closed shifts as fallback
       try {
-        const today = new Date().toISOString().split('T')[0]
-        const response2 = await AuthApiService.apiRequest<any>(`/shifts/by-date?date=${today}`)
-        if (response2.success && response2.data) {
-          let shiftsArr = Array.isArray(response2.data)
-            ? response2.data
-            : Array.isArray(response2.data.shifts)
-              ? response2.data.shifts
-              : []
+        console.log("Trying closed shifts from /shifts/status/closed")
+        const response = await AuthApiService.apiRequest<any>('/shifts/status/closed')
+        if (response.success && response.data) {
+          let shiftsArr = Array.isArray(response.data) ? response.data : response.data.shifts || []
           setRecentShifts(shiftsArr.slice(0, 5))
-          const activeShifts = shiftsArr.filter((shift: any) => shift.status === "active").length
-          return activeShifts
+          return 0 // Closed shifts don't count as active
         }
-      } catch (error2) {
-        console.log("Alternative shifts endpoint also not available:", error2)
-        setRecentShifts([])
+      } catch (closedError) {
+        console.log("Closed shifts endpoint also failed:", closedError)
       }
+      
+      // DO NOT attempt to use the /shifts/by-date endpoint - it causes 500 errors
+      // The route /:id comes before /by-date in the backend, so "by-date" is treated as an ID
+      console.log("⚠️ Both shifts endpoints failed. Backend only supports '/shifts/status/opened' and '/shifts/status/closed'")
+      console.log("Backend ShiftStatus enum: OPENED = 'opened', CLOSED = 'closed'")
+      
+      // Use empty array as fallback
+      setRecentShifts([])
     }
     return 0
   }
@@ -364,6 +368,7 @@ export default function OwnerDashboard() {
 
   // Initialize dashboard data
   const initializeDashboard = async () => {
+    console.log("OwnerDashboard: Starting dashboard initialization")
     setLoading(true)
     
     // Debug authentication state
@@ -393,6 +398,8 @@ export default function OwnerDashboard() {
         cancelledOrders: cancelledCount,
         inventoryValue: inventoryValue,
       })
+      
+      console.log("OwnerDashboard: Dashboard initialization completed successfully")
     } catch (error) {
       console.error("Failed to initialize dashboard:", error)
     } finally {
@@ -401,17 +408,32 @@ export default function OwnerDashboard() {
   }
 
   useEffect(() => {
+    console.log("OwnerDashboard: Component mounted")
     if (typeof window !== "undefined") {
       const user = JSON.parse(localStorage.getItem("currentUser") || "{}")
+      console.log("OwnerDashboard: User data:", user)
       setCurrentUser(user)
 
       if (user && user.role === "owner") {
+        console.log("OwnerDashboard: User is owner, initializing dashboard")
         initializeDashboard()
+      } else {
+        console.log("OwnerDashboard: User is not owner")
       }
     }
   }, [])
 
-  if (!currentUser) return null
+  if (!currentUser) {
+    console.log("OwnerDashboard: No current user found, showing loading")
+    return (
+      <div className="flex items-center justify-center min-h-screen">
+        <div className="text-center">
+          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-orange-600 mx-auto mb-4"></div>
+          <p>Loading user data...</p>
+        </div>
+      </div>
+    )
+  }
 
   if (loading) {
     return (
@@ -569,51 +591,53 @@ export default function OwnerDashboard() {
       </motion.div>
 
       <div className="grid gap-4 md:grid-cols-2">
-        {currentUser?.role === "owner" && (
-          <Card>
-            <CardHeader>
-              <CardTitle>Recent Shifts</CardTitle>
-            </CardHeader>
-            <CardContent>
-              <div className="space-y-4">
-                {recentShifts.length > 0 ? (
-                  recentShifts.map((shift) => (
-                    <div key={shift.shift_id} className="flex items-center justify-between bg-gray-50 p-3 rounded">
-                      <div>
-                        <p className="text-sm font-medium">{shift.shift_name || `Shift #${shift.shift_id.slice(-6)}`}</p>
-                        <p className="text-xs text-muted-foreground">{shift.cashier_name || "Unknown Cashier"}</p>
-                        <p className="text-xs text-muted-foreground">
-                          {new Date(shift.start_time).toLocaleDateString()} -
-                          {shift.end_time ? new Date(shift.end_time).toLocaleDateString() : "Active"}
-                        </p>
-                      </div>
-                      <div className="text-right">
-                        <p className="text-sm font-medium">{shift.total_revenue?.toFixed(2) || "0.00"} ج.م</p>
-                        <p className="text-xs text-muted-foreground">{shift.total_orders || 0} orders</p>
-                        <span
-                          className={`inline-flex items-center px-2 py-1 rounded-full text-xs font-medium ${
-                            shift.status === "active" ? "bg-green-100 text-green-800" : "bg-gray-100 text-gray-800"
-                          }`}
-                        >
-                          {shift.status}
-                        </span>
-                      </div>
+        <Card>
+          <CardHeader>
+            <CardTitle>Recent Shifts</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="space-y-4">
+              {recentShifts.length > 0 ? (
+                recentShifts.map((shift) => (
+                  <div key={shift.shift_id} className="flex items-center justify-between bg-gray-50 p-3 rounded">
+                    <div>
+                      <p className="text-sm font-medium">{shift.shift_name || `Shift #${shift.shift_id.slice(-6)}`}</p>
+                      <p className="text-xs text-muted-foreground">{shift.cashier_name || "Unknown Cashier"}</p>
+                      <p className="text-xs text-muted-foreground">
+                        {new Date(shift.start_time).toLocaleDateString()} -
+                        {shift.end_time ? new Date(shift.end_time).toLocaleDateString() : "Active"}
+                      </p>
                     </div>
-                  ))
-                ) : (
-                  <p className="text-sm text-muted-foreground">No recent shifts found</p>
-                )}
-                <Button
-                  variant="link"
-                  className="w-full text-orange-600 mt-2"
-                  onClick={() => router.push("/owner/shifts")}
-                >
-                  View all shifts
-                </Button>
-              </div>
-            </CardContent>
-          </Card>
-        )}
+                    <div className="text-right">
+                      <p className="text-sm font-medium">{shift.total_revenue?.toFixed(2) || "0.00"} ج.م</p>
+                      <p className="text-xs text-muted-foreground">{shift.total_orders || 0} orders</p>
+                      <span
+                        className={`inline-flex items-center px-2 py-1 rounded-full text-xs font-medium ${
+                          shift.status === "opened" ? "bg-green-100 text-green-800" : 
+                          shift.status === "closed" ? "bg-gray-100 text-gray-800" : 
+                          "bg-blue-100 text-blue-800"
+                        }`}
+                      >
+                        {shift.status === "opened" ? "Active" : 
+                         shift.status === "closed" ? "Closed" : 
+                         shift.status}
+                      </span>
+                    </div>
+                  </div>
+                ))
+              ) : (
+                <p className="text-sm text-muted-foreground">No recent shifts found</p>
+              )}
+              <Button
+                variant="link"
+                className="w-full text-orange-600 mt-2"
+                onClick={() => router.push("/owner/shifts")}
+              >
+                View all shifts
+              </Button>
+            </div>
+          </CardContent>
+        </Card>
 
         <Card>
           <CardHeader>

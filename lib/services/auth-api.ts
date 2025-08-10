@@ -9,14 +9,12 @@ export class AuthApiService {
   static getAuthToken(): string | null {
     if (typeof window === 'undefined') return null
     const token = localStorage.getItem('authToken')
-    console.log('AuthApiService.getAuthToken() - Retrieved token:', token ? `${token.substring(0, 20)}...` : 'null')
     
-    // Additional debugging: Check token expiration
+    // Check token expiration
     if (token) {
       try {
         // Validate token format first
         if (!this.isValidTokenFormat(token)) {
-          console.warn('Invalid token format, clearing token')
           this.clearAuthData()
           return null
         }
@@ -24,15 +22,12 @@ export class AuthApiService {
         const payload = JSON.parse(atob(token.split('.')[1]))
         const now = Math.floor(Date.now() / 1000)
         const isValid = payload.exp > now
-        console.log('Token payload exp:', payload.exp, 'Current time:', now, 'Token valid:', isValid)
         
         if (!isValid) {
-          console.warn('Token expired, clearing auth data')
           this.clearAuthData()
           return null
         }
       } catch (e) {
-        console.warn('Could not parse token payload, clearing token:', e)
         this.clearAuthData()
         return null
       }
@@ -55,7 +50,6 @@ export class AuthApiService {
    */
   static createAuthHeaders(): HeadersInit {
     const token = this.getAuthToken()
-    console.log('AuthApiService.createAuthHeaders() - Token available:', !!token)
     const headers: HeadersInit = {
       'Content-Type': 'application/json',
       'Accept': 'application/json',
@@ -63,23 +57,6 @@ export class AuthApiService {
     
     if (token) {
       headers['Authorization'] = `Bearer ${token}`
-      console.log('AuthApiService.createAuthHeaders() - Added Authorization header')
-      
-      // Debug: Log token payload to understand structure
-      try {
-        const payload = JSON.parse(atob(token.split('.')[1]))
-        console.log('Token payload structure:', {
-          userId: payload.userId,
-          username: payload.username,
-          permissions: payload.permissions,
-          exp: payload.exp,
-          iat: payload.iat
-        })
-      } catch (e) {
-        console.warn('Could not parse token payload for debugging:', e)
-      }
-    } else {
-      console.warn('AuthApiService.createAuthHeaders() - No token available for Authorization header')
     }
     
     return headers
@@ -104,11 +81,7 @@ export class AuthApiService {
       },
     }
 
-    console.log(`Making request to: ${url}`, {
-      method: config.method || 'GET',
-      headers: config.headers,
-      authToken: this.getAuthToken() ? 'Present' : 'Missing',
-    })
+    console.log(`Making request to: ${url}`)
 
     try {
       const response = await fetch(url, config)

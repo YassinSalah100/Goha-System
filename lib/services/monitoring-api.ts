@@ -233,23 +233,34 @@ export class MonitoringApiService {
     }
   }
 
-  // Fetch shifts by date - try multiple endpoints
+  // Fetch shifts by date - try multiple endpoints with better error handling
   static async fetchShiftsByDate(date: string): Promise<DetailedShiftSummary[]> {
     try {
       // Try the summary endpoint first
       try {
+        console.log(`Attempting to fetch shifts by date using summary endpoint for ${date}`)
         const summaryData = await apiRequest<any>(`/shifts/summary/by-date?date=${date}`)
         return summaryData.shifts || summaryData.data || summaryData || []
       } catch (summaryError) {
-        console.log('Summary endpoint failed, trying regular shifts by date')
+        console.log('Summary endpoint failed, trying alternative approach')
       }
 
-      // If summary fails, try to get regular shifts and transform them
+      // SKIP the /shifts/by-date endpoint since it's causing 500 errors
+      // Instead, try fetching all shifts and filtering by date client-side
       try {
-        const data = await apiRequest<any>(`/shifts/by-date?date=${date}`)
-        return data.shifts || data.data || data || []
-      } catch (regularError) {
-        console.log('Regular shifts by date also failed')
+        // Get both opened and closed shifts
+        const [openedShifts, closedShifts] = await Promise.all([
+          this.fetchShiftsByStatus('opened'),
+          this.fetchShiftsByStatus('closed')
+        ])
+        
+        // Combine and filter by date
+        const allShifts = [...openedShifts, ...closedShifts]
+        return allShifts.filter(shift => 
+          shift.start_time && shift.start_time.startsWith(date)
+        )
+      } catch (alternativeError) {
+        console.log('Alternative approach also failed')
         return []
       }
     } catch (error) {
@@ -265,6 +276,14 @@ export class MonitoringApiService {
     status?: string
   ): Promise<DetailedShiftSummary[]> {
     try {
+      console.log(`fetchDetailedShiftSummaries called with date: ${date}, type: ${shiftType}, status: ${status}`)
+      
+      // Map 'active' status to 'opened' since backend only supports 'opened' and 'closed'
+      const mappedStatus = status === 'active' ? 'opened' : status
+      console.log(`Status mapped from '${status}' to '${mappedStatus}'`)
+      
+      let allShifts: DetailedShiftSummary[] = []
+      
       // Try different approaches based on what's available
       const possibleEndpoints = [
         '/shifts/summaries/all',
@@ -273,11 +292,10 @@ export class MonitoringApiService {
         '/shifts'
       ]
 
-      let allShifts: DetailedShiftSummary[] = []
-
       // Try each endpoint until we find one that works
       for (const endpoint of possibleEndpoints) {
         try {
+          console.log(`Trying to fetch shifts from endpoint: ${endpoint}`)
           const data = await apiRequest<any>(endpoint)
           if (data && (data.success || Array.isArray(data))) {
             allShifts = data.data || data
@@ -295,17 +313,44 @@ export class MonitoringApiService {
       // If no summary endpoints work, try combining opened and closed shifts
       if (allShifts.length === 0) {
         try {
-          const [openedShifts, closedShifts] = await Promise.all([
-            this.fetchShiftsByStatus('opened'),
-            this.fetchShiftsByStatus('closed')
-          ])
-          allShifts = [...openedShifts, ...closedShifts]
+          console.log('No shifts found from summary endpoints, trying status-based endpoints')
+          
+          // Only fetch the specific status type or both based on mapped status
+          if (mappedStatus && mappedStatus !== 'all') {
+            console.log(`Fetching shifts with status: ${mappedStatus}`)
+            const fetchedShifts = await this.fetchShiftsByStatus(
+              mappedStatus === 'opened' ? 'opened' : 'closed'
+            )
+            allShifts = [...fetchedShifts]
+          } else {
+            // Fetch both statuses and combine
+            console.log('Fetching both opened and closed shifts')
+            const [openedShifts, closedShifts] = await Promise.all([
+              this.fetchShiftsByStatus('opened'),
+              this.fetchShiftsByStatus('closed')
+            ])
+            allShifts = [...openedShifts, ...closedShifts]
+          }
+          
+          console.log(`Retrieved ${allShifts.length} shifts from status-based endpoints`)
         } catch (error) {
           console.log('Failed to fetch shifts by status as well')
         }
       }
 
-      return this.filterShifts(allShifts, shiftType, status)
+      // Filter by date if provided
+      if (date && date !== 'all' && allShifts.length > 0) {
+        console.log(`Filtering shifts by date: ${date}`)
+        allShifts = allShifts.filter(shift => 
+          shift.start_time && shift.start_time.startsWith(date)
+        )
+      }
+      
+      // Apply remaining filters
+      const filteredShifts = this.filterShifts(allShifts, shiftType, status)
+      console.log(`After filtering: ${filteredShifts.length} shifts match criteria`)
+      
+      return filteredShifts
     } catch (error) {
       console.error('Error fetching detailed shift summaries:', error)
       return []
@@ -318,14 +363,24 @@ export class MonitoringApiService {
     shiftType?: string, 
     status?: string
   ): DetailedShiftSummary[] {
+    console.log(`Filtering shifts - type: ${shiftType}, status: ${status}`)
     let filtered = shifts
 
     if (shiftType && shiftType !== 'all') {
       filtered = filtered.filter(shift => shift.type === shiftType)
+      console.log(`After type filter: ${filtered.length} shifts`)
     }
 
     if (status && status !== 'all') {
-      filtered = filtered.filter(shift => shift.status === status)
+      // Handle different status names - map 'active' to 'opened'
+      // The backend only supports 'opened' and 'closed' status values
+      if (status === 'active') {
+        console.log('Mapping "active" status to "opened" for backend compatibility')
+        filtered = filtered.filter(shift => shift.status === 'opened')
+      } else {
+        filtered = filtered.filter(shift => shift.status === status)
+      }
+      console.log(`After status filter: ${filtered.length} shifts`)
     }
 
     return filtered

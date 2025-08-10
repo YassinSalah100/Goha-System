@@ -60,7 +60,8 @@ export function Header({ title }: HeaderProps) {
     })
   }
 
-  const getShiftText = (shift: string) => {
+  const getShiftText = (shift: string | undefined) => {
+    if (!shift) return ""
     return shift === "morning" ? "الوردية الصباحية (8ص - 8م)" : "الوردية المسائية (8م - 8ص)"
   }
 
@@ -82,9 +83,12 @@ export function Header({ title }: HeaderProps) {
                 <span className="font-medium text-gray-600">{formatDate(currentTime)}</span>
                 <span className="text-orange-500 font-bold">•</span>
                 <span className="font-medium text-gray-600">{formatTime(currentTime)}</span>
-                <Badge variant="outline" className="capitalize ml-1 md:mr-2 bg-orange-50 text-orange-700 border-orange-200 hover:bg-orange-100 transition-colors font-medium text-xs">
-                  {getShiftText(currentUser.shift)}
-                </Badge>
+                {/* Only show shift information for cashier role */}
+                {currentUser.role === "cashier" && currentUser.shift && (
+                  <Badge variant="outline" className="capitalize ml-1 md:mr-2 bg-orange-50 text-orange-700 border-orange-200 hover:bg-orange-100 transition-colors font-medium text-xs">
+                    {getShiftText(currentUser.shift.type || currentUser.shift.shift_type)}
+                  </Badge>
+                )}
               </div>
             </div>
           </div>
