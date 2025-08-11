@@ -161,6 +161,16 @@ export class AuthApiService {
       if (!data.success || !data.data) {
         throw new Error('Invalid response format')
       }
+      
+      // If user is owner, ensure OWNER_ACCESS is set
+      if (data.data.user && data.data.user.role === 'owner') {
+        if (!data.data.user.permissions) {
+          data.data.user.permissions = []
+        }
+        if (!data.data.user.permissions.includes('OWNER_ACCESS')) {
+          data.data.user.permissions.push('OWNER_ACCESS')
+        }
+      }
 
       return data.data
     } catch (error) {
@@ -297,6 +307,38 @@ export class AuthApiService {
   static hasRole(role: string): boolean {
     const userRole = this.getUserRole()
     return userRole === role
+  }
+  
+  /**
+   * Check if current user has owner access
+   */
+  static hasOwnerAccess(): boolean {
+    const user = this.getCurrentUser()
+    // Check if user role is owner or has OWNER_ACCESS permission
+    return user?.role === 'owner' || (Array.isArray(user?.permissions) && user?.permissions.includes('OWNER_ACCESS'))
+  }
+
+  /**
+   * Check if current user has specific permission
+   */
+  static hasPermission(permission: string | string[]): boolean {
+    // Owner access grants all permissions
+    if (this.hasOwnerAccess()) {
+      return true
+    }
+    
+    const user = this.getCurrentUser()
+    if (!user || !Array.isArray(user.permissions)) {
+      return false
+    }
+    
+    if (Array.isArray(permission)) {
+      // Check if user has any of the permissions
+      return permission.some(p => user.permissions.includes(p))
+    }
+    
+    // Check single permission
+    return user.permissions.includes(permission)
   }
 
   /**
