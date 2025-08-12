@@ -6,6 +6,7 @@ import { useEffect, useState } from "react"
 import { useRouter } from "next/navigation"
 import { Sidebar } from "@/components/layout/sidebar"
 import { Header } from "@/components/layout/header"
+import { AuthApiService } from "@/lib/services/auth-api"
 
 export default function AdminLayout({
   children,
@@ -17,9 +18,12 @@ export default function AdminLayout({
 
   useEffect(() => {
     // Check if user is logged in and is an admin
-    const currentUser = JSON.parse(localStorage.getItem("currentUser") || "{}")
+    if (!AuthApiService.isAuthenticated()) {
+      router.push("/")
+      return
+    }
 
-    if (!currentUser.username || currentUser.role !== "admin") {
+    if (AuthApiService.getUserRole() !== "admin") {
       router.push("/")
       return
     }

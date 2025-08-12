@@ -838,6 +838,7 @@ export default function EndShiftPageFixed() {
           body: JSON.stringify({
             closed_by: userId,
             notes: notes || null,
+            cash_drawer_amount: summaryData?.cash_drawer_amount || shiftStats.cashSales,
             local_stats: {
               totalOrders: shiftStats.totalOrders,
               totalSales: shiftStats.totalSales,

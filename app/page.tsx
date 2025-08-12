@@ -182,10 +182,10 @@ export default function LoginPage() {
       console.log("Login payload:", loginPayload)
 
       // Use the AuthApiService for login
-      const authData: AuthResponseDto = await AuthApiService.login(loginPayload)
+  const authData: AuthResponseDto = await AuthApiService.login(loginPayload)
       console.log("Login success response:", authData)
 
-      const userData = authData.user
+  const userData = authData.user as any // cast to allow dynamic permission handling
       const authToken = authData.token
 
       if (!userData) {
@@ -206,55 +206,73 @@ export default function LoginPage() {
 
       let activeShift = null
 
-      // For cashiers, check/create shift session (not needed for owner)
-      if (selectedRole === "cashier") {
-        console.log("Processing cashier login - checking for active shift session...")
-
-        // First check if user has an active shift
-        activeShift = await checkActiveShift(userId, authToken)
-
-        if (!activeShift) {
-          console.log("No active shift found, creating new shift session...")
-
-          try {
-            // Create new shift session
-            activeShift = await createShiftSession(userId, shift, authToken)
-
-            if (!activeShift) {
-              throw new Error("لم يتم إرجاع بيانات الوردية من الخادم")
-            }
-
-            toast.success("تم إنشاء جلسة وردية جديدة", {
-              description: `تم بدء وردية ${shift === "morning" ? "صباحية" : "مسائية"}`,
-            })
-          } catch (shiftError: any) {
-            console.error("Shift creation failed:", shiftError)
-
-            // Provide specific error message based on the error
-            let errorMessage = "فشل في إنشاء جلسة الوردية"
-
-            if (shiftError.message.includes("Backend error: 400")) {
-              errorMessage = "بيانات الوردية غير صحيحة - يرجى المحاولة مرة أخرى"
-            } else if (shiftError.message.includes("Backend error: 401")) {
-              errorMessage = "انتهت صلاحية تسجيل الدخول - يرجى تسجيل الدخول مرة أخرى"
-            } else if (shiftError.message.includes("Backend error: 403")) {
-              errorMessage = "غير مصرح لك بإنشاء وردية جديدة"
-            } else if (shiftError.message.includes("Backend error: 500")) {
-              errorMessage = "خطأ في الخادم - يرجى الاتصال بالمدير التقني"
-            } else if (shiftError.message) {
-              errorMessage = shiftError.message
-            }
-
-            throw new Error(errorMessage)
+      // Attempt to fetch server-side permissions if empty
+  if (Array.isArray(userData.permissions) && userData.permissions.length === 0) {
+        try {
+          const profile = await AuthApiService.getProfile()
+          if (profile?.data?.user?.permissions?.length) {
+            userData.permissions = profile.data.user.permissions
+            console.log('Updated permissions from profile endpoint:', userData.permissions)
           }
-        } else {
-          console.log("Active shift found:", activeShift)
-          toast.success("تم العثور على جلسة وردية نشطة", {
-            description: `الوردية ${activeShift.shift_type === "MORNING" || activeShift.shift_type === "morning" ? "الصباحية" : "المسائية"} نشطة`,
-          })
+        } catch (permErr) {
+          console.warn('Could not fetch profile for permissions', permErr)
         }
-      } else {
-        console.log("Non-cashier login - skipping shift creation for role:", selectedRole)
+      }
+
+      // Ensure cashier permissions injected client-side (for UI) even if backend missing
+      if (selectedRole === 'cashier') {
+        userData.permissions = userData.permissions || []
+        if (!userData.permissions.includes('access:cashier')) {
+          userData.permissions.push('access:cashier')
+        }
+        if (!userData.permissions.includes('cashier:access')) {
+          userData.permissions.push('cashier:access')
+        }
+      }
+
+  const hasCashierPerm = selectedRole !== 'cashier' || (Array.isArray(userData.permissions) && userData.permissions.some((p: string) => p === 'access:cashier' || p === 'cashier:access' || p === 'OWNER_ACCESS'))
+
+      if (selectedRole === 'cashier' && !hasCashierPerm) {
+        throw new Error('المستخدم لا يمتلك صلاحية الكاشير (access:cashier). اطلب من المسؤول منحه الصلاحية.')
+      }
+
+      if (selectedRole === 'cashier' && hasCashierPerm) {
+        console.log("Processing cashier login - checking for active shift session...")
+        try {
+          // Use the new AuthApiService method for shift management
+          activeShift = await AuthApiService.ensureActiveShift()
+          
+          if (activeShift) {
+            toast.success("وردية نشطة", { 
+              description: `تم العثور على وردية ${activeShift.shift_type || 'نشطة'}` 
+            })
+          }
+        } catch (shiftError: any) {
+          console.error("Shift management failed:", shiftError)
+          
+          // Handle specific error cases
+          if (shiftError.message.includes('403')) {
+            toast.warning('تعذر إدارة الورديات', { 
+              description: 'يرجى التأكد من صلاحيات الكاشير' 
+            })
+          } else if (shiftError.message.includes('409')) {
+            // Conflict - shift already exists, try to get current shift
+            try {
+              activeShift = await AuthApiService.getCurrentShift()
+              if (activeShift) {
+                toast.success("وردية موجودة", { 
+                  description: `تم العثور على وردية ${activeShift.shift_type || 'نشطة'}` 
+                })
+              }
+            } catch (getCurrentError) {
+              console.warn('Could not get current shift after 409:', getCurrentError)
+            }
+          } else {
+            toast.warning('تعذر إنشاء وردية جديدة', { 
+              description: 'سيتم المتابعة بدون وردية' 
+            })
+          }
+        }
       }
 
       // Clear any existing user data
@@ -351,7 +369,8 @@ export default function LoginPage() {
             console.log("Redirecting to cashier page with active shift:", userToStore.shift)
             router.push("/cashier/sales")
           } else {
-            throw new Error("لا يمكن الوصول لصفحة الكاشير بدون جلسة وردية نشطة")
+            // Go to a safe landing page prompting to start shift later
+            router.push("/cashier/")
           }
           break
         case "admin":

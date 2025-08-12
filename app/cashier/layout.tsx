@@ -6,6 +6,7 @@ import { useEffect, useState } from "react"
 import { useRouter } from "next/navigation"
 import { Sidebar } from "@/components/layout/sidebar"
 import { Header } from "@/components/layout/header"
+import { AuthApiService } from "@/lib/services/auth-api"
 
 export default function CashierLayout({
   children,
@@ -16,10 +17,13 @@ export default function CashierLayout({
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {
-    // Check if user is logged in and is a cashier
-    const currentUser = JSON.parse(localStorage.getItem("currentUser") || "{}")
+    // Check if user is logged in and has cashier access
+    if (!AuthApiService.isAuthenticated()) {
+      router.push("/")
+      return
+    }
 
-    if (!currentUser.username || currentUser.role !== "cashier") {
+    if (!AuthApiService.hasCashierAccess()) {
       router.push("/")
       return
     }

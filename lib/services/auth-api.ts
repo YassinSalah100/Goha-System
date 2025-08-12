@@ -4,6 +4,45 @@ const API_BASE_URL = "http://20.77.41.130:3000/api/v1"
 
 export class AuthApiService {
   /**
+   * Normalize permission names to backend-supported forms
+   */
+  static normalizePermissionName(permission: string): string {
+    switch (permission) {
+      case 'cashier:access':
+        return 'access:cashier'
+      // Handle both formats to ensure compatibility
+      case 'access:cashier':
+        return 'access:cashier'
+      default:
+        return permission
+    }
+  }
+
+  /**
+   * Decode current auth token payload (without verifying signature)
+   */
+  static decodeToken(token?: string): any | null {
+    try {
+      const t = token || this.getAuthToken()
+      if (!t) return null
+      const [, payload] = t.split('.')
+      if (!payload) return null
+      return JSON.parse(atob(payload))
+    } catch {
+      return null
+    }
+  }
+
+  /**
+   * Normalize an array of permissions
+   */
+  static normalizePermissions(perms: string[] | undefined | null): string[] {
+    if (!Array.isArray(perms)) return []
+    // Ensure uniqueness after normalization
+  const normalized = perms.map(p => this.normalizePermissionName(p))
+  return Array.from(new Set(normalized))
+  }
+  /**
    * Get the current auth token from localStorage
    */
   static getAuthToken(): string | null {
@@ -82,6 +121,9 @@ export class AuthApiService {
     }
 
     console.log(`Making request to: ${url}`)
+    if (config.method !== 'GET' && config.body && typeof config.body === 'string') {
+      console.log(`Request body for ${endpoint}:`, JSON.parse(config.body))
+    }
 
     try {
       const response = await fetch(url, config)
@@ -122,6 +164,14 @@ export class AuthApiService {
         try {
           const errorData = await response.json()
           errorMessage = errorData.message || errorData.error || errorMessage
+          // Normalize legacy permission name in backend error messages
+          if (errorMessage.includes('cashier:access')) {
+            errorMessage = errorMessage.replace('cashier:access', 'access:cashier (alias cashier:access)')
+          }
+          if (errorMessage.includes('One of these permissions required') && !/access:cashier/.test(errorMessage)) {
+            // Ensure modern key is visible
+            errorMessage += ' | Expecting: OWNER_ACCESS or access:cashier'
+          }
         } catch (e) {
           // Ignore JSON parse errors for error responses
         }
@@ -162,14 +212,34 @@ export class AuthApiService {
         throw new Error('Invalid response format')
       }
       
-      // If user is owner, ensure OWNER_ACCESS is set
-      if (data.data.user && data.data.user.role === 'owner') {
-        if (!data.data.user.permissions) {
-          data.data.user.permissions = []
+      if (data.data.user) {
+        const u = data.data.user
+        const normalizedRole = (u.role || '').toString().toLowerCase()
+        u.role = normalizedRole // persist normalized role client-side
+
+        // Ensure permissions array exists
+        if (!Array.isArray(u.permissions)) {
+          u.permissions = []
         }
-        if (!data.data.user.permissions.includes('OWNER_ACCESS')) {
-          data.data.user.permissions.push('OWNER_ACCESS')
+
+        // Normalize existing permissions (fix any inverted names like cashier:access)
+        u.permissions = this.normalizePermissions(u.permissions)
+
+        // Add role-based permissions (case-insensitive)
+        if (normalizedRole === 'owner' && !u.permissions.includes('OWNER_ACCESS')) {
+          u.permissions.push('OWNER_ACCESS')
         }
+
+        if (normalizedRole === 'cashier' && !u.permissions.includes('access:cashier')) {
+          u.permissions.push('access:cashier')
+        }
+
+        // Final fallback: if role is cashier but still no cashier related perms, flag it
+  if (normalizedRole === 'cashier' && !u.permissions.some(p => p === 'access:cashier')) {
+          try { localStorage.setItem('permissionWarning', 'Missing cashier permission from backend'); } catch {}
+        }
+
+        console.log('User with normalized permissions:', u.permissions)
       }
 
       return data.data
@@ -319,6 +389,37 @@ export class AuthApiService {
   }
 
   /**
+   * Check if current user has cashier access
+   */
+  static hasCashierAccess(): boolean {
+    const user = this.getCurrentUser()
+    // Check if user has the cashier role or access:cashier permission
+    return user?.role === 'cashier' || 
+           (Array.isArray(user?.permissions) && user?.permissions.includes('access:cashier'))
+  }
+
+  /**
+   * Get all user permissions including role-based ones
+   */
+  static getUserPermissions(): string[] {
+    const user = this.getCurrentUser()
+    if (!user) return []
+    
+  const permissions: string[] = this.normalizePermissions(Array.isArray(user.permissions) ? [...user.permissions] : [])
+    
+    // Add role-based permissions
+    if (user.role === 'owner' && !permissions.includes('OWNER_ACCESS')) {
+      permissions.push('OWNER_ACCESS')
+    }
+    
+    if (user.role === 'cashier' && !permissions.includes('access:cashier')) {
+      permissions.push('access:cashier')
+    }
+    
+    return permissions
+  }
+
+  /**
    * Check if current user has specific permission
    */
   static hasPermission(permission: string | string[]): boolean {
@@ -327,18 +428,61 @@ export class AuthApiService {
       return true
     }
     
-    const user = this.getCurrentUser()
-    if (!user || !Array.isArray(user.permissions)) {
+    const permissions = this.getUserPermissions()
+    if (permissions.length === 0) {
       return false
     }
     
     if (Array.isArray(permission)) {
       // Check if user has any of the permissions
-      return permission.some(p => user.permissions.includes(p))
+      return permission.some(p => permissions.includes(p))
     }
     
     // Check single permission
-    return user.permissions.includes(permission)
+    return permissions.includes(permission)
+  }
+
+  /**
+   * Check if user has access to cashier-specific features
+   */
+  static hasCashierFeatureAccess(feature: string): boolean {
+    // If user has owner access or cashier access, they can access all cashier features
+    if (this.hasOwnerAccess() || this.hasCashierAccess()) {
+      return true
+    }
+    switch (feature) {
+  case 'orders':
+	return this.hasPermission(['access:cashier', 'orders:access'])
+  case 'shifts':
+	return this.hasPermission(['access:cashier', 'shift:approve'])
+  case 'expenses':
+	return this.hasPermission(['access:cashier', 'expenses:access'])
+      case 'stock':
+        return this.hasPermission(['access:stock'])
+      case 'cancelled-orders':
+        return this.hasPermission(['orders:cancelled'])
+      case 'external-receipts':
+    return this.hasPermission(['access:cashier'])
+      case 'shift-workers':
+    return this.hasPermission(['access:cashier', 'shift:workers'])
+      default:
+        return false
+    }
+  }
+
+  /**
+   * Get cashier-specific permissions
+   */
+  static getCashierPermissions(): { [key: string]: boolean } {
+    return {
+      canAccessOrders: this.hasCashierFeatureAccess('orders'),
+      canAccessShifts: this.hasCashierFeatureAccess('shifts'),
+      canAccessExpenses: this.hasCashierFeatureAccess('expenses'),
+      canAccessStock: this.hasCashierFeatureAccess('stock'),
+      canAccessCancelledOrders: this.hasCashierFeatureAccess('cancelled-orders'),
+      canAccessExternalReceipts: this.hasCashierFeatureAccess('external-receipts'),
+      canAccessShiftWorkers: this.hasCashierFeatureAccess('shift-workers'),
+    }
   }
 
   /**
@@ -348,5 +492,97 @@ export class AuthApiService {
     // Basic JWT format check (3 parts separated by dots)
     const parts = token.split('.')
     return parts.length === 3
+  }
+
+  /**
+   * Get current active shift for the authenticated user
+   */
+  static async getCurrentShift(): Promise<any | null> {
+    try {
+      const response = await this.apiRequest('/shifts/current')
+      return response
+    } catch (error) {
+      console.warn('Failed to get current shift:', error)
+      return null
+    }
+  }
+
+  /**
+   * Create a new shift
+   */
+  static async createShift(shiftData: { type?: string } = {}): Promise<any> {
+    const payload = {
+      type: shiftData.type || 'DAY',
+      ...shiftData
+    }
+    
+    try {
+      const response = await this.apiRequest('/shifts', {
+        method: 'POST',
+        body: JSON.stringify(payload)
+      })
+      return response
+    } catch (error) {
+      // Handle duplicate shift error (409 Conflict)
+      if (error instanceof Error && error.message.includes('409')) {
+        console.log('Shift already exists, checking current shift...')
+        const currentShift = await this.getCurrentShift()
+        if (currentShift) {
+          return currentShift
+        }
+      }
+      throw error
+    }
+  }
+
+  /**
+   * Request to close a shift
+   */
+  static async requestCloseShift(shiftId: string): Promise<any> {
+    return this.apiRequest(`/shifts/${shiftId}/request-close`, {
+      method: 'PATCH'
+    })
+  }
+
+  /**
+   * Ensure user has an active shift (creates one if needed)
+   */
+  static async ensureActiveShift(): Promise<any> {
+    try {
+      // First, check if there's already an active shift
+      let currentShift = await this.getCurrentShift()
+      
+      if (currentShift) {
+        console.log('Found existing active shift:', currentShift)
+        return currentShift
+      }
+      
+      // No active shift found, create a new one
+      console.log('No active shift found, creating new shift...')
+      currentShift = await this.createShift()
+      
+      if (currentShift) {
+        console.log('Successfully created new shift:', currentShift)
+        return currentShift
+      }
+      
+      throw new Error('Failed to create shift')
+    } catch (error) {
+      console.error('Error ensuring active shift:', error)
+      
+      // If we get permission error, provide helpful message
+      if (error instanceof Error && error.message.includes('403')) {
+        const user = this.getCurrentUser()
+        const permissions = this.getUserPermissions()
+        console.error('Shift access denied. User permissions:', permissions)
+        
+        // Check if user should have cashier access
+        if (user?.role === 'cashier' && !permissions.includes('access:cashier')) {
+          throw new Error('Missing cashier permissions. Please contact administrator to grant access:cashier permission.')
+        }
+      }
+      
+      throw error
+    }
   }
 }

@@ -4,16 +4,23 @@ import type React from "react"
 import { useEffect, useState } from "react"
 import { useRouter } from "next/navigation"
 import { toast } from "sonner"
+import { AuthApiService } from "@/lib/services/auth-api"
 
-const API_BASE_URL = "http://172.162.241.242:3000/api/v1"
+const API_BASE_URL = "http://20.77.41.130:3000/api/v1"
 
 interface ShiftGuardProps {
   children: React.ReactNode
   requiredRole?: "cashier" | "admin" | "owner"
   requireActiveShift?: boolean
+  requiredPermission?: string | string[]
 }
 
-export default function ShiftGuard({ children, requiredRole = "cashier", requireActiveShift = true }: ShiftGuardProps) {
+export default function ShiftGuard({ 
+  children, 
+  requiredRole = "cashier", 
+  requireActiveShift = true,
+  requiredPermission
+}: ShiftGuardProps) {
   const router = useRouter()
   const [isAuthorized, setIsAuthorized] = useState(false)
   const [isLoading, setIsLoading] = useState(true)
@@ -23,9 +30,9 @@ export default function ShiftGuard({ children, requiredRole = "cashier", require
       try {
         console.log("ShiftGuard: Starting authorization check")
 
-        // Get stored user data
-        const currentUser = localStorage.getItem("currentUser")
-        const authToken = localStorage.getItem("authToken")
+        // Get stored user data using AuthApiService
+        const currentUser = AuthApiService.getCurrentUser()
+        const authToken = AuthApiService.getAuthToken()
 
         if (!currentUser || !authToken) {
           console.log("ShiftGuard: No user data found")
@@ -34,13 +41,20 @@ export default function ShiftGuard({ children, requiredRole = "cashier", require
           return
         }
 
-        const userData = JSON.parse(currentUser)
-        console.log("ShiftGuard: User data found:", userData)
+        console.log("ShiftGuard: User data found:", currentUser)
 
         // Check role authorization
-        if (userData.role !== requiredRole && requiredRole !== "owner") {
-          console.log(`ShiftGuard: Role mismatch. Required: ${requiredRole}, Got: ${userData.role}`)
+        if (currentUser.role !== requiredRole && requiredRole !== "owner" && !AuthApiService.hasOwnerAccess()) {
+          console.log(`ShiftGuard: Role mismatch. Required: ${requiredRole}, Got: ${currentUser.role}`)
           toast.error(`غير مصرح لك بالوصول لهذه الصفحة`)
+          router.push("/")
+          return
+        }
+
+        // Check permissions if specified
+        if (requiredPermission && !AuthApiService.hasPermission(requiredPermission)) {
+          console.log(`ShiftGuard: Permission denied. Required: ${requiredPermission}`)
+          toast.error(`غير مصرح لك بالوصول لهذه الصفحة - صلاحيات غير كافية`)
           router.push("/")
           return
         }
@@ -48,14 +62,12 @@ export default function ShiftGuard({ children, requiredRole = "cashier", require
         // For cashiers, validate shift access
         if (requiredRole === "cashier" && requireActiveShift) {
           // Check if user has shift data stored
-          if (!userData.shift || !userData.shift.shift_id) {
+          if (!currentUser.shift || !currentUser.shift.shift_id) {
             console.log("ShiftGuard: No shift data in stored user")
             toast.error("لا يمكن الوصول لهذه الصفحة بدون جلسة وردية نشطة")
 
             // Clear invalid session
-            localStorage.removeItem("currentUser")
-            localStorage.removeItem("authToken")
-            localStorage.removeItem("refreshToken")
+            AuthApiService.clearAuthData()
 
             router.push("/")
             return
@@ -63,7 +75,7 @@ export default function ShiftGuard({ children, requiredRole = "cashier", require
 
           // Verify shift is still active from backend
           try {
-            const response = await fetch(`${API_BASE_URL}/shifts/cashier/${userData.user_id}`, {
+            const response = await fetch(`${API_BASE_URL}/shifts/cashier/${currentUser.user_id}`, {
               method: "GET",
               headers: {
                 "Content-Type": "application/json",
@@ -93,9 +105,7 @@ export default function ShiftGuard({ children, requiredRole = "cashier", require
                   })
 
                   // Clear session
-                  localStorage.removeItem("currentUser")
-                  localStorage.removeItem("authToken")
-                  localStorage.removeItem("refreshToken")
+                  AuthApiService.clearAuthData()
 
                   router.push("/")
                   return
@@ -125,9 +135,7 @@ export default function ShiftGuard({ children, requiredRole = "cashier", require
         toast.error("حدث خطأ في التحقق من الصلاحيات")
 
         // Clear session on error
-        localStorage.removeItem("currentUser")
-        localStorage.removeItem("authToken")
-        localStorage.removeItem("refreshToken")
+        AuthApiService.clearAuthData()
 
         router.push("/")
       } finally {

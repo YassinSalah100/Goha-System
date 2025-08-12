@@ -6,6 +6,7 @@ import { useEffect, useState } from "react"
 import { useRouter } from "next/navigation"
 import { Sidebar } from "@/components/layout/sidebar"
 import { Header } from "@/components/layout/header"
+import { AuthApiService } from "@/lib/services/auth-api"
 
 export default function OwnerLayout({
   children,
@@ -16,13 +17,17 @@ export default function OwnerLayout({
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {
-    // Check if user is logged in and is an owner
+    // Check if user is logged in and has owner access
     console.log("OwnerLayout: Starting authorization check")
-    const currentUser = JSON.parse(localStorage.getItem("currentUser") || "{}")
-    console.log("OwnerLayout: Found user data:", currentUser)
+    
+    if (!AuthApiService.isAuthenticated()) {
+      console.log("OwnerLayout: User not authenticated, redirecting to login")
+      router.push("/")
+      return
+    }
 
-    if (!currentUser.username || currentUser.role !== "owner") {
-      console.log("OwnerLayout: User not authorized, redirecting to login")
+    if (!AuthApiService.hasOwnerAccess()) {
+      console.log("OwnerLayout: User does not have owner access, redirecting to login")
       router.push("/")
       return
     }

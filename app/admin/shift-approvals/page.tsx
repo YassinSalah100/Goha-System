@@ -5,316 +5,432 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { Separator } from "@/components/ui/separator"
-import { CheckCircle, XCircle, DollarSign } from "lucide-react"
-import { orders } from "@/mock-data/orders"
+import { 
+  CheckCircle, 
+  XCircle, 
+  DollarSign, 
+  Clock, 
+  Calendar,
+  AlertCircle,
+  Loader2
+} from "lucide-react"
 import { motion } from "framer-motion"
+import { toast } from "sonner"
+import { AuthApiService } from "@/lib/services/auth-api"
 
-// Mock shift end requests
-const shiftRequests = [
-  {
-    id: "shift-001",
-    cashier: {
-      id: "1",
-      name: "Ahmed Cashier",
-      username: "cashier",
-    },
-    shift: "morning",
-    startTime: new Date(new Date().setHours(8, 0, 0, 0)).toISOString(), // 8 AM
-    endTime: new Date(new Date().setHours(20, 0, 0, 0)).toISOString(), // 8 PM
-    orders: ["0001", "0002"],
-    totalSales: 34.95,
-    cashSales: 21.96,
-    cardSales: 12.99,
-    notes: "Everything went well today.",
-    status: "pending",
-  },
-  {
-    id: "shift-002",
-    cashier: {
-      id: "4",
-      name: "Sara Cashier",
-      username: "sara",
-    },
-    shift: "evening",
-    startTime: new Date(new Date().setHours(20, 0, 0, 0)).toISOString(), // 8 PM
-    endTime: (() => {
-      const nextDay = new Date()
-      nextDay.setDate(nextDay.getDate() + 1)
-      nextDay.setHours(8, 0, 0, 0)
-      return nextDay.toISOString()
-    })(), // 8 AM next day
-    orders: ["0003"],
-    totalSales: 29.97,
-    cashSales: 29.97,
-    cardSales: 0,
-    notes: "Had a busy evening shift.",
-    status: "pending",
-  },
-]
+// API URL
+const API_BASE_URL = "http://20.77.41.130:3000/api/v1"
+
+interface Shift {
+  id: string;
+  cashier_id: string;
+  cashier_name: string;
+  status: string;
+  type: string;
+  started_at: string;
+  closing_requested_at?: string;
+  closed_at?: string;
+  notes?: string;
+  admin_notes?: string;
+  total_sales: number;
+  cash_sales: number;
+  card_sales: number;
+  online_sales: number;
+  total_expenses: number;
+  cash_drawer_amount: number;
+  transactions_count: number;
+  orders?: string[];
+}
 
 export default function ShiftApprovalsPage() {
-  const [requests, setRequests] = useState(shiftRequests)
-  const [currentUser, setCurrentUser] = useState<any>(null)
+  const [pendingShifts, setPendingShifts] = useState<Shift[]>([]);
+  const [completedShifts, setCompletedShifts] = useState<Shift[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [processingShift, setProcessingShift] = useState<string | null>(null);
+  const [hasPermission, setHasPermission] = useState(false);
+  const [currentUser, setCurrentUser] = useState<any>(null);
 
   useEffect(() => {
+    // Check permissions
+    const userHasPermission = AuthApiService.hasPermission(['OWNER_ACCESS', 'shift:approve']);
+    setHasPermission(userHasPermission);
+
     if (typeof window !== "undefined") {
-      const user = JSON.parse(localStorage.getItem("currentUser") || "{}")
-      setCurrentUser(user)
+      const user = JSON.parse(localStorage.getItem("currentUser") || "{}");
+      setCurrentUser(user);
     }
-  }, [])
 
-  const handleApprove = (requestId: string) => {
-    setRequests(
-      requests.map((req) =>
-        req.id === requestId
-          ? {
-              ...req,
-              status: "approved",
-            }
-          : req,
-      ),
-    )
-  }
+    if (userHasPermission) {
+      fetchShifts();
+    } else {
+      setLoading(false);
+      toast.error("ليس لديك صلاحية للوصول إلى هذه الصفحة");
+    }
+  }, []);
 
-  const handleReject = (requestId: string) => {
-    setRequests(
-      requests.map((req) =>
-        req.id === requestId
-          ? {
-              ...req,
-              status: "rejected",
-            }
-          : req,
-      ),
-    )
-  }
+  const fetchShifts = async () => {
+    try {
+      setLoading(true);
+      
+      // Get token
+      const token = AuthApiService.getAuthToken();
+      if (!token) {
+        toast.error("جلسة غير صالحة، يرجى تسجيل الدخول مرة أخرى");
+        return;
+      }
 
-  const getOrderDetails = (orderId: string) => {
-    return orders.find((order) => order.id === orderId)
-  }
+      // Fetch shifts with close-requested status
+      const response = await fetch(`${API_BASE_URL}/shifts/close-requested`, {
+        method: "GET",
+        headers: {
+          "Content-Type": "application/json",
+          "Authorization": `Bearer ${token}`
+        }
+      });
+
+      if (!response.ok) {
+        throw new Error(`HTTP error ${response.status}`);
+      }
+
+      const data = await response.json();
+      
+      if (data.success && Array.isArray(data.data)) {
+        setPendingShifts(data.data);
+      } else {
+        toast.error("خطأ في تحميل بيانات الورديات");
+      }
+
+      // Also fetch recently completed shifts (closed ones)
+      const closedResponse = await fetch(`${API_BASE_URL}/shifts/status/CLOSED?limit=5`, {
+        method: "GET",
+        headers: {
+          "Content-Type": "application/json",
+          "Authorization": `Bearer ${token}`
+        }
+      });
+
+      if (closedResponse.ok) {
+        const closedData = await closedResponse.json();
+        if (closedData.success && Array.isArray(closedData.data)) {
+          setCompletedShifts(closedData.data);
+        }
+      }
+    } catch (error) {
+      console.error("Error fetching shifts:", error);
+      toast.error("حدث خطأ أثناء تحميل الورديات");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleApproveShift = async (shiftId: string) => {
+    if (!hasPermission) {
+      toast.error("ليس لديك صلاحية للموافقة على إغلاق الورديات");
+      return;
+    }
+
+    try {
+      setProcessingShift(shiftId);
+      
+      // Get token
+      const token = AuthApiService.getAuthToken();
+      if (!token) {
+        toast.error("جلسة غير صالحة، يرجى تسجيل الدخول مرة أخرى");
+        return;
+      }
+
+      // Approve shift close
+      const response = await fetch(`${API_BASE_URL}/shifts/${shiftId}/approve-close`, {
+        method: "PATCH",
+        headers: {
+          "Content-Type": "application/json",
+          "Authorization": `Bearer ${token}`
+        },
+        body: JSON.stringify({
+          admin_notes: "تمت الموافقة على إغلاق الوردية من قبل " + (currentUser?.name || "المدير")
+        })
+      });
+
+      if (!response.ok) {
+        throw new Error(`HTTP error ${response.status}`);
+      }
+
+      const data = await response.json();
+      
+      if (data.success) {
+        toast.success("تمت الموافقة على إغلاق الوردية بنجاح");
+        // Refresh data
+        fetchShifts();
+      } else {
+        toast.error(data.message || "خطأ في الموافقة على إغلاق الوردية");
+      }
+    } catch (error) {
+      console.error("Error approving shift:", error);
+      toast.error("حدث خطأ أثناء الموافقة على إغلاق الوردية");
+    } finally {
+      setProcessingShift(null);
+    }
+  };
+
+  const handleRejectShift = async (shiftId: string) => {
+    // This functionality would need to be added in the backend
+    toast.info("لم يتم تنفيذ وظيفة رفض إغلاق الوردية بعد");
+  };
 
   const formatTime = (dateString: string) => {
-    return new Date(dateString).toLocaleTimeString([], {
+    return new Date(dateString).toLocaleTimeString('ar-EG', {
       hour: "2-digit",
       minute: "2-digit",
-    })
-  }
+    });
+  };
 
   const formatDate = (dateString: string) => {
-    return new Date(dateString).toLocaleDateString()
-  }
+    return new Date(dateString).toLocaleDateString('ar-EG', {
+      year: 'numeric',
+      month: 'short',
+      day: 'numeric'
+    });
+  };
+
+  const formatDateTime = (dateString: string) => {
+    return new Date(dateString).toLocaleDateString('ar-EG', {
+      year: 'numeric',
+      month: 'short',
+      day: 'numeric',
+      hour: '2-digit',
+      minute: '2-digit'
+    });
+  };
+
+  const formatCurrency = (amount: number) => {
+    return new Intl.NumberFormat('ar-EG', {
+      style: 'currency',
+      currency: 'EGP'
+    }).format(amount);
+  };
 
   const calculateDuration = (start: string, end: string) => {
-    const startTime = new Date(start).getTime()
-    const endTime = new Date(end).getTime()
-    const durationMs = endTime - startTime
-    const hours = Math.floor(durationMs / (1000 * 60 * 60))
-    const minutes = Math.floor((durationMs % (1000 * 60 * 60)) / (1000 * 60))
-    return `${hours}h ${minutes}m`
-  }
+    const startTime = new Date(start).getTime();
+    const endTime = end ? new Date(end).getTime() : Date.now();
+    const durationMs = endTime - startTime;
+    const hours = Math.floor(durationMs / (1000 * 60 * 60));
+    const minutes = Math.floor((durationMs % (1000 * 60 * 60)) / (1000 * 60));
+    return `${hours}س ${minutes}د`;
+  };
 
-  if (!currentUser) return null
+  const getShiftTypeText = (type: string) => {
+    switch (type.toUpperCase()) {
+      case 'MORNING': return 'صباحية';
+      case 'EVENING': return 'مسائية';
+      case 'NIGHT': return 'ليلية';
+      default: return type;
+    }
+  };
+
+  if (!hasPermission) {
+    return (
+      <div className="flex items-center justify-center h-96">
+        <div className="text-center">
+          <AlertCircle className="mx-auto h-12 w-12 text-red-500 mb-4" />
+          <h3 className="text-lg font-medium mb-2">غير مصرح بالوصول</h3>
+          <p className="text-muted-foreground">ليس لديك الصلاحيات اللازمة لعرض هذه الصفحة</p>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-6">
       <div>
         <h2 className="text-3xl font-bold tracking-tight">طلبات إنهاء الورديات</h2>
-        <p className="text-muted-foreground">Manage shift end requests from cashiers</p>
+        <p className="text-muted-foreground">مراجعة والموافقة على طلبات إنهاء الورديات من الكاشيير</p>
       </div>
 
-      <Card>
-        <CardHeader>
-          <CardTitle>طلبات إنهاء الورديات المعلقة</CardTitle>
-        </CardHeader>
-        <CardContent>
-          {requests.length === 0 ? (
-            <div className="text-center py-8 text-muted-foreground">لا توجد طلبات إنهاء ورديات معلقة</div>
-          ) : (
-            <div className="space-y-6">
-              {requests.map((request) => (
-                <motion.div
-                  key={request.id}
-                  initial={{ opacity: 0, y: 20 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  className={`border rounded-lg p-4 ${
-                    request.status === "approved"
-                      ? "bg-green-50 border-green-200"
-                      : request.status === "rejected"
-                        ? "bg-red-50 border-red-200"
-                        : "bg-white"
-                  }`}
-                >
-                  <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
-                    <div>
-                      <div className="flex items-center gap-2 mb-2">
-                        <h3 className="font-medium">
-                          طلب إنهاء وردية #{request.id} - {request.cashier.name}
-                        </h3>
-                        <Badge
-                          variant={
-                            request.status === "approved"
-                              ? "success"
-                              : request.status === "rejected"
-                                ? "destructive"
-                                : "outline"
-                          }
-                        >
-                          {request.status === "approved"
-                            ? "تمت الموافقة"
-                            : request.status === "rejected"
-                              ? "مرفوض"
-                              : "معلق"}
-                        </Badge>
-                      </div>
-                      <p className="text-sm text-muted-foreground mb-2">
-                        وردية {request.shift === "morning" ? "صباحية" : "مسائية"} • {formatDate(request.startTime)}
-                      </p>
-                    </div>
-
-                    {request.status === "pending" && (
-                      <div className="flex gap-2">
-                        <Button onClick={() => handleApprove(request.id)} className="bg-green-600 hover:bg-green-700">
-                          <CheckCircle className="mr-2 h-4 w-4" />
-                          موافقة
-                        </Button>
-                        <Button onClick={() => handleReject(request.id)} variant="destructive">
-                          <XCircle className="mr-2 h-4 w-4" />
-                          رفض
-                        </Button>
-                      </div>
-                    )}
-
-                    {request.status === "approved" && (
-                      <div className="flex items-center text-green-600">
-                        <CheckCircle className="mr-2 h-5 w-5" />
-                        تمت الموافقة على إنهاء الوردية
-                      </div>
-                    )}
-
-                    {request.status === "rejected" && (
-                      <div className="flex items-center text-red-600">
-                        <XCircle className="mr-2 h-5 w-5" />
-                        تم رفض إنهاء الوردية
-                      </div>
-                    )}
-                  </div>
-
-                  <Separator className="my-4" />
-
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                    <div>
-                      <h4 className="font-medium mb-3">تفاصيل الوردية</h4>
-                      <div className="bg-gray-50 p-4 rounded-md space-y-2">
-                        <div className="flex justify-between">
-                          <span className="text-muted-foreground">وقت البدء:</span>
-                          <span>{formatTime(request.startTime)}</span>
-                        </div>
-                        <div className="flex justify-between">
-                          <span className="text-muted-foreground">وقت الإنتهاء:</span>
-                          <span>{formatTime(request.endTime)}</span>
-                        </div>
-                        <div className="flex justify-between">
-                          <span className="text-muted-foreground">المدة:</span>
-                          <span>{calculateDuration(request.startTime, request.endTime)}</span>
-                        </div>
-                        <div className="flex justify-between">
-                          <span className="text-muted-foreground">عدد الطلبات:</span>
-                          <span>{request.orders.length}</span>
-                        </div>
-                        {request.notes && (
-                          <div className="pt-2">
-                            <p className="text-sm text-muted-foreground mb-1">ملاحظات:</p>
-                            <p className="text-sm bg-white p-2 rounded border">{request.notes}</p>
+      {loading ? (
+        <div className="flex justify-center items-center h-64">
+          <div className="flex flex-col items-center">
+            <Loader2 className="h-10 w-10 animate-spin text-orange-600 mb-2" />
+            <span className="text-muted-foreground">جاري تحميل البيانات...</span>
+          </div>
+        </div>
+      ) : (
+        <>
+          <Card>
+            <CardHeader>
+              <div className="flex justify-between items-center">
+                <CardTitle>طلبات إنهاء الورديات المعلقة</CardTitle>
+                <Button variant="outline" onClick={fetchShifts} className="flex items-center gap-1">
+                  <span>تحديث</span>
+                </Button>
+              </div>
+            </CardHeader>
+            <CardContent>
+              {pendingShifts.length === 0 ? (
+                <div className="text-center py-8 text-muted-foreground">
+                  <CheckCircle className="mx-auto h-12 w-12 text-green-500 mb-4" />
+                  <p className="text-lg">لا توجد طلبات إنهاء ورديات معلقة</p>
+                </div>
+              ) : (
+                <div className="space-y-6">
+                  {pendingShifts.map((shift) => (
+                    <motion.div
+                      key={shift.id}
+                      initial={{ opacity: 0, y: 20 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      className="border rounded-lg p-4 bg-white"
+                    >
+                      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+                        <div>
+                          <div className="flex items-center gap-2 mb-2">
+                            <h3 className="font-medium">
+                              طلب إنهاء وردية - {shift.cashier_name}
+                            </h3>
+                            <Badge variant="outline">
+                              {shift.status === "CLOSE_REQUESTED" ? "معلق" : shift.status}
+                            </Badge>
                           </div>
-                        )}
-                      </div>
-                    </div>
+                          <p className="text-sm text-muted-foreground mb-2">
+                            وردية {getShiftTypeText(shift.type)} • {formatDate(shift.started_at)}
+                          </p>
+                        </div>
 
-                    <div>
-                      <h4 className="font-medium mb-3">ملخص المبيعات</h4>
-                      <div className="bg-gray-50 p-4 rounded-md space-y-2">
-                        <div className="flex items-center justify-between">
-                          <div className="flex items-center">
-                            <DollarSign className="h-4 w-4 text-muted-foreground mr-1" />
-                            <span className="text-muted-foreground">إجمالي المبيعات:</span>
-                          </div>
-                          <span className="font-medium">${request.totalSales.toFixed(2)}</span>
-                        </div>
-                        <div className="flex justify-between">
-                          <span className="text-muted-foreground">مبيعات نقدية:</span>
-                          <span>${request.cashSales.toFixed(2)}</span>
-                        </div>
-                        <div className="flex justify-between">
-                          <span className="text-muted-foreground">مبيعات بطاقة:</span>
-                          <span>${request.cardSales.toFixed(2)}</span>
-                        </div>
-                        <Separator className="my-2" />
-                        <div className="flex justify-between font-medium">
-                          <span>المبلغ النقدي للتسليم:</span>
-                          <span className="text-green-600">${request.cashSales.toFixed(2)}</span>
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-
-                  <div className="mt-4">
-                    <h4 className="font-medium mb-3">الطلبات خلال الوردية</h4>
-                    <div className="bg-gray-50 rounded-md overflow-hidden">
-                      <table className="min-w-full divide-y divide-gray-200">
-                        <thead className="bg-gray-100">
-                          <tr>
-                            <th className="px-4 py-2 text-left text-xs font-medium text-gray-500">رقم الطلب</th>
-                            <th className="px-4 py-2 text-left text-xs font-medium text-gray-500">الوقت</th>
-                            <th className="px-4 py-2 text-left text-xs font-medium text-gray-500">العميل</th>
-                            <th className="px-4 py-2 text-center text-xs font-medium text-gray-500">نوع الطلب</th>
-                            <th className="px-4 py-2 text-center text-xs font-medium text-gray-500">طريقة الدفع</th>
-                            <th className="px-4 py-2 text-right text-xs font-medium text-gray-500">المبلغ</th>
-                          </tr>
-                        </thead>
-                        <tbody className="divide-y divide-gray-200">
-                          {request.orders.map((orderId) => {
-                            const order = getOrderDetails(orderId)
-                            return order ? (
-                              <tr key={order.id}>
-                                <td className="px-4 py-2 text-sm">#{order.id}</td>
-                                <td className="px-4 py-2 text-sm">
-                                  {new Date(order.date).toLocaleTimeString([], {
-                                    hour: "2-digit",
-                                    minute: "2-digit",
-                                  })}
-                                </td>
-                                <td className="px-4 py-2 text-sm">{order.customerName}</td>
-                                <td className="px-4 py-2 text-sm text-center capitalize">{order.orderType}</td>
-                                <td className="px-4 py-2 text-sm text-center capitalize">{order.paymentMethod}</td>
-                                <td className="px-4 py-2 text-sm text-right font-medium">${order.total.toFixed(2)}</td>
-                              </tr>
+                        <div className="flex gap-2">
+                          <Button 
+                            onClick={() => handleApproveShift(shift.id)} 
+                            className="bg-green-600 hover:bg-green-700"
+                            disabled={processingShift === shift.id}
+                          >
+                            {processingShift === shift.id ? (
+                              <Loader2 className="h-4 w-4 animate-spin mr-2" />
                             ) : (
-                              <tr key={orderId}>
-                                <td colSpan={6} className="px-4 py-2 text-sm text-center text-muted-foreground">
-                                  تفاصيل الطلب غير متوفرة
-                                </td>
-                              </tr>
-                            )
-                          })}
-                        </tbody>
-                      </table>
-                    </div>
-                  </div>
-                </motion.div>
-              ))}
-            </div>
-          )}
-        </CardContent>
-      </Card>
+                              <CheckCircle className="mr-2 h-4 w-4" />
+                            )}
+                            موافقة
+                          </Button>
+                          <Button 
+                            onClick={() => handleRejectShift(shift.id)} 
+                            variant="destructive"
+                            disabled={processingShift === shift.id}
+                          >
+                            <XCircle className="mr-2 h-4 w-4" />
+                            رفض
+                          </Button>
+                        </div>
+                      </div>
 
-      <Card>
-        <CardHeader>
-          <CardTitle>سجل طلبات إنهاء الورديات</CardTitle>
-        </CardHeader>
-        <CardContent>
-          <div className="text-center py-8 text-muted-foreground">لا توجد طلبات إنهاء ورديات سابقة</div>
-        </CardContent>
-      </Card>
+                      <Separator className="my-4" />
+
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                        <div>
+                          <h4 className="font-medium mb-3">تفاصيل الوردية</h4>
+                          <div className="bg-gray-50 p-4 rounded-md space-y-2">
+                            <div className="flex justify-between">
+                              <span className="text-muted-foreground">وقت البدء:</span>
+                              <span>{formatDateTime(shift.started_at)}</span>
+                            </div>
+                            {shift.closing_requested_at && (
+                              <div className="flex justify-between">
+                                <span className="text-muted-foreground">وقت طلب الإنهاء:</span>
+                                <span>{formatDateTime(shift.closing_requested_at)}</span>
+                              </div>
+                            )}
+                            <div className="flex justify-between">
+                              <span className="text-muted-foreground">المدة:</span>
+                              <span>{calculateDuration(shift.started_at, shift.closing_requested_at || '')}</span>
+                            </div>
+                            <div className="flex justify-between">
+                              <span className="text-muted-foreground">عدد المعاملات:</span>
+                              <span>{shift.transactions_count}</span>
+                            </div>
+                            {shift.notes && (
+                              <div className="pt-2">
+                                <p className="text-sm text-muted-foreground mb-1">ملاحظات الكاشير:</p>
+                                <p className="text-sm bg-white p-2 rounded border">{shift.notes}</p>
+                              </div>
+                            )}
+                          </div>
+                        </div>
+
+                        <div>
+                          <h4 className="font-medium mb-3">ملخص المبيعات</h4>
+                          <div className="bg-gray-50 p-4 rounded-md space-y-2">
+                            <div className="flex items-center justify-between">
+                              <div className="flex items-center">
+                                <DollarSign className="h-4 w-4 text-muted-foreground mr-1" />
+                                <span className="text-muted-foreground">إجمالي المبيعات:</span>
+                              </div>
+                              <span className="font-medium">{formatCurrency(shift.total_sales)}</span>
+                            </div>
+                            <div className="flex justify-between">
+                              <span className="text-muted-foreground">مبيعات نقدية:</span>
+                              <span>{formatCurrency(shift.cash_sales)}</span>
+                            </div>
+                            <div className="flex justify-between">
+                              <span className="text-muted-foreground">مبيعات بطاقة:</span>
+                              <span>{formatCurrency(shift.card_sales)}</span>
+                            </div>
+                            <div className="flex justify-between">
+                              <span className="text-muted-foreground">مبيعات إلكترونية:</span>
+                              <span>{formatCurrency(shift.online_sales)}</span>
+                            </div>
+                            <div className="flex justify-between">
+                              <span className="text-muted-foreground">إجمالي المصروفات:</span>
+                              <span>{formatCurrency(shift.total_expenses)}</span>
+                            </div>
+                            <Separator className="my-2" />
+                            <div className="flex justify-between font-medium">
+                              <span>رصيد الدرج النقدي:</span>
+                              <span className="text-green-600">{formatCurrency(shift.cash_drawer_amount)}</span>
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+                    </motion.div>
+                  ))}
+                </div>
+              )}
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader>
+              <CardTitle>سجل الورديات المغلقة مؤخراً</CardTitle>
+            </CardHeader>
+            <CardContent>
+              {completedShifts.length === 0 ? (
+                <div className="text-center py-8 text-muted-foreground">لا توجد ورديات مغلقة مؤخراً</div>
+              ) : (
+                <div className="overflow-x-auto">
+                  <table className="min-w-full divide-y divide-gray-200">
+                    <thead className="bg-gray-100">
+                      <tr>
+                        <th className="px-4 py-2 text-right text-xs font-medium text-gray-500">الكاشير</th>
+                        <th className="px-4 py-2 text-right text-xs font-medium text-gray-500">نوع الوردية</th>
+                        <th className="px-4 py-2 text-right text-xs font-medium text-gray-500">تاريخ البدء</th>
+                        <th className="px-4 py-2 text-right text-xs font-medium text-gray-500">تاريخ الإغلاق</th>
+                        <th className="px-4 py-2 text-right text-xs font-medium text-gray-500">إجمالي المبيعات</th>
+                        <th className="px-4 py-2 text-center text-xs font-medium text-gray-500">المعاملات</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-gray-200">
+                      {completedShifts.map((shift) => (
+                        <tr key={shift.id} className="hover:bg-gray-50">
+                          <td className="px-4 py-2 text-sm">{shift.cashier_name}</td>
+                          <td className="px-4 py-2 text-sm">{getShiftTypeText(shift.type)}</td>
+                          <td className="px-4 py-2 text-sm">{formatDateTime(shift.started_at)}</td>
+                          <td className="px-4 py-2 text-sm">{shift.closed_at ? formatDateTime(shift.closed_at) : '-'}</td>
+                          <td className="px-4 py-2 text-sm font-medium">{formatCurrency(shift.total_sales)}</td>
+                          <td className="px-4 py-2 text-sm text-center">{shift.transactions_count}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </CardContent>
+          </Card>
+        </>
+      )}
     </div>
   )
 }

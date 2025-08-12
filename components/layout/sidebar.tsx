@@ -22,6 +22,7 @@ import {
 import Image from "next/image"
 import { cn } from "@/lib/utils"
 import { motion } from "framer-motion"
+import { AuthApiService } from "@/lib/services/auth-api"
 
 type SidebarProps = {
   role: "cashier" | "admin" | "owner"
@@ -47,9 +48,16 @@ export function Sidebar({ role }: SidebarProps) {
     return () => window.removeEventListener("resize", checkMobile)
   }, [])
 
-  const handleLogout = () => {
-    localStorage.removeItem("currentUser")
-    router.push("/")
+  const handleLogout = async () => {
+    try {
+      await AuthApiService.logout()
+      router.push("/")
+    } catch (error) {
+      console.error("Error during logout:", error)
+      // Even if the API call fails, clear local storage
+      AuthApiService.clearAuthData()
+      router.push("/")
+    }
   }
 
   const navItems = {
@@ -59,7 +67,7 @@ export function Sidebar({ role }: SidebarProps) {
       { name: "طلبات الكافية", icon: Coffee, path: "/cashier/cafe-orders" },
       { name: "الطلبات المحفوظة", icon: Package, path: "/cashier/orders" },
       { name: "إدارة المخزون", icon: Package, path: "/cashier/stock" },
-      { name: "دفتر اليومية", icon: BookOpen, path: "/cashier/journal" },
+      { name: "دفتر اليومية", icon: BookOpen, path: "/cashier/journal", permission: ['OWNER_ACCESS', 'access:cashier', 'expenses:access'] },
       { name: "حساب جحا", icon: Receipt, path: "/cashier/juha-balance" },
       { name: "طلبات الإلغاء", icon: AlertTriangle, path: "/cashier/cancel-requests" },
       { name: "إنهاء الوردية", icon: LogOut, path: "/cashier/end-shift" },
@@ -67,7 +75,7 @@ export function Sidebar({ role }: SidebarProps) {
     admin: [
       { name: "لوحة التحكم", icon: Home, path: "/admin" },
       { name: "طلبات الإلغاء", icon: ShoppingCart, path: "/admin/cancel-requests" },
-      { name: "موافقات الورديات", icon: Users, path: "/admin/shift-approvals" },
+      { name: "موافقات الورديات", icon: Users, path: "/admin/shift-approvals", permission: ['OWNER_ACCESS', 'shift:approve'] },
       { name: "إدارة المخزون", icon: Package, path: "/admin/inventory" },
       { name: "التقرير اليومي", icon: BarChart, path: "/admin/daily-report" },
       { name: "إدارة العاملين", icon: Users, path: "/admin/workers" },
@@ -120,20 +128,27 @@ export function Sidebar({ role }: SidebarProps) {
       </div>
 
       <div className="flex flex-col gap-1 p-2">
-        {navItems[role].map((item) => (
-          <Button
-            key={item.path}
-            variant={pathname === item.path ? "secondary" : "ghost"}
-            className={cn("justify-start", collapsed ? "w-full px-2" : "w-full")}
-            onClick={() => {
-              router.push(item.path)
-              if (isMobile) setMobileOpen(false)
-            }}
-          >
-            <item.icon className={cn("h-5 w-5", pathname === item.path ? "text-orange-600" : "")} />
-            {!collapsed && <span className="mr-2">{item.name}</span>}
-          </Button>
-        ))}
+        {navItems[role].map((item) => {
+          // Check permissions if the item requires specific permissions
+          if (item.permission && !AuthApiService.hasPermission(item.permission)) {
+            return null;
+          }
+          
+          return (
+            <Button
+              key={item.path}
+              variant={pathname === item.path ? "secondary" : "ghost"}
+              className={cn("justify-start", collapsed ? "w-full px-2" : "w-full")}
+              onClick={() => {
+                router.push(item.path)
+                if (isMobile) setMobileOpen(false)
+              }}
+            >
+              <item.icon className={cn("h-5 w-5", pathname === item.path ? "text-orange-600" : "")} />
+              {!collapsed && <span className="mr-2">{item.name}</span>}
+            </Button>
+          );
+        })}
       </div>
 
       <div className="mt-auto p-2 border-t">

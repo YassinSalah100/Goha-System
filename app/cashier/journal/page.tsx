@@ -48,6 +48,7 @@ import {
   FileText,
   BarChart3
 } from "lucide-react"
+import { AuthApiService } from "@/lib/services/auth-api"
 
 const API_BASE_URL = "http://20.77.41.130:3000/api/v1"
 
@@ -171,6 +172,10 @@ export default function JournalPage() {
   const [showReportDialog, setShowReportDialog] = useState(false)
   const [reportData, setReportData] = useState<ReportData | null>(null)
   const [isGeneratingReport, setIsGeneratingReport] = useState(false)
+  // Permissions state
+  const [canAccessExpenses, setCanAccessExpenses] = useState(false)
+  const [canAccessShiftWorkers, setCanAccessShiftWorkers] = useState(false)
+  const [hasAnyJournalAccess, setHasAnyJournalAccess] = useState(false)
 
   // API utility functions
   const fetchWithErrorHandling = async (url: string, options: RequestInit = {}) => {
@@ -181,6 +186,7 @@ export default function JournalPage() {
         headers: {
           Accept: "application/json",
           "Content-Type": "application/json",
+          ...AuthApiService.createAuthHeaders(),
           ...options.headers,
         },
       })
@@ -857,6 +863,9 @@ export default function JournalPage() {
   }
 
   const handleAddExpense = async (expenseData: ExpenseData) => {
+    if (!canAccessExpenses) {
+      throw new Error("لا تمتلك صلاحية إضافة المصروفات")
+    }
     if (!currentUser || !activeShift) {
       throw new Error("لا يوجد مستخدم أو وردية نشطة")
     }
@@ -889,6 +898,9 @@ export default function JournalPage() {
   }
 
   const handleDeleteExpense = async (expenseId: string) => {
+    if (!canAccessExpenses) {
+      throw new Error("لا تمتلك صلاحية حذف المصروفات")
+    }
     setDeletingExpense(expenseId)
     try {
       await fetchWithErrorHandling(`${API_BASE_URL}/expenses/${expenseId}`, {
@@ -903,6 +915,9 @@ export default function JournalPage() {
   }
 
   const assignWorkerToShift = async (workerId: string) => {
+    if (!canAccessShiftWorkers) {
+      throw new Error("لا تمتلك صلاحية تسجيل حضور الموظفين")
+    }
     if (!activeShift || !currentUser) {
       throw new Error("لا توجد وردية نشطة")
     }
@@ -990,6 +1005,9 @@ export default function JournalPage() {
   }
 
   const handleEndShift = async (staffId: string) => {
+    if (!canAccessShiftWorkers) {
+      throw new Error("لا تمتلك صلاحية إنهاء مناوبة الموظفين")
+    }
     setEndingWorker(staffId)
     try {
       await fetchWithErrorHandling(`${API_BASE_URL}/shift-workers/end-time`, {
@@ -1223,6 +1241,15 @@ export default function JournalPage() {
   useEffect(() => {
     getCurrentUser()
     fetchAvailableWorkers()
+    // derive permissions once we are on client
+    try {
+      const perms = AuthApiService.getCashierPermissions()
+      setCanAccessExpenses(perms.canAccessExpenses)
+      setCanAccessShiftWorkers(perms.canAccessShiftWorkers)
+      setHasAnyJournalAccess(perms.canAccessExpenses || perms.canAccessShiftWorkers)
+    } catch (e) {
+      console.warn('Error determining permissions', e)
+    }
   }, [])
 
   useEffect(() => {
@@ -1266,7 +1293,7 @@ export default function JournalPage() {
             <div className="flex items-center gap-2">
               <Button
                 onClick={handleGenerateReport}
-                disabled={isGeneratingReport}
+                disabled={isGeneratingReport || !hasAnyJournalAccess}
                 className="flex items-center gap-2"
                 variant="outline"
               >
@@ -1275,7 +1302,7 @@ export default function JournalPage() {
                 ) : (
                   <FileText className="w-4 h-4" />
                 )}
-                {isGeneratingReport ? "جاري الإنشاء..." : "تقرير اليومية"}
+                {isGeneratingReport ? "جاري الإنشاء..." : hasAnyJournalAccess ? "تقرير اليومية" : "لا صلاحية"}
               </Button>
               <Button
                 onClick={handleRefresh}
@@ -1374,11 +1401,12 @@ export default function JournalPage() {
         </div>
 
         {/* Main Content Grid */}
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+    <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
           {/* Left Column - Forms */}
           <div className="lg:col-span-1 space-y-6">
-            {/* Add Expense Form */}
-            <Card>
+      {/* Add Expense Form */}
+      {canAccessExpenses ? (
+      <Card>
               <CardHeader>
                 <CardTitle className="flex items-center gap-2">
                   <Plus className="w-5 h-5" />
@@ -1465,8 +1493,16 @@ export default function JournalPage() {
                 </form>
               </CardContent>
             </Card>
+            ) : (
+              <Card>
+                <CardHeader>
+                  <CardTitle className="text-sm">لا تمتلك صلاحية إضافة المصروفات</CardTitle>
+                </CardHeader>
+              </Card>
+            )}
 
             {/* Assign Staff Section */}
+            {canAccessShiftWorkers ? (
             <Card>
               <CardHeader>
                 <CardTitle className="flex items-center gap-2">
@@ -1520,11 +1556,19 @@ export default function JournalPage() {
                 )}
               </CardContent>
             </Card>
+            ) : (
+              <Card>
+                <CardHeader>
+                  <CardTitle className="text-sm">لا تمتلك صلاحية إدارة حضور الموظفين</CardTitle>
+                </CardHeader>
+              </Card>
+            )}
           </div>
 
           {/* Right Column - Lists */}
           <div className="lg:col-span-2 space-y-6">
             {/* Expenses List */}
+            {canAccessExpenses ? (
             <Card>
               <CardHeader>
                 <div className="flex items-center justify-between">
@@ -1602,8 +1646,10 @@ export default function JournalPage() {
                 )}
               </CardContent>
             </Card>
+            ) : null}
 
             {/* Staff Management */}
+            {canAccessShiftWorkers ? (
             <Card>
               <CardHeader>
                 <div className="flex items-center justify-between">
@@ -1707,6 +1753,7 @@ export default function JournalPage() {
                 )}
               </CardContent>
             </Card>
+            ) : null}
           </div>
         </div>
       </div>
