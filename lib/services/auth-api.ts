@@ -2,6 +2,110 @@ import { LoginDto, RegisterDto, ChangePasswordDto, AuthResponseDto } from '@/lib
 
 const API_BASE_URL = "http://20.77.41.130:3000/api/v1"
 
+/**
+ * Shift type constants matching backend enums
+ */
+export const SHIFT_TYPES = {
+  MORNING: 'morning',
+  NIGHT: 'night'
+} as const
+
+export const SHIFT_STATUS = {
+  OPENED: 'opened',
+  CLOSED: 'closed'
+} as const
+
+/**
+ * Permission constants used throughout the application
+ * These should match the backend permission system exactly
+ */
+export const PERMISSIONS = {
+  // Core access levels
+  OWNER_ACCESS: 'OWNER_ACCESS',
+  CASHIER_ACCESS: 'access:cashier',
+  
+  // User management permissions
+  USERS_READ: 'access:users',
+  USERS_CREATE: 'users:create',
+  USERS_EDIT: 'users:edit',
+  USERS_DELETE: 'users:delete',
+  
+  // Permission management
+  PERMISSIONS_READ: 'access:permissions',
+  PERMISSIONS_ASSIGN: 'permissions:assign',
+  PERMISSIONS_REVOKE: 'permissions:revoke',
+  
+  // Feature access permissions (matching backend routes)
+  PRODUCTS_ACCESS: 'access:products',
+  CATEGORIES_ACCESS: 'access:category',
+  SHIFTS_ACCESS: 'access:shift',
+  SHIFT_APPROVE: 'shift:approve',
+  SHIFT_SUMMARY: 'shift:summary',
+  SHIFT_MANAGE: 'shift:manage',
+  STOCK_ACCESS: 'access:stock',
+  ORDERS_ACCESS: 'access:orders',
+  ORDERS_CANCELLED: 'orders:cancelled',
+  EXPENSES_ACCESS: 'access:expenses',
+  WORKERS_ACCESS: 'access:workers',
+  
+  // Specific action permissions
+  INVENTORY_MANAGE: 'inventory:manage',
+  REPORTS_VIEW: 'reports:view',
+  EXTERNAL_RECEIPTS: 'external:receipts',
+  SHIFT_WORKERS: 'shift:workers'
+} as const
+
+/**
+ * Permission groups for easier management
+ */
+export const PERMISSION_GROUPS = {
+  // Full access
+  OWNER: [PERMISSIONS.OWNER_ACCESS],
+  
+  // Cashier permissions
+  CASHIER: [
+    PERMISSIONS.CASHIER_ACCESS,
+    PERMISSIONS.ORDERS_ACCESS,
+    PERMISSIONS.EXTERNAL_RECEIPTS
+  ],
+  
+  // User management
+  USER_MANAGEMENT: [
+    PERMISSIONS.USERS_READ,
+    PERMISSIONS.USERS_CREATE,
+    PERMISSIONS.USERS_EDIT,
+    PERMISSIONS.USERS_DELETE
+  ],
+  
+  // Permission management
+  PERMISSION_MANAGEMENT: [
+    PERMISSIONS.PERMISSIONS_READ,
+    PERMISSIONS.PERMISSIONS_ASSIGN,
+    PERMISSIONS.PERMISSIONS_REVOKE
+  ],
+  
+  // Product management
+  PRODUCT_MANAGEMENT: [
+    PERMISSIONS.PRODUCTS_ACCESS,
+    PERMISSIONS.CATEGORIES_ACCESS
+  ],
+  
+  // Shift management
+  SHIFT_MANAGEMENT: [
+    PERMISSIONS.SHIFTS_ACCESS,
+    PERMISSIONS.SHIFT_APPROVE,
+    PERMISSIONS.SHIFT_SUMMARY,
+    PERMISSIONS.SHIFT_MANAGE,
+    PERMISSIONS.SHIFT_WORKERS
+  ],
+  
+  // Stock management
+  STOCK_MANAGEMENT: [
+    PERMISSIONS.STOCK_ACCESS,
+    PERMISSIONS.INVENTORY_MANAGE
+  ]
+} as const
+
 export class AuthApiService {
   /**
    * Normalize permission names to backend-supported forms
@@ -235,11 +339,17 @@ export class AuthApiService {
         }
 
         // Final fallback: if role is cashier but still no cashier related perms, flag it
-  if (normalizedRole === 'cashier' && !u.permissions.some(p => p === 'access:cashier')) {
+        if (normalizedRole === 'cashier' && !u.permissions.some(p => p === 'access:cashier')) {
           try { localStorage.setItem('permissionWarning', 'Missing cashier permission from backend'); } catch {}
         }
 
         console.log('User with normalized permissions:', u.permissions)
+        
+        // Store auth data immediately after successful login
+        if (data.data.token) {
+          localStorage.setItem('authToken', data.data.token)
+          localStorage.setItem('currentUser', JSON.stringify(u))
+        }
       }
 
       return data.data
@@ -443,6 +553,71 @@ export class AuthApiService {
   }
 
   /**
+   * Check if user has any permission from a permission group
+   */
+  static hasPermissionGroup(group: string[]): boolean {
+    return this.hasPermission(group)
+  }
+
+  /**
+   * Check if user can manage users
+   */
+  static canManageUsers(): boolean {
+    return this.hasPermission([
+      PERMISSIONS.OWNER_ACCESS,
+      PERMISSIONS.USERS_READ,
+      PERMISSIONS.USERS_CREATE,
+      PERMISSIONS.USERS_EDIT,
+      PERMISSIONS.USERS_DELETE
+    ])
+  }
+
+  /**
+   * Check if user can manage permissions
+   */
+  static canManagePermissions(): boolean {
+    return this.hasPermission([
+      PERMISSIONS.OWNER_ACCESS,
+      PERMISSIONS.PERMISSIONS_READ,
+      PERMISSIONS.PERMISSIONS_ASSIGN,
+      PERMISSIONS.PERMISSIONS_REVOKE
+    ])
+  }
+
+  /**
+   * Check if user can access products
+   */
+  static canAccessProducts(): boolean {
+    return this.hasPermission([
+      PERMISSIONS.OWNER_ACCESS,
+      PERMISSIONS.PRODUCTS_ACCESS,
+      PERMISSIONS.CASHIER_ACCESS
+    ])
+  }
+
+  /**
+   * Check if user can manage shifts
+   */
+  static canManageShifts(): boolean {
+    return this.hasPermission([
+      PERMISSIONS.OWNER_ACCESS,
+      PERMISSIONS.SHIFTS_ACCESS,
+      PERMISSIONS.SHIFT_APPROVE,
+      PERMISSIONS.SHIFT_MANAGE
+    ])
+  }
+
+  /**
+   * Check if user can access stock management
+   */
+  static canAccessStock(): boolean {
+    return this.hasPermission([
+      PERMISSIONS.OWNER_ACCESS,
+      PERMISSIONS.STOCK_ACCESS
+    ])
+  }
+
+  /**
    * Check if user has access to cashier-specific features
    */
   static hasCashierFeatureAccess(feature: string): boolean {
@@ -499,8 +674,27 @@ export class AuthApiService {
    */
   static async getCurrentShift(): Promise<any | null> {
     try {
-      const response = await this.apiRequest('/shifts/current')
-      return response
+      const user = this.getCurrentUser()
+      if (!user?.id) {
+        console.warn('No user ID available to get current shift')
+        return null
+      }
+
+      console.log(`Getting shifts for cashier ID: ${user.id}`)
+      
+      // Use the /cashier/:cashierId route to get shifts for the current user
+      // This route allows ['OWNER_ACCESS', 'access:cashier', 'access:shift'] permissions
+      const response: any = await this.apiRequest(`/shifts/cashier/${user.id}`)
+      
+      if (response && response.success && Array.isArray(response.data) && response.data.length > 0) {
+        // Return the most recent active shift
+        const activeShift = response.data.find((shift: any) => shift.status === 'OPENED' || shift.status === 'opened') || response.data[0]
+        console.log('Found shift for cashier:', activeShift)
+        return activeShift
+      }
+      
+      console.log('No shifts found for cashier')
+      return null
     } catch (error) {
       console.warn('Failed to get current shift:', error)
       return null
@@ -508,9 +702,33 @@ export class AuthApiService {
   }
 
   /**
-   * Create a new shift
+   * Get shift by specific ID
+   */
+  static async getShiftById(shiftId: string): Promise<any | null> {
+    try {
+      const response = await this.apiRequest(`/shifts/${shiftId}`)
+      return response
+    } catch (error) {
+      console.warn('Failed to get shift by ID:', error)
+      return null
+    }
+  }
+
+  /**
+   * Update shift type (for existing shifts)
+   */
+  static async updateShiftType(shiftId: string, type: string): Promise<any> {
+    return this.apiRequest(`/shifts/${shiftId}/type`, {
+      method: 'PATCH',
+      body: JSON.stringify({ type })
+    })
+  }
+
+  /**
+   * Create a new shift (if really needed - use with caution)
    */
   static async createShift(shiftData: { type?: string } = {}): Promise<any> {
+    console.warn('⚠️ Creating new shift - this may require special permissions')
     const payload = {
       type: shiftData.type || 'DAY',
       ...shiftData
@@ -523,14 +741,7 @@ export class AuthApiService {
       })
       return response
     } catch (error) {
-      // Handle duplicate shift error (409 Conflict)
-      if (error instanceof Error && error.message.includes('409')) {
-        console.log('Shift already exists, checking current shift...')
-        const currentShift = await this.getCurrentShift()
-        if (currentShift) {
-          return currentShift
-        }
-      }
+      console.error('Failed to create shift:', error)
       throw error
     }
   }
@@ -545,30 +756,47 @@ export class AuthApiService {
   }
 
   /**
-   * Ensure user has an active shift (creates one if needed)
+   * Ensure user has an active shift (gets existing shift only)
    */
   static async ensureActiveShift(): Promise<any> {
     try {
-      // First, check if there's already an active shift
-      let currentShift = await this.getCurrentShift()
+      const user = this.getCurrentUser()
+      if (!user?.id) {
+        throw new Error('No user ID available - cannot check shift status')
+      }
+
+      console.log(`Checking for active shift for user: ${user.id}`)
+      
+      // Try to get existing shift using the cashier route
+      const currentShift = await this.getCurrentShift()
       
       if (currentShift) {
         console.log('Found existing active shift:', currentShift)
+        
+        // Update user data with shift information
+        const updatedUser = { ...user, shift: currentShift }
+        localStorage.setItem('currentUser', JSON.stringify(updatedUser))
+        
         return currentShift
       }
       
-      // No active shift found, create a new one
-      console.log('No active shift found, creating new shift...')
-      currentShift = await this.createShift()
+      console.log('No active shift found for user')
       
-      if (currentShift) {
-        console.log('Successfully created new shift:', currentShift)
-        return currentShift
+      // If user is cashier and has permission to create shifts, suggest creating one
+      if (user.role === 'cashier' && this.hasPermission(['access:cashier', 'access:shift'])) {
+        console.log('💡 Cashier has no active shift but can create one. Consider calling createShift().')
       }
       
-      throw new Error('Failed to create shift')
+      return null // Return null instead of trying to create
+      
     } catch (error) {
-      console.error('Error ensuring active shift:', error)
+      console.error('Error checking active shift:', error)
+      
+      // If we get authentication error (401), it means backend is missing auth middleware
+      if (error instanceof Error && error.message.includes('Authentication failed')) {
+        console.error('🚨 Backend shift routes are missing AuthMiddleware.authenticate() - Cannot access shift endpoints without authentication')
+        throw new Error('Backend authentication issue: Shift routes need AuthMiddleware.authenticate() before authorization checks')
+      }
       
       // If we get permission error, provide helpful message
       if (error instanceof Error && error.message.includes('403')) {
@@ -582,6 +810,56 @@ export class AuthApiService {
         }
       }
       
+      // Don't throw error for shift checking - just return null
+      console.warn('Could not check shift status, continuing without shift data')
+      return null
+    }
+  }
+
+  /**
+   * Create a shift for the current user (cashier)
+   */
+  static async createShiftForCurrentUser(shiftType?: string): Promise<any> {
+    const user = this.getCurrentUser()
+    if (!user?.id) {
+      throw new Error('No user ID available to create shift')
+    }
+
+    // Determine shift type based on current time if not provided
+    if (!shiftType) {
+      const currentHour = new Date().getHours()
+      // If it's between 6 AM and 6 PM, it's a morning shift, otherwise night shift
+      shiftType = currentHour >= 6 && currentHour < 18 ? SHIFT_TYPES.MORNING : SHIFT_TYPES.NIGHT
+    }
+
+    const shiftData = {
+      opened_by: user.id,
+      shift_type: shiftType,
+      workers: [user.id] // Include the cashier as a worker
+    }
+
+    console.log('Creating shift for current user:', shiftData)
+    
+    try {
+      const response: any = await this.apiRequest('/shifts', {
+        method: 'POST',
+        body: JSON.stringify(shiftData)
+      })
+      
+      if (response) {
+        console.log('✅ Shift created successfully:', response)
+        
+        // Update user data with new shift
+        const shiftData = response.data || response
+        const updatedUser = { ...user, shift: shiftData }
+        localStorage.setItem('currentUser', JSON.stringify(updatedUser))
+        
+        return shiftData
+      }
+      
+      return null
+    } catch (error) {
+      console.error('Failed to create shift for current user:', error)
       throw error
     }
   }

@@ -341,16 +341,12 @@ export default function SalesPage() {
       setProducts(processedProducts)
 
       // Fetch sizes
-      const sizesResponse = await fetch(`${API_BASE_URL}/category-sizes`)
-      if (!sizesResponse.ok) throw new Error("Failed to fetch sizes")
-      const sizesData = await sizesResponse.json()
+      const sizesData = await AuthApiService.apiRequest<any>('/category-sizes')
       const sizesList = sizesData.success ? sizesData.data.sizes || sizesData.data : []
       setSizes(sizesList)
 
       // Fetch extras
-      const extrasResponse = await fetch(`${API_BASE_URL}/category-extras`)
-      if (!extrasResponse.ok) throw new Error("Failed to fetch extras")
-      const extrasData = await extrasResponse.json()
+      const extrasData = await AuthApiService.apiRequest<any>('/category-extras')
       const extrasList = extrasData.success ? extrasData.data.extras || extrasData.data : []
       setExtras(extrasList)
     } catch (err) {

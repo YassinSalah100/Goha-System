@@ -246,6 +246,20 @@ export default function LoginPage() {
             toast.success("وردية نشطة", { 
               description: `تم العثور على وردية ${activeShift.shift_type || 'نشطة'}` 
             })
+          } else {
+            // No active shift found - create one automatically for cashier
+            console.log("No active shift found - creating new shift for cashier")
+            activeShift = await AuthApiService.createShiftForCurrentUser()
+            
+            if (activeShift) {
+              toast.success("وردية جديدة", { 
+                description: `تم إنشاء وردية ${activeShift.shift_type || 'جديدة'} بنجاح` 
+              })
+            } else {
+              toast.warning('تعذر إنشاء وردية جديدة', { 
+                description: 'سيتم المتابعة بدون وردية' 
+              })
+            }
           }
         } catch (shiftError: any) {
           console.error("Shift management failed:", shiftError)

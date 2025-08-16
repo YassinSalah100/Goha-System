@@ -10,6 +10,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogD
 import { Label } from "@/components/ui/label"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Alert, AlertDescription } from "@/components/ui/alert"
+import { AuthApiService } from "@/lib/services/auth-api"
 import {
   Search,
   AlertTriangle,
@@ -1616,10 +1617,8 @@ export default function CashierStockPage() {
   const fetchStockItems = async () => {
     try {
       setLoading(true)
-      const response = await fetch(`${API_BASE_URL}/stock-items`)
-      if (!response.ok) throw new Error("Failed to fetch stock items")
-      const result = await response.json()
-
+      const result = await AuthApiService.apiRequest<any>('/stock-items')
+      
       const items = result.data?.stockItems || []
       setStockItems(items)
     } catch (error) {
@@ -1637,10 +1636,8 @@ export default function CashierStockPage() {
 
   const fetchLowStockItems = async () => {
     try {
-      const response = await fetch(`${API_BASE_URL}/stock-items/low-stock`)
-      if (!response.ok) throw new Error("Failed to fetch low stock items")
-      const result = await response.json()
-
+      const result = await AuthApiService.apiRequest<any>('/stock-items/low-stock')
+      
       const items = Array.isArray(result) ? result : result.data || []
       setLowStockItems(items)
     } catch (error) {
@@ -1668,11 +1665,8 @@ export default function CashierStockPage() {
           : Math.max(0, selectedItem.current_quantity - updateQuantity)
 
       // First, update the stock item
-      const response = await fetch(`${API_BASE_URL}/stock-items/${selectedItem.stock_item_id}`, {
+      const result = await AuthApiService.apiRequest<any>(`/stock-items/${selectedItem.stock_item_id}`, {
         method: "PUT",
-        headers: {
-          "Content-Type": "application/json",
-        },
         body: JSON.stringify({
           name: selectedItem.name,
           type: selectedItem.type,
@@ -1683,9 +1677,6 @@ export default function CashierStockPage() {
         }),
       })
 
-      if (!response.ok) throw new Error("Failed to update stock item")
-
-      const result = await response.json()
       const updatedItem = result.data
 
       // Try to create a transaction record (optional - don't fail if it doesn't work)
@@ -1701,18 +1692,14 @@ export default function CashierStockPage() {
           notes: `Stock ${updateType === "add" ? "addition" : "reduction"} for ${selectedItem.name}`,
         }
 
-        const transactionResponse = await fetch(`${API_BASE_URL}/stock-transactions`, {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-          },
-          body: JSON.stringify(transactionData),
-        })
-
-        if (!transactionResponse.ok) {
-          console.warn("Failed to create transaction record, continuing without it")
-        } else {
+        try {
+          await AuthApiService.apiRequest<any>('/stock-transactions', {
+            method: "POST",
+            body: JSON.stringify(transactionData),
+          })
           console.log("Transaction recorded successfully")
+        } catch (transactionApiError) {
+          console.warn("Failed to create transaction record, continuing without it:", transactionApiError)
         }
       } catch (transactionError) {
         console.warn("Error creating transaction, continuing without it:", transactionError)

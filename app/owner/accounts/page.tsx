@@ -17,7 +17,7 @@ import { Pie } from "react-chartjs-2"
 import { Chart as ChartJS, ArcElement, Tooltip as ChartTooltip, Legend } from "chart.js"
 import { Avatar } from "@/components/ui/avatar"
 import { Tooltip } from "@/components/ui/tooltip"
-import { AuthApiService } from "@/lib/services/auth-api"
+import { AuthApiService, PERMISSIONS } from "@/lib/services/auth-api"
 import { RegisterDto } from "@/lib/types/auth"
 ChartJS.register(ArcElement, ChartTooltip, Legend)
 
@@ -78,7 +78,7 @@ export default function Page() {
   // Permission checking function
   const hasPermission = (requiredPermissions: string[]): boolean => {
     // If user has OWNER_ACCESS, they can do anything
-    if (currentUserPermissions.includes("OWNER_ACCESS")) {
+    if (currentUserPermissions.includes(PERMISSIONS.OWNER_ACCESS)) {
       return true
     }
     
@@ -106,8 +106,8 @@ export default function Page() {
           console.log("Permissions loaded:", permissionNames)
           
           // Make sure OWNER_ACCESS is included if the user is an owner
-          if (currentUser.role === 'owner' && !permissionNames.includes('OWNER_ACCESS')) {
-            permissionNames.push('OWNER_ACCESS')
+          if (currentUser.role === 'owner' && !permissionNames.includes(PERMISSIONS.OWNER_ACCESS)) {
+            permissionNames.push(PERMISSIONS.OWNER_ACCESS)
           }
           
           setCurrentUserPermissions(permissionNames)
@@ -118,7 +118,7 @@ export default function Page() {
         if (currentUser.permissions && Array.isArray(currentUser.permissions)) {
           setCurrentUserPermissions(currentUser.permissions)
         } else if (currentUser.role === 'owner') {
-          setCurrentUserPermissions(['OWNER_ACCESS'])
+          setCurrentUserPermissions([PERMISSIONS.OWNER_ACCESS])
         } else {
           setCurrentUserPermissions([])
         }
@@ -318,7 +318,7 @@ export default function Page() {
 
   // Open permissions modal
   const openPermissionsModal = async (account: Account) => {
-    if (!hasPermission(["permissions:assign"])) {
+    if (!hasPermission([PERMISSIONS.PERMISSIONS_ASSIGN])) {
       toast.error("ليس لديك صلاحية لتعديل الأذونات")
       return
     }
@@ -346,8 +346,8 @@ export default function Page() {
       
       // Debug permissions
       console.log("Current user permissions:", currentUserPermissions)
-      console.log("Has access:users permission:", hasPermission(["access:users"]))
-      console.log("Has OWNER_ACCESS:", currentUserPermissions.includes("OWNER_ACCESS"))
+      console.log("Has access:users permission:", hasPermission([PERMISSIONS.USERS_READ]))
+      console.log("Has OWNER_ACCESS:", currentUserPermissions.includes(PERMISSIONS.OWNER_ACCESS))
       
       // Load accounts
       await fetchAccounts()
@@ -367,7 +367,7 @@ export default function Page() {
   const handleCreateAccount = async (e: React.FormEvent) => {
     e.preventDefault()
 
-    if (!hasPermission(["users:create"])) {
+    if (!hasPermission([PERMISSIONS.USERS_CREATE])) {
       toast.error("ليس لديك صلاحية لإنشاء حسابات")
       return
     }
@@ -459,7 +459,7 @@ export default function Page() {
 
   // Delete account
   const handleDeleteAccount = async (userId: string, username: string) => {
-    if (!hasPermission(["users:delete"])) {
+    if (!hasPermission([PERMISSIONS.USERS_DELETE])) {
       toast.error("ليس لديك صلاحية لحذف الحسابات")
       return
     }
@@ -501,7 +501,7 @@ export default function Page() {
     e.preventDefault()
     if (!selectedAccount) return
 
-    if (!hasPermission(["permissions:assign"])) {
+    if (!hasPermission([PERMISSIONS.PERMISSIONS_ASSIGN])) {
       toast.error("ليس لديك صلاحية لتعديل الأذونات")
       return
     }
@@ -1021,7 +1021,7 @@ export default function Page() {
                                   <Key className="h-4 w-4 ml-1" />
                                   فحص
                                 </Button>
-                                {hasPermission(["permissions:assign"]) && (
+                                {hasPermission([PERMISSIONS.PERMISSIONS_ASSIGN]) && (
                                   <Button
                                     variant="outline"
                                     size="sm"
@@ -1032,7 +1032,7 @@ export default function Page() {
                                     أذونات
                                   </Button>
                                 )}
-                                {hasPermission(["users:delete"]) && (
+                                {hasPermission([PERMISSIONS.USERS_DELETE]) && (
                                   <Button
                                     variant="outline"
                                     size="sm"

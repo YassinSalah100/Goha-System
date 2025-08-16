@@ -8,6 +8,7 @@ import { ScrollArea } from "@/components/ui/scroll-area"
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog"
 import { Textarea } from "@/components/ui/textarea"
 import { FileText, Phone, User, Trash2, Loader2, RefreshCw, Clock, Users } from "lucide-react"
+import { AuthApiService } from "@/lib/services/auth-api"
 
 // Constants
 const API_BASE_URL = "http://20.77.41.130:3000/api/v1"
@@ -256,35 +257,30 @@ const normalizeOrder = (order: any): Order => {
 const fetchCurrentShift = async (cashierId: string): Promise<Shift | null> => {
   try {
     console.log(`🔍 Fetching shifts for cashier ${cashierId}`)
-    const response = await fetch(`${API_BASE_URL}/shifts/cashier/${cashierId}`)
-    if (response.ok) {
-      const result = await response.json()
-      console.log(`📊 Shifts response:`, result)
-      if (result.success && result.data) {
-        const shifts = Array.isArray(result.data.shifts)
-          ? result.data.shifts
-          : Array.isArray(result.data)
-            ? result.data
-            : []
+    const result = await AuthApiService.apiRequest<any>(`/shifts/cashier/${cashierId}`)
+    console.log(`📊 Shifts response:`, result)
+    if (result.success && result.data) {
+      const shifts = Array.isArray(result.data.shifts)
+        ? result.data.shifts
+        : Array.isArray(result.data)
+          ? result.data
+          : []
 
-        // Find active shift first
-        const activeShift = shifts.find((shift: Shift) => shift.status === "active")
-        if (activeShift) {
-          console.log(`✅ Found active shift: ${activeShift.shift_id}`)
-          return activeShift
-        }
-
-        // If no active shift, get the most recent one
-        if (shifts.length > 0) {
-          const mostRecentShift = shifts.sort(
-            (a: Shift, b: Shift) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime(),
-          )[0]
-          console.log(`✅ Using most recent shift: ${mostRecentShift.shift_id}`)
-          return mostRecentShift
-        }
+      // Find active shift first
+      const activeShift = shifts.find((shift: Shift) => shift.status === "active")
+      if (activeShift) {
+        console.log(`✅ Found active shift: ${activeShift.shift_id}`)
+        return activeShift
       }
-    } else {
-      console.warn(`❌ Failed to fetch shifts, status:`, response.status)
+
+      // If no active shift, get the most recent one
+      if (shifts.length > 0) {
+        const mostRecentShift = shifts.sort(
+          (a: Shift, b: Shift) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime(),
+        )[0]
+        console.log(`✅ Using most recent shift: ${mostRecentShift.shift_id}`)
+        return mostRecentShift
+      }
     }
   } catch (error) {
     console.error(`❌ Error fetching shifts:`, error)
@@ -296,12 +292,10 @@ const fetchCurrentShift = async (cashierId: string): Promise<Shift | null> => {
 const fetchOrderItems = async (orderId: string): Promise<OrderItem[]> => {
   try {
     console.log(`🔍 Fetching items for order ${orderId}`)
-    const response = await fetch(`${API_BASE_URL}/order-items/order/${orderId}`)
-    if (response.ok) {
-      const result = await response.json()
-      console.log(`📦 Items response for order ${orderId}:`, result)
-      if (result.success && result.data) {
-        let items = []
+    const result = await AuthApiService.apiRequest<any>(`/order-items/order/${orderId}`)
+    console.log(`📦 Items response for order ${orderId}:`, result)
+    if (result.success && result.data) {
+      let items = []
         if (Array.isArray(result.data.order_items)) {
           items = result.data.order_items
         } else if (Array.isArray(result.data)) {
@@ -310,9 +304,6 @@ const fetchOrderItems = async (orderId: string): Promise<OrderItem[]> => {
         console.log(`✅ Found ${items.length} items for order ${orderId}`)
         return items.map(normalizeOrderItem)
       }
-    } else {
-      console.warn(`❌ Failed to fetch items for order ${orderId}, status:`, response.status)
-    }
   } catch (error) {
     console.error(`❌ Error fetching items for order ${orderId}:`, error)
   }
@@ -329,26 +320,17 @@ const fetchFromAPI = async (shiftId: string): Promise<Order[]> => {
   globalFetchPromise = (async () => {
     try {
       console.log(`🌐 Fetching all non-cafe orders from except-cafe endpoint`)
-      // Use the new endpoint
-      const response = await fetch(`${API_BASE_URL}/orders/except-cafe`, {
-        headers: {
-          Authorization: `Bearer ${localStorage.getItem("authToken") || ""}`,
-        },
-      })
+      // Use the new endpoint with AuthApiService
+      const result = await AuthApiService.apiRequest<any>('/orders/except-cafe')
       let orders = []
-      if (response.ok) {
-        const result = await response.json()
-        console.log(`📊 except-cafe orders response:`, result)
-        if (result.success && result.data) {
-          orders = Array.isArray(result.data.orders)
-            ? result.data.orders
-            : Array.isArray(result.data)
-              ? result.data
-              : []
-          console.log(`✅ Found ${orders.length} non-cafe orders`)
-        }
-      } else {
-        console.warn(`❌ except-cafe endpoint failed with status:`, response.status)
+      console.log(`📊 except-cafe orders response:`, result)
+      if (result.success && result.data) {
+        orders = Array.isArray(result.data.orders)
+          ? result.data.orders
+          : Array.isArray(result.data)
+            ? result.data
+            : []
+        console.log(`✅ Found ${orders.length} non-cafe orders`)
       }
       // Filter by shiftId on the frontend
       const filteredOrders = orders.filter((order: any) => order.shift?.shift_id === shiftId || order.shift_id === shiftId)
@@ -401,25 +383,15 @@ const fetchFromLocalStorage = (shiftId?: string): Order[] => {
 const deleteOrderFromAPI = async (orderId: string, reason: string, cashier: string): Promise<boolean> => {
   try {
     console.log(`🗑️ Attempting to delete order ${orderId}`)
-    const response = await fetch(`${API_BASE_URL}/orders/${orderId}`, {
+    const result = await AuthApiService.apiRequest<any>(`/orders/${orderId}`, {
       method: "DELETE",
-      headers: {
-        "Content-Type": "application/json",
-      },
       body: JSON.stringify({
         deletion_reason: reason,
         deleted_by: cashier,
       }),
     })
-    console.log(`🗑️ Delete response status: ${response.status}`)
-    if (response.ok) {
-      console.log(`✅ Order ${orderId} deleted successfully`)
-      return true
-    } else {
-      const errorText = await response.text()
-      console.error(`❌ Delete failed: ${response.status} - ${errorText}`)
-      return false
-    }
+    console.log(`✅ Order ${orderId} deleted successfully`)
+    return true
   } catch (error) {
     console.error("❌ API delete failed:", error)
     return false

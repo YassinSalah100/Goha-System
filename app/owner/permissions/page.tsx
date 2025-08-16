@@ -18,6 +18,8 @@ export default function PermissionsPage() {
   const [form, setForm] = useState({ name: "", description: "" })
   const [error, setError] = useState<string | null>(null)
   const [success, setSuccess] = useState<string | null>(null)
+  const [showDeleteModal, setShowDeleteModal] = useState(false)
+  const [permissionToDelete, setPermissionToDelete] = useState<any>(null)
 
   // Load permissions on component mount - no auth required
   useEffect(() => {
@@ -170,6 +172,43 @@ export default function PermissionsPage() {
     setError(null)
     setSuccess(null)
     fetchUsers()
+  }
+
+  // Open delete modal
+  const openDeleteModal = (permission: any) => {
+    setPermissionToDelete(permission)
+    setShowDeleteModal(true)
+    setError(null)
+    setSuccess(null)
+  }
+
+  // Handle delete permission
+  const handleDeletePermission = async () => {
+    if (!permissionToDelete) return
+
+    setLoading(true)
+    setError(null)
+    setSuccess(null)
+
+    try {
+      const data = await AuthApiService.apiRequest<any>(`/permissions/${permissionToDelete.id}`, {
+        method: "DELETE",
+      })
+
+      if (data.success) {
+        setSuccess(`تم حذف الإذن "${permissionToDelete.name}" بنجاح`)
+        setShowDeleteModal(false)
+        setPermissionToDelete(null)
+        fetchPermissions()
+      } else {
+        setError(data.message || "فشل في حذف الإذن")
+      }
+    } catch (error: any) {
+      console.error("Delete error:", error)
+      setError(error.message || "خطأ في الاتصال بالخادم")
+    } finally {
+      setLoading(false)
+    }
   }
 
   const handleAddPermission = async (e: React.FormEvent) => {
@@ -411,7 +450,10 @@ export default function PermissionsPage() {
                           >
                             تعيين
                           </button>
-                          <button className="text-red-600 hover:text-red-900 bg-red-50 hover:bg-red-100 px-3 py-1 rounded-md transition-colors duration-200">
+                          <button 
+                            onClick={() => openDeleteModal(perm)}
+                            className="text-red-600 hover:text-red-900 bg-red-50 hover:bg-red-100 px-3 py-1 rounded-md transition-colors duration-200"
+                          >
                             حذف
                           </button>
                         </div>
@@ -629,6 +671,95 @@ export default function PermissionsPage() {
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* Delete Permission Modal */}
+      {showDeleteModal && permissionToDelete && (
+        <div className="fixed inset-0 bg-gray-600 bg-opacity-50 overflow-y-auto h-full w-full z-50 flex items-center justify-center p-4">
+          <div className="bg-white rounded-lg shadow-xl max-w-md w-full">
+            <div className="px-6 py-4 border-b border-gray-200">
+              <div className="flex items-center justify-between">
+                <h3 className="text-lg font-semibold text-gray-900 text-red-600">
+                  تأكيد حذف الإذن
+                </h3>
+                <button
+                  onClick={() => {
+                    setShowDeleteModal(false)
+                    setPermissionToDelete(null)
+                    setError(null)
+                  }}
+                  className="text-gray-400 hover:text-gray-600 transition-colors duration-200"
+                >
+                  <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                  </svg>
+                </button>
+              </div>
+            </div>
+
+            <div className="px-6 py-4">
+              <div className="flex items-center mb-4">
+                <svg className="w-10 h-10 text-red-500 mr-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                </svg>
+                <div>
+                  <p className="text-gray-800 font-medium">
+                    هل أنت متأكد من حذف الإذن "{permissionToDelete.name}"؟
+                  </p>
+                  <p className="text-gray-600 text-sm mt-1">
+                    هذا الإجراء لا يمكن التراجع عنه وسيتم حذف الإذن نهائياً.
+                  </p>
+                </div>
+              </div>
+
+              {error && (
+                <div className="mb-4 bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-lg flex items-center">
+                  <svg className="w-5 h-5 mr-2" fill="currentColor" viewBox="0 0 20 20">
+                    <path
+                      fillRule="evenodd"
+                      d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z"
+                      clipRule="evenodd"
+                    />
+                  </svg>
+                  {error}
+                </div>
+              )}
+
+              <div className="flex justify-end space-x-4">
+                <button
+                  onClick={() => {
+                    setShowDeleteModal(false)
+                    setPermissionToDelete(null)
+                    setError(null)
+                  }}
+                  disabled={loading}
+                  className="px-4 py-2 text-sm font-medium text-gray-700 bg-gray-100 hover:bg-gray-200 rounded-lg transition-colors duration-200 disabled:opacity-50"
+                >
+                  إلغاء
+                </button>
+                <button
+                  onClick={handleDeletePermission}
+                  disabled={loading}
+                  className="px-4 py-2 text-sm font-medium text-white bg-red-600 hover:bg-red-700 rounded-lg transition-colors duration-200 disabled:opacity-50 flex items-center space-x-2"
+                >
+                  {loading ? (
+                    <>
+                      <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white"></div>
+                      <span>جاري الحذف...</span>
+                    </>
+                  ) : (
+                    <>
+                      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                      </svg>
+                      <span>حذف الإذن</span>
+                    </>
+                  )}
+                </button>
+              </div>
+            </div>
           </div>
         </div>
       )}

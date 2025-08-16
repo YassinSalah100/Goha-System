@@ -1264,7 +1264,7 @@ export default function JournalPage() {
   const mappedExpenses = expenses.map(expense => ({
     id: expense.expense_id,
     item: expense.title,
-    amount: expense.amount,
+    amount: Number(expense.amount) || 0, // Ensure it's a number
     category: expense.category || "أخرى",
     description: expense.description,
     time: new Date(expense.created_at).toLocaleTimeString('ar-EG', { 
@@ -1274,7 +1274,13 @@ export default function JournalPage() {
     date: new Date(expense.created_at).toISOString().split('T')[0]
   }))
 
-  const totalExpenses = mappedExpenses.reduce((sum, expense) => sum + expense.amount, 0)
+  const totalExpenses = mappedExpenses.reduce((sum, expense) => {
+    console.log(`Adding expense: ${expense.item} - Amount: ${expense.amount} (type: ${typeof expense.amount})`)
+    return sum + expense.amount
+  }, 0)
+  
+  console.log(`Total expenses calculated: ${totalExpenses} from ${mappedExpenses.length} expenses`)
+  console.log('All mapped expenses:', mappedExpenses)
   const totalStaffCost = staff.reduce((total, member) => {
     const hours = calculateWorkHours(member.startTime, member.endTime)
     return total + calculateSalary(hours, member.hourlyRate)
