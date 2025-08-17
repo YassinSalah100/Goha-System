@@ -3,6 +3,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { ScrollArea } from "@/components/ui/scroll-area"
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog"
 import { 
   Briefcase, 
   User, 
@@ -13,30 +14,56 @@ import {
   Eye,
   AlertTriangle
 } from "lucide-react"
-import { DetailedShiftSummary } from "@/lib/types/monitoring"
+import { DetailedShiftSummary, ShiftType, ShiftStatus } from "@/lib/types/monitoring"
 import { formatPrice } from "@/lib/services/monitoring-api"
+import { useState } from "react"
 
 interface ShiftSummariesProps {
   shifts: DetailedShiftSummary[]
   isLoading?: boolean
+  onDeleteShift?: (shiftId: string) => Promise<void>
+  onViewDetails?: (shiftId: string) => Promise<any>
 }
 
-export function ShiftSummaries({ shifts, isLoading = false }: ShiftSummariesProps) {
-  const getShiftTypeName = (type: string): string => {
-    const types = {
-      "morning": "صباحية",
-      "night": "مسائية",
+export function ShiftSummaries({ shifts, isLoading = false, onDeleteShift, onViewDetails }: ShiftSummariesProps) {
+  const [selectedShiftDetails, setSelectedShiftDetails] = useState<any>(null)
+  const [isLoadingDetails, setIsLoadingDetails] = useState(false)
+  const handleViewDetails = async (shiftId: string) => {
+    if (!onViewDetails) return
+    
+    setIsLoadingDetails(true)
+    try {
+      const details = await onViewDetails(shiftId)
+      setSelectedShiftDetails(details)
+    } catch (error) {
+      console.error('Error fetching shift details:', error)
+    } finally {
+      setIsLoadingDetails(false)
     }
-    return types[type as keyof typeof types] || type
+  }
+
+  const getShiftTypeName = (type: string): string => {
+    switch (type) {
+      case ShiftType.MORNING:
+        return "صباحية"
+      case ShiftType.NIGHT:
+        return "مسائية"
+      default:
+        return type
+    }
   }
 
   const getShiftStatusBadge = (status: string) => {
-    const statuses = {
-      "opened": { label: "مفتوحة", variant: "default" as const },
-      "closed": { label: "مغلقة", variant: "secondary" as const },
-      "REQUESTED_CLOSE": { label: "طلب إغلاق", variant: "destructive" as const },
+    switch (status) {
+      case ShiftStatus.OPENED:
+        return { label: "مفتوحة", variant: "default" as const }
+      case ShiftStatus.CLOSED:
+        return { label: "مغلقة", variant: "secondary" as const }
+      case ShiftStatus.REQUESTED_CLOSE:
+        return { label: "طلب إغلاق", variant: "destructive" as const }
+      default:
+        return { label: status, variant: "outline" as const }
     }
-    return statuses[status as keyof typeof statuses] || { label: status, variant: "outline" as const }
   }
 
   if (isLoading) {
@@ -117,10 +144,165 @@ export function ShiftSummaries({ shifts, isLoading = false }: ShiftSummariesProp
                       </div>
                     </div>
                     
-                    <Button variant="outline" size="sm">
-                      <Eye className="w-4 h-4 mr-1" />
-                      عرض التفاصيل
-                    </Button>
+                    <Dialog>
+                      <DialogTrigger asChild>
+                        <Button 
+                          variant="outline" 
+                          size="sm"
+                          onClick={() => handleViewDetails(shift.shift_id)}
+                          disabled={isLoadingDetails}
+                        >
+                          <Eye className="w-4 h-4 mr-1" />
+                          {isLoadingDetails ? 'جاري التحميل...' : 'عرض التفاصيل'}
+                        </Button>
+                      </DialogTrigger>
+                      <DialogContent className="max-w-4xl max-h-[80vh] overflow-y-auto" dir="rtl">
+                        <DialogHeader>
+                          <DialogTitle className="flex items-center gap-2">
+                            {selectedShiftDetails?.shift_type === ShiftType.MORNING ? (
+                              <div className="flex items-center gap-2">
+                                <div className="w-3 h-3 bg-yellow-400 rounded-full"></div>
+                                <span>تفاصيل الوردية الصباحية</span>
+                              </div>
+                            ) : (
+                              <div className="flex items-center gap-2">
+                                <div className="w-3 h-3 bg-blue-600 rounded-full"></div>
+                                <span>تفاصيل الوردية المسائية</span>
+                              </div>
+                            )}
+                          </DialogTitle>
+                        </DialogHeader>
+                        {selectedShiftDetails && (
+                          <div className="space-y-6">
+                            {/* Basic Info */}
+                            <div className="grid grid-cols-2 gap-4 p-4 bg-gray-50 rounded-lg">
+                              <div>
+                                <h4 className="font-semibold text-gray-700 mb-2">معلومات أساسية</h4>
+                                <div className="space-y-1 text-sm">
+                                  <div className="flex items-center gap-2">
+                                    <span className="font-medium">نوع الوردية:</span>
+                                    <div className="flex items-center gap-1">
+                                      {selectedShiftDetails.shift_type === ShiftType.MORNING ? (
+                                        <>
+                                          <div className="w-2 h-2 bg-yellow-400 rounded-full"></div>
+                                          <span className="font-semibold text-yellow-700">صباحية</span>
+                                        </>
+                                      ) : (
+                                        <>
+                                          <div className="w-2 h-2 bg-blue-600 rounded-full"></div>
+                                          <span className="font-semibold text-blue-700">مسائية</span>
+                                        </>
+                                      )}
+                                    </div>
+                                  </div>
+                                  <p><span className="font-medium">وقت البداية:</span> {new Date(selectedShiftDetails.start_time).toLocaleString('ar-EG')}</p>
+                                  <p><span className="font-medium">وقت النهاية:</span> {selectedShiftDetails.end_time ? new Date(selectedShiftDetails.end_time).toLocaleString('ar-EG') : 'لم تنته بعد'}</p>
+                                </div>
+                              </div>
+                              <div>
+                                <h4 className="font-semibold text-gray-700 mb-2">الملخص المالي</h4>
+                                <div className="space-y-1 text-sm">
+                                  <p><span className="font-medium">إجمالي الطلبات:</span> {selectedShiftDetails.total_orders}</p>
+                                  <p><span className="font-medium">طلبات الكافيه:</span> {selectedShiftDetails.total_cafe_orders}</p>
+                                  <p><span className="font-medium">إجمالي الإيرادات:</span> {formatPrice(selectedShiftDetails.total_revenue)}</p>
+                                  <p><span className="font-medium">إيرادات الكافيه:</span> {formatPrice(selectedShiftDetails.cafe_revenue)}</p>
+                                  <p><span className="font-medium">إجمالي المصروفات:</span> {formatPrice(selectedShiftDetails.total_expenses)}</p>
+                                  <p><span className="font-medium">إجمالي الرواتب:</span> {formatPrice(selectedShiftDetails.total_salaries)}</p>
+                                  <p><span className="font-medium text-green-600">الرقم النهائي:</span> {formatPrice(selectedShiftDetails.final_number)}</p>
+                                </div>
+                              </div>
+                            </div>
+
+                            {/* Cashiers */}
+                            <div>
+                              <h4 className="font-semibold text-gray-700 mb-3">الكاشيرين</h4>
+                              <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
+                                {selectedShiftDetails.cashiers?.map((cashier: any, index: number) => (
+                                  <div key={index} className="flex items-center gap-2 p-2 bg-blue-50 rounded">
+                                    <User className="w-4 h-4 text-blue-600" />
+                                    <span className="text-sm">{cashier.username}</span>
+                                  </div>
+                                ))}
+                              </div>
+                            </div>
+
+                            {/* Workers */}
+                            <div>
+                              <h4 className="font-semibold text-gray-700 mb-3">العمال ({selectedShiftDetails.workers?.length || 0})</h4>
+                              <div className="space-y-2">
+                                {selectedShiftDetails.workers?.map((worker: any) => (
+                                  <div key={worker.shift_worker_id} className="flex justify-between items-center p-3 border rounded-lg bg-purple-50">
+                                    <div className="flex items-center gap-2">
+                                      <User className="w-4 h-4 text-purple-600" />
+                                      <div>
+                                        <div className="font-medium">{worker.worker_name}</div>
+                                        <div className="text-sm text-gray-500">
+                                          معدل الساعة: {worker.hourly_rate} جنيه
+                                        </div>
+                                      </div>
+                                    </div>
+                                    <div className="text-left">
+                                      <div className="text-sm font-medium text-purple-600">
+                                        {worker.calculated_salary > 0 ? `${worker.calculated_salary} جنيه` : 'جاري العمل'}
+                                      </div>
+                                      <div className="text-xs text-gray-500">
+                                        {worker.end_time ? (
+                                          `انتهى: ${new Date(worker.end_time).toLocaleTimeString('ar-EG')}`
+                                        ) : (
+                                          `بدأ: ${new Date(worker.start_time).toLocaleTimeString('ar-EG')}`
+                                        )}
+                                      </div>
+                                    </div>
+                                  </div>
+                                ))}
+                                {(!selectedShiftDetails.workers || selectedShiftDetails.workers.length === 0) && (
+                                  <p className="text-gray-500 text-center py-4">لا يوجد عمال مسجلين</p>
+                                )}
+                              </div>
+                            </div>
+
+                            {/* Expenses */}
+                            <div>
+                              <h4 className="font-semibold text-gray-700 mb-3">المصروفات ({selectedShiftDetails.expenses?.length || 0})</h4>
+                              <div className="max-h-60 overflow-y-auto">
+                                <div className="space-y-2">
+                                  {selectedShiftDetails.expenses?.map((expense: any) => (
+                                    <div key={expense.expense_id} className="flex justify-between items-center p-3 border rounded-lg">
+                                      <div>
+                                        <div className="font-medium">{expense.title}</div>
+                                        <div className="text-sm text-gray-500">
+                                          {new Date(expense.created_at).toLocaleString('ar-EG')}
+                                        </div>
+                                      </div>
+                                      <div className="text-lg font-bold text-red-600">
+                                        {formatPrice(expense.amount)}
+                                      </div>
+                                    </div>
+                                  ))}
+                                  {(!selectedShiftDetails.expenses || selectedShiftDetails.expenses.length === 0) && (
+                                    <p className="text-gray-500 text-center py-4">لا توجد مصروفات</p>
+                                  )}
+                                </div>
+                              </div>
+                            </div>
+                          </div>
+                        )}
+                      </DialogContent>
+                    </Dialog>
+                    {onDeleteShift && (
+                      <Button
+                        variant="destructive"
+                        size="sm"
+                        className="ml-2"
+                        onClick={async () => {
+                          if (window.confirm('هل أنت متأكد أنك تريد حذف هذه الوردية؟ لا يمكن التراجع عن هذا الإجراء.')) {
+                            await onDeleteShift(shift.shift_id)
+                          }
+                        }}
+                      >
+                        حذف الوردية
+                      </Button>
+                    )}
                   </div>
 
                   {/* Summary Stats */}
@@ -131,9 +313,6 @@ export function ShiftSummaries({ shifts, isLoading = false }: ShiftSummariesProp
                         <span className="text-sm font-medium text-blue-600">الطلبات</span>
                       </div>
                       <div className="text-lg font-bold text-blue-700">{shift.total_orders || 0}</div>
-                      <div className="text-xs text-blue-600">
-                        متوسط: {formatPrice(shift.average_order_value || 0)}
-                      </div>
                     </div>
 
                     <div className="bg-green-50 p-3 rounded-lg">

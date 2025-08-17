@@ -889,7 +889,8 @@ export default function JournalPage() {
         body: JSON.stringify(payload),
       })
 
-      fetchExpenses()
+      // Refresh expenses
+      await fetchExpenses()
     } catch (error: any) {
       throw new Error(error.message || "خطأ في إضافة المصروف")
     } finally {
@@ -1206,7 +1207,7 @@ export default function JournalPage() {
         id: expense.expense_id,
         category: expense.category || 'other',
         item: expense.title,
-        amount: expense.amount,
+        amount: Number(expense.amount) || 0, // Convert to number here too!
         description: expense.description,
         timestamp: expense.created_at
       }))
@@ -1259,6 +1260,55 @@ export default function JournalPage() {
       fetchShiftWorkers()
     }
   }, [activeShift]) // Removed availableWorkers from dependencies
+
+  // Automatically update report data when expenses change
+  useEffect(() => {
+    // Only update if we have a report dialog open and the necessary data
+    if (showReportDialog && expenses.length >= 0 && activeShift && currentUser) {
+      console.log('Expenses changed, updating report data automatically...')
+      
+      // Prepare updated expenses data for report
+      const updatedExpensesData = expenses.map((expense: any) => ({
+        id: expense.expense_id,
+        category: expense.category || 'other',
+        item: expense.title,
+        amount: Number(expense.amount) || 0,
+        description: expense.description,
+        time: new Date(expense.created_at).toLocaleTimeString('ar-EG', { 
+          hour: '2-digit', 
+          minute: '2-digit' 
+        })
+      }))
+
+      // Prepare shift data
+      const shiftData = {
+        startTime: activeShift.start_time || new Date().toISOString(),
+        endTime: activeShift.is_closed ? new Date().toISOString() : undefined,
+        cashierName: currentUser.full_name || 'غير محدد',
+        totalHours: activeShift.start_time ? 
+          calculateWorkHours(activeShift.start_time, activeShift.is_closed ? new Date().toISOString() : undefined) : 0
+      }
+
+      // Prepare workers data
+      const workersData = (shiftWorkers || []).map(worker => ({
+        name: worker.worker?.full_name || 'غير محدد',
+        position: 'موظف',
+        startTime: worker.start_time || new Date().toISOString(),
+        endTime: worker.end_time,
+        hourlyRate: worker.worker?.base_hourly_rate || 0,
+        status: worker.is_active ? 'present' : 'absent'
+      }))
+
+      try {
+        // Generate updated report
+        const updatedReport = generateDailyReport(updatedExpensesData, workersData, shiftData)
+        setReportData(updatedReport)
+        console.log('✅ Report data updated automatically. New total expenses:', updatedReport.summary.totalExpenses)
+      } catch (error) {
+        console.error("Error updating report data:", error)
+      }
+    }
+  }, [expenses, activeShift, currentUser, shiftWorkers, showReportDialog])
 
   // Calculate totals for the converted expenses
   const mappedExpenses = expenses.map(expense => ({

@@ -1,79 +1,50 @@
-// Monitoring API Service
+// Monitoring API Service - Fixed for correct backend endpoints
 import { 
   Order, 
   CancelledOrder, 
   StockItem, 
   OrderStats, 
-  DetailedShiftSummary,
-  CashierActivity,
-  CashierDto
+  DetailedShiftSummary, 
+  CashierActivity 
 } from '@/lib/types/monitoring'
 import { AuthApiService } from './auth-api'
 
-const API_BASE_URL = "http://20.77.41.130:3000/api/v1"
-
-// Utility function for API calls with error handling and authentication
-const apiRequest = async <T>(
-  endpoint: string, 
-  options: RequestInit = {}
-): Promise<T> => {
-  try {
-    const authHeaders = AuthApiService.createAuthHeaders()
-    
-    const response = await fetch(`${API_BASE_URL}${endpoint}`, {
-      headers: {
-        ...authHeaders,
-        'Accept': 'application/json',
-        ...options.headers,
-      },
-      ...options,
-    })
-
-    if (!response.ok) {
-      // Handle auth errors
-      if (response.status === 401) {
-        AuthApiService.clearAuthData()
-        throw new Error('Unauthorized - please login again')
-      }
-      
-      throw new Error(`HTTP ${response.status}: ${response.statusText}`)
-    }
-
-    const data = await response.json()
-    return data
-  } catch (error) {
-    console.error(`API Error for ${endpoint}:`, error)
-    throw error
+// Price normalization utility
+export function normalizePrice(price: string | number): number {
+  if (typeof price === 'number') {
+    return price
   }
-}
-
-// Price normalization utilities
-export const normalizePrice = (price: string | number): number => {
-  if (typeof price === "string") {
-    return Number.parseFloat(price) || 0
+  
+  if (typeof price === 'string') {
+    const cleaned = price.replace(/[^\d.-]/g, '')
+    const parsed = parseFloat(cleaned)
+    return isNaN(parsed) ? 0 : parsed
   }
-  return Number(price) || 0
+  
+  return 0
 }
 
-export const formatPrice = (price: string | number): string => {
-  return `ج.م${normalizePrice(price).toLocaleString("ar-EG", { 
-    minimumFractionDigits: 2, 
-    maximumFractionDigits: 2 
-  })}`
+// Format price for display
+export function formatPrice(price: number | string): string {
+  const normalized = normalizePrice(price)
+  return new Intl.NumberFormat('ar-EG', {
+    style: 'currency',
+    currency: 'EGP',
+    minimumFractionDigits: 2,
+  }).format(normalized)
 }
 
-// API Services
 export class MonitoringApiService {
   // Fetch live orders - using correct endpoint structure
   static async fetchOrders(page: number = 1, limit: number = 100): Promise<Order[]> {
     try {
       // Try without pagination first, then with if that fails
       try {
-        const data = await apiRequest<any>(`/orders/except-cafe`)
+        const data = await AuthApiService.apiRequest<any>(`/orders/except-cafe`)
         return data.data?.orders || data.data || []
       } catch (noPaginationError) {
         // If that fails, try with minimal pagination parameters
-        const data = await apiRequest<any>(`/orders/except-cafe?page=1&limit=10`)
+        const data = await AuthApiService.apiRequest<any>(`/orders/except-cafe?page=1&limit=10`)
         return data.data?.orders || data.data || []
       }
     } catch (error) {
@@ -87,7 +58,7 @@ export class MonitoringApiService {
     try {
       // Try to get stats from dedicated endpoint first
       try {
-        const statsData = await apiRequest<any>('/orders/stats')
+        const statsData = await AuthApiService.apiRequest<any>('/orders/stats')
         
         if (statsData.success && statsData.data) {
           const data = statsData.data
@@ -201,7 +172,7 @@ export class MonitoringApiService {
 
       for (const endpoint of possibleEndpoints) {
         try {
-          const data = await apiRequest<any>(endpoint)
+          const data = await AuthApiService.apiRequest<any>(endpoint)
           if (data && (data.success || Array.isArray(data))) {
             const items = data.data || data
             if (Array.isArray(items)) {
@@ -222,10 +193,11 @@ export class MonitoringApiService {
     }
   }
 
-  // Fetch shifts by status - using correct endpoint structure
+  // Fetch shifts by status - using the correct available endpoint
   static async fetchShiftsByStatus(status: 'opened' | 'closed'): Promise<DetailedShiftSummary[]> {
     try {
-      const data = await apiRequest<any>(`/shifts/status/${status}`)
+      console.log(`Fetching shifts with status: ${status}`)
+      const data = await AuthApiService.apiRequest<any>(`/shifts/status/${status}`)
       return data.shifts || data.data || data || []
     } catch (error) {
       console.error(`Error fetching ${status} shifts:`, error)
@@ -233,43 +205,19 @@ export class MonitoringApiService {
     }
   }
 
-  // Fetch shifts by date - try multiple endpoints with better error handling
+  // Fetch shifts by date - Backend doesn't have bulk endpoints
   static async fetchShiftsByDate(date: string): Promise<DetailedShiftSummary[]> {
     try {
-      // Try the summary endpoint first
-      try {
-        console.log(`Attempting to fetch shifts by date using summary endpoint for ${date}`)
-        const summaryData = await apiRequest<any>(`/shifts/summary/by-date?date=${date}`)
-        return summaryData.shifts || summaryData.data || summaryData || []
-      } catch (summaryError) {
-        console.log('Summary endpoint failed, trying alternative approach')
-      }
-
-      // SKIP the /shifts/by-date endpoint since it's causing 500 errors
-      // Instead, try fetching all shifts and filtering by date client-side
-      try {
-        // Get both opened and closed shifts
-        const [openedShifts, closedShifts] = await Promise.all([
-          this.fetchShiftsByStatus('opened'),
-          this.fetchShiftsByStatus('closed')
-        ])
-        
-        // Combine and filter by date
-        const allShifts = [...openedShifts, ...closedShifts]
-        return allShifts.filter(shift => 
-          shift.start_time && shift.start_time.startsWith(date)
-        )
-      } catch (alternativeError) {
-        console.log('Alternative approach also failed')
-        return []
-      }
+      console.log(`Cannot fetch shifts by date: ${date} - bulk endpoints not available`)
+      console.log('Available endpoints: GET /:id (individual shift), PATCH /:id/type (update type)')
+      return []
     } catch (error) {
       console.error('Error fetching shifts by date:', error)
       return []
     }
   }
 
-  // Fetch detailed shift summaries - using working endpoints
+  // Fetch detailed shift summaries - Now working with status endpoint
   static async fetchDetailedShiftSummaries(
     date?: string,
     shiftType?: string,
@@ -278,82 +226,278 @@ export class MonitoringApiService {
     try {
       console.log(`fetchDetailedShiftSummaries called with date: ${date}, type: ${shiftType}, status: ${status}`)
       
-      // Map 'active' status to 'opened' since backend only supports 'opened' and 'closed'
-      const mappedStatus = status === 'active' ? 'opened' : status
-      console.log(`Status mapped from '${status}' to '${mappedStatus}'`)
+      // Get shifts by status using the available endpoint
+      let allShifts: Array<{shift: any, fetchedStatus: string}> = []
       
-      let allShifts: DetailedShiftSummary[] = []
-      
-      // Try different approaches based on what's available
-      const possibleEndpoints = [
-        '/shifts/summaries/all',
-        '/shifts/summary',
-        '/shifts/summaries',
-        '/shifts'
-      ]
-
-      // Try each endpoint until we find one that works
-      for (const endpoint of possibleEndpoints) {
-        try {
-          console.log(`Trying to fetch shifts from endpoint: ${endpoint}`)
-          const data = await apiRequest<any>(endpoint)
-          if (data && (data.success || Array.isArray(data))) {
-            allShifts = data.data || data
-            if (Array.isArray(allShifts) && allShifts.length > 0) {
-              console.log(`Successfully fetched ${allShifts.length} shifts from ${endpoint}`)
-              break
-            }
-          }
-        } catch (error) {
-          console.log(`Endpoint ${endpoint} not available, trying next...`)
-          continue
-        }
+      if (status && status !== 'all') {
+        // Map 'active' to 'opened' for backend compatibility
+        const mappedStatus = status === 'active' ? 'opened' : status
+        console.log(`Fetching shifts with status: ${mappedStatus}`)
+        const shifts = await this.fetchShiftsByStatus(mappedStatus as 'opened' | 'closed')
+        allShifts = shifts.map(shift => ({ shift, fetchedStatus: mappedStatus }))
+      } else {
+        // Fetch both opened and closed shifts
+        console.log('Fetching both opened and closed shifts')
+        const [openedShifts, closedShifts] = await Promise.all([
+          this.fetchShiftsByStatus('opened'),
+          this.fetchShiftsByStatus('closed')
+        ])
+        allShifts = [
+          ...openedShifts.map(shift => ({ shift, fetchedStatus: 'opened' })),
+          ...closedShifts.map(shift => ({ shift, fetchedStatus: 'closed' }))
+        ]
       }
-
-      // If no summary endpoints work, try combining opened and closed shifts
+      
+      console.log(`Found ${allShifts.length} shifts from status endpoints`)
+      
       if (allShifts.length === 0) {
-        try {
-          console.log('No shifts found from summary endpoints, trying status-based endpoints')
-          
-          // Only fetch the specific status type or both based on mapped status
-          if (mappedStatus && mappedStatus !== 'all') {
-            console.log(`Fetching shifts with status: ${mappedStatus}`)
-            const fetchedShifts = await this.fetchShiftsByStatus(
-              mappedStatus === 'opened' ? 'opened' : 'closed'
-            )
-            allShifts = [...fetchedShifts]
-          } else {
-            // Fetch both statuses and combine
-            console.log('Fetching both opened and closed shifts')
-            const [openedShifts, closedShifts] = await Promise.all([
-              this.fetchShiftsByStatus('opened'),
-              this.fetchShiftsByStatus('closed')
-            ])
-            allShifts = [...openedShifts, ...closedShifts]
-          }
-          
-          console.log(`Retrieved ${allShifts.length} shifts from status-based endpoints`)
-        } catch (error) {
-          console.log('Failed to fetch shifts by status as well')
-        }
+        console.log('No shifts found')
+        return []
       }
-
-      // Filter by date if provided
-      if (date && date !== 'all' && allShifts.length > 0) {
-        console.log(`Filtering shifts by date: ${date}`)
-        allShifts = allShifts.filter(shift => 
+      
+      // Extract shift IDs and fetch detailed information for each shift
+      console.log(`Fetching details for ${allShifts.length} shifts`)
+      
+      const shiftDetailsPromises = allShifts.map(async ({ shift, fetchedStatus }) => {
+        try {
+          const details = await this.getShiftSummaryWithDetails(shift.shift_id)
+          // Transform the data with the correct status
+          return this.transformShiftData(details, fetchedStatus)
+        } catch (error) {
+          console.error(`Failed to fetch details for shift ${shift.shift_id}:`, error)
+          return null
+        }
+      })
+      
+      const allShiftDetails = await Promise.all(shiftDetailsPromises)
+      const validShifts = allShiftDetails.filter(shift => shift !== null) as DetailedShiftSummary[]
+      
+      // Apply filters
+      let filteredShifts = validShifts
+      
+      // Filter by date
+      if (date && date !== 'all') {
+        filteredShifts = filteredShifts.filter(shift => 
           shift.start_time && shift.start_time.startsWith(date)
         )
       }
       
-      // Apply remaining filters
-      const filteredShifts = this.filterShifts(allShifts, shiftType, status)
-      console.log(`After filtering: ${filteredShifts.length} shifts match criteria`)
+      // Filter by shift type
+      if (shiftType && shiftType !== 'all') {
+        filteredShifts = filteredShifts.filter(shift => shift.type === shiftType)
+      }
       
+      console.log(`Returning ${filteredShifts.length} filtered shifts`)
       return filteredShifts
+      
     } catch (error) {
       console.error('Error fetching detailed shift summaries:', error)
       return []
+    }
+  }
+
+  // Transform API response to match our interface
+  private static transformShiftData(apiData: any, actualStatus?: string): DetailedShiftSummary {
+    // Determine the correct status
+    let shiftStatus: 'opened' | 'closed' | 'REQUESTED_CLOSE' = 'opened'
+    
+    if (actualStatus) {
+      // Use the status from the endpoint we fetched from
+      shiftStatus = actualStatus as 'opened' | 'closed' | 'REQUESTED_CLOSE'
+    } else {
+      // Fallback: check if end_time is significantly different from start_time
+      // If they're the same or very close, it's likely still opened
+      const startTime = new Date(apiData.start_time)
+      const endTime = new Date(apiData.end_time)
+      const timeDiff = Math.abs(endTime.getTime() - startTime.getTime())
+      
+      // If the time difference is less than 1 minute, consider it still opened
+      shiftStatus = timeDiff > 60000 ? 'closed' : 'opened'
+    }
+    
+    return {
+      shift_id: apiData.shift_id,
+      type: apiData.shift_type === 'morning' ? 'morning' : 'night',
+      status: shiftStatus,
+      start_time: apiData.start_time,
+      end_time: shiftStatus === 'closed' ? apiData.end_time : null,
+      opened_by: {
+        worker_id: apiData.cashiers?.[0]?.user_id || '',
+        full_name: apiData.cashiers?.[0]?.username || 'غير محدد'
+      },
+      closed_by: shiftStatus === 'closed' ? {
+        worker_id: apiData.cashiers?.[0]?.user_id || '',
+        full_name: apiData.cashiers?.[0]?.username || 'غير محدد'
+      } : undefined,
+      // Orders summary
+      total_orders: apiData.total_orders || 0,
+      total_sales: apiData.total_revenue || 0,
+      orders_by_type: {
+        "dine-in": Math.max(0, (apiData.total_orders || 0) - (apiData.total_cafe_orders || 0)),
+        takeaway: 0, // Not provided in API
+        delivery: 0, // Not provided in API
+        cafe: apiData.total_cafe_orders || 0
+      },
+      orders_by_status: {
+        pending: 0, // Not provided in API
+        completed: apiData.total_orders || 0, // Assuming all orders are completed
+        cancelled: 0 // Not provided in API
+      },
+      orders_by_payment: {
+        cash: apiData.total_orders || 0, // Assuming all cash for now
+        card: 0 // Not provided in API
+      },
+      average_order_value: (apiData.total_orders && apiData.total_orders > 0) 
+        ? (apiData.total_revenue || 0) / apiData.total_orders 
+        : 0,
+      // Workers summary
+      total_workers: apiData.workers?.length || 0,
+      active_workers: apiData.workers?.filter((w: any) => w.is_active)?.length || 0,
+      total_staff_cost: apiData.total_salaries || 0,
+      workers: apiData.workers || [],
+      // Expenses summary
+      total_expenses: apiData.total_expenses || 0,
+      expenses_count: apiData.expenses?.length || 0,
+      expenses_by_category: {}, // Not provided in detail
+      expenses: apiData.expenses || [],
+      // Cashiers summary
+      cashiers: apiData.cashiers || []
+    }
+  }
+
+  // Fetch cashier activities - now using status endpoint
+  static async fetchCashierActivities(): Promise<CashierActivity[]> {
+    try {
+      console.log('Fetching cashier activities from shift data')
+      
+      // Get today's date
+      const today = new Date().toISOString().split('T')[0]
+      
+      // Fetch both opened and closed shifts
+      const [openedShifts, closedShifts] = await Promise.all([
+        this.fetchShiftsByStatus('opened'),
+        this.fetchShiftsByStatus('closed')
+      ])
+      
+      // Create array with status tracking
+      const shiftsWithStatus = [
+        ...openedShifts.map(shift => ({ shift, status: 'opened' })),
+        ...closedShifts.map(shift => ({ shift, status: 'closed' }))
+      ]
+      
+      // Filter for today's shifts
+      const todayShifts = shiftsWithStatus.filter(({ shift }) => 
+        shift.start_time && shift.start_time.startsWith(today)
+      )
+      
+      console.log(`Found ${todayShifts.length} shifts for today`)
+      
+      if (todayShifts.length === 0) {
+        return []
+      }
+      
+      // Get detailed information for each shift to extract cashier data
+      const shiftDetailsPromises = todayShifts.map(async ({ shift, status: shiftStatus }) => {
+        try {
+          const details = await this.getShiftSummaryWithDetails(shift.shift_id)
+          return { details, status: shiftStatus }
+        } catch (error) {
+          console.error(`Failed to get details for shift ${shift.shift_id}:`, error)
+          return null
+        }
+      })
+      
+      const allShiftDetails = await Promise.all(shiftDetailsPromises)
+      const validShiftDetails = allShiftDetails.filter(item => item !== null)
+      
+      // Extract cashier activities from shift details
+      const cashierMap = new Map<string, CashierActivity>()
+      
+      validShiftDetails.forEach(({ details: shiftDetail, status: shiftStatus }) => {
+        if (shiftDetail.cashiers && Array.isArray(shiftDetail.cashiers)) {
+          shiftDetail.cashiers.forEach((cashier: any) => {
+            const cashierId = cashier.user_id || cashier.id
+            const cashierName = cashier.username || cashier.full_name || 'غير محدد'
+            
+            if (cashierId) {
+              if (!cashierMap.has(cashierId)) {
+                cashierMap.set(cashierId, {
+                  cashierName,
+                  cashierId,
+                  ordersToday: shiftDetail.total_orders || 0,
+                  totalSales: shiftDetail.total_revenue || 0,
+                  lastOrderTime: shiftDetail.start_time || '',
+                  isActive: shiftStatus === 'opened', // Active if shift status is opened
+                  orderTypes: {
+                    "dine-in": Math.max(0, (shiftDetail.total_orders || 0) - (shiftDetail.total_cafe_orders || 0)),
+                    takeaway: 0,
+                    delivery: 0,
+                    cafe: shiftDetail.total_cafe_orders || 0,
+                  },
+                  salesByType: {
+                    "dine-in": Math.max(0, (shiftDetail.total_revenue || 0) - (shiftDetail.cafe_revenue || 0)),
+                    takeaway: 0,
+                    delivery: 0,
+                    cafe: shiftDetail.cafe_revenue || 0,
+                  },
+                })
+              } else {
+                // Aggregate data if cashier appears in multiple shifts
+                const activity = cashierMap.get(cashierId)!
+                activity.ordersToday += shiftDetail.total_orders || 0
+                activity.totalSales += shiftDetail.total_revenue || 0
+                activity.orderTypes.cafe += shiftDetail.total_cafe_orders || 0
+                activity.orderTypes["dine-in"] += Math.max(0, (shiftDetail.total_orders || 0) - (shiftDetail.total_cafe_orders || 0))
+                activity.salesByType.cafe += shiftDetail.cafe_revenue || 0
+                activity.salesByType["dine-in"] += Math.max(0, (shiftDetail.total_revenue || 0) - (shiftDetail.cafe_revenue || 0))
+                
+                // Update activity status - active if any shift is opened
+                if (shiftStatus === 'opened') {
+                  activity.isActive = true
+                }
+              }
+            }
+          })
+        }
+      })
+      
+      const activities = Array.from(cashierMap.values())
+      console.log(`Generated ${activities.length} cashier activities`)
+      
+      return activities.sort((a, b) => {
+        // Sort by: active first, then by order count, then by name
+        if (a.isActive && !b.isActive) return -1
+        if (!a.isActive && b.isActive) return 1
+        if (a.ordersToday !== b.ordersToday) return b.ordersToday - a.ordersToday
+        return a.cashierName.localeCompare(b.cashierName)
+      })
+      
+    } catch (error) {
+      console.error('Error fetching cashier activities:', error)
+      return []
+    }
+  }
+
+  // Get shift summary with details by shiftId
+  static async getShiftSummaryWithDetails(shiftId: string): Promise<any> {
+    try {
+      // Use the correct endpoint that you confirmed works
+      const data = await AuthApiService.apiRequest<any>(`/shifts/summary/${shiftId}/details`)
+      return data
+    } catch (error) {
+      console.error('Error fetching shift summary with details:', error)
+      throw error
+    }
+  }
+
+  // Delete shift by id
+  static async deleteShift(shiftId: string): Promise<any> {
+    try {
+      const data = await AuthApiService.apiRequest<any>(`/shifts/${shiftId}`, { method: 'DELETE' })
+      return data
+    } catch (error) {
+      console.error('Error deleting shift:', error)
+      throw error
     }
   }
 
@@ -384,158 +528,5 @@ export class MonitoringApiService {
     }
 
     return filtered
-  }
-
-  // Generate cashier activities from shift summaries instead of orders
-  static async fetchCashierActivities(): Promise<CashierActivity[]> {
-    try {
-      // Try to get shift summaries which should contain cashier information
-      const today = new Date().toISOString().split('T')[0]
-      let shiftsWithCashiers: DetailedShiftSummary[] = []
-
-      // Get regular shifts since summary endpoints are failing
-      const [openedShifts, closedShifts] = await Promise.all([
-        this.fetchShiftsByStatus('opened'),
-        this.fetchShiftsByStatus('closed')
-      ])
-      
-      const todayShifts = [...openedShifts, ...closedShifts].filter(shift => 
-        shift.start_time?.startsWith(today)
-      )
-
-      // For each shift, try to get its summary which should contain cashier info
-      const shiftSummariesPromises = todayShifts.map(async (shift) => {
-        try {
-          const summaryData = await apiRequest<any>(`/shifts/summary/${shift.shift_id}`)
-          return summaryData
-        } catch (error) {
-          return shift // fallback to original shift data
-        }
-      })
-
-      shiftsWithCashiers = await Promise.all(shiftSummariesPromises)
-
-      // Also get orders to calculate order statistics per cashier
-      const orders = await this.fetchOrders()
-      const todayOrders = orders.filter(order => 
-        order.created_at?.startsWith(today)
-      )
-
-      const cashierMap = new Map<string, CashierActivity>()
-
-      // First, extract cashiers from orders (most reliable source for cashier names)
-      todayOrders.forEach(order => {
-        // Handle clean architecture response structure
-        const cashierId = order.cashier?.id || order.cashier?.user_id
-        const cashierName = order.cashier?.fullName || order.cashier?.username || order.cashier?.full_name || 'غير محدد'
-        const orderPrice = normalizePrice(order.total_price)
-        
-        if (cashierId) {
-          if (!cashierMap.has(cashierId)) {
-            cashierMap.set(cashierId, {
-              cashierName,
-              cashierId,
-              ordersToday: 1,
-              totalSales: orderPrice,
-              lastOrderTime: order.created_at || '',
-              isActive: false,
-              orderTypes: {
-                "dine-in": 0,
-                takeaway: 0,
-                delivery: 0,
-                cafe: 0,
-              },
-              salesByType: {
-                "dine-in": 0,
-                takeaway: 0,
-                delivery: 0,
-                cafe: 0,
-              },
-            })
-          } else {
-            const activity = cashierMap.get(cashierId)!
-            activity.ordersToday++
-            activity.totalSales += orderPrice
-            
-            if (order.created_at && order.created_at > activity.lastOrderTime) {
-              activity.lastOrderTime = order.created_at
-            }
-          }
-
-          // Count order types and track sales by type
-          const activity = cashierMap.get(cashierId)!
-          if (order.order_type in activity.orderTypes) {
-            activity.orderTypes[order.order_type as keyof typeof activity.orderTypes]++
-            activity.salesByType[order.order_type as keyof typeof activity.salesByType] += orderPrice
-          }
-        }
-      })
-
-      // Then, update activity status based on shift information
-      shiftsWithCashiers.forEach(shift => {        
-        // If shift has cashiers array (from summary), use it
-        if (shift.cashiers && Array.isArray(shift.cashiers)) {
-          shift.cashiers.forEach(cashier => {            
-            // Handle clean architecture structure - cashier.id vs user_id
-            const cashierIdFromShift = cashier.user_id || cashier.id
-            if (cashierIdFromShift && cashierMap.has(cashierIdFromShift)) {
-              const activity = cashierMap.get(cashierIdFromShift)!
-              activity.isActive = shift.status === 'opened'
-              // Use the username from shift if available and different
-              if (cashier.username && cashier.username !== 'غير محدد') {
-                activity.cashierName = cashier.username
-              }
-            } else if (cashierIdFromShift) {
-              // Add cashier from shift data if not found in orders
-              const newActivity = {
-                cashierName: cashier.username || 'غير محدد',
-                cashierId: cashierIdFromShift,
-                ordersToday: 0,
-                totalSales: 0,
-                lastOrderTime: shift.start_time || '',
-                isActive: shift.status === 'opened',
-                orderTypes: {
-                  "dine-in": 0,
-                  takeaway: 0,
-                  delivery: 0,
-                  cafe: 0,
-                },
-                salesByType: {
-                  "dine-in": 0,
-                  takeaway: 0,
-                  delivery: 0,
-                  cafe: 0,
-                },
-              }
-              cashierMap.set(cashierIdFromShift, newActivity)
-            }
-          })
-        } else {
-          // If no cashiers array, try to match by shift and mark as active
-          // This is less reliable but better than nothing
-          cashierMap.forEach((activity, cashierId) => {
-            if (shift.status === 'opened') {
-              activity.isActive = true
-            }
-          })
-        }
-      })
-
-      // Update activity status based on recent orders (last 2 hours)
-      cashierMap.forEach((activity) => {
-        const lastOrderTime = new Date(activity.lastOrderTime)
-        const twoHoursAgo = new Date(Date.now() - 2 * 60 * 60 * 1000)
-        if (lastOrderTime > twoHoursAgo) {
-          activity.isActive = true
-        }
-      })
-
-      const activities = Array.from(cashierMap.values())
-
-      return activities
-    } catch (error) {
-      console.error('Error generating cashier activities:', error)
-      return []
-    }
   }
 }

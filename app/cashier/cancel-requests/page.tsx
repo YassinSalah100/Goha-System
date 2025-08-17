@@ -3,255 +3,257 @@
 import { useState, useEffect } from "react"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
+import { Button } from "@/components/ui/button"
 import { Separator } from "@/components/ui/separator"
-import { CheckCircle, XCircle, Clock, AlertTriangle } from "lucide-react"
-import { orders } from "@/mock-data/orders"
+import { CheckCircle, XCircle, Clock, AlertTriangle, RefreshCw, Loader2 } from "lucide-react"
+import { AuthApiService } from "@/lib/services/auth-api"
 import { motion } from "framer-motion"
-import Image from 'next/image'
+
+const API_BASE_URL = "http://20.77.41.130:3000/api/v1"
+
+interface CancelRequest {
+  cancelled_order_id: string
+  order: {
+    order_id: string
+    customer_name: string
+    order_type: string
+    total_price: number
+    created_at: string
+    items: any[]
+    cashier?: {
+      fullName: string
+    }
+  }
+  cancelled_by: {
+    fullName: string
+  }
+  shift: {
+    shift_id: string
+    shift_type: string
+  }
+  reason: string
+  cancelled_at: string
+  status?: "pending" | "approved" | "rejected"
+}
 
 export default function CashierCancelRequestsPage() {
-  const [requests, setRequests] = useState<any[]>([])
+  const [requests, setRequests] = useState<CancelRequest[]>([])
   const [currentUser, setCurrentUser] = useState<any>(null)
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
 
   useEffect(() => {
     if (typeof window !== "undefined") {
       const user = JSON.parse(localStorage.getItem("currentUser") || "{}")
       setCurrentUser(user)
-
-      // Load cancel requests from localStorage and filter by current cashier
-      const storedRequests = JSON.parse(localStorage.getItem("cancelRequests") || "[]")
-      const userRequests = storedRequests.filter((req: any) => req.cashier === user.name)
-      setRequests(userRequests)
+      if (user?.user_id || user?.worker_id) {
+        fetchCancelRequests(user)
+      }
     }
   }, [])
 
-  const getOrderDetails = (orderId: string | number) => {
-    // First check saved orders
-    const savedOrdersString = localStorage.getItem("savedOrders")
-    if (savedOrdersString) {
-      const savedOrders = JSON.parse(savedOrdersString)
-      const savedOrder = savedOrders.find((order: any) => order.id == orderId)
-      if (savedOrder) return savedOrder
+  const fetchCancelRequests = async (user: any) => {
+    try {
+      setLoading(true)
+      setError(null)
+      
+      const userId = user?.user_id || user?.worker_id
+      console.log(`🔍 Fetching cancel requests for user: ${userId}`)
+      
+      // Add pagination parameters to satisfy validator requirements
+      const result = await AuthApiService.apiRequest<any>(`/cancelled-orders/user/${userId}?page=1&limit=100`)
+      
+      if (result.success && result.data) {
+        const cancelRequests = result.data.cancelled_orders || []
+        console.log(`✅ Found ${cancelRequests.length} cancel requests`)
+        setRequests(cancelRequests)
+      } else {
+        setRequests([])
+      }
+    } catch (error: any) {
+      console.error("❌ Error fetching cancel requests:", error)
+      setError("فشل في تحميل طلبات الإلغاء")
+      setRequests([])
+    } finally {
+      setLoading(false)
     }
-
-    // Then check mock orders
-    return orders.find((order) => order.id == orderId)
   }
 
-  const getStatusIcon = (status: string) => {
+  const handleRefresh = () => {
+    if (currentUser) {
+      fetchCancelRequests(currentUser)
+    }
+  }
+
+  const getStatusIcon = (status?: string) => {
     switch (status) {
       case "approved":
         return <CheckCircle className="h-5 w-5 text-green-600" />
       case "rejected":
         return <XCircle className="h-5 w-5 text-red-600" />
       case "pending":
-        return <Clock className="h-5 w-5 text-orange-600" />
       default:
-        return <AlertTriangle className="h-5 w-5 text-gray-600" />
+        return <Clock className="h-5 w-5 text-orange-600" />
     }
   }
 
-  const getStatusText = (status: string) => {
+  const getStatusText = (status?: string) => {
     switch (status) {
       case "approved":
         return "تمت الموافقة"
       case "rejected":
         return "مرفوض"
       case "pending":
-        return "في الانتظار"
       default:
-        return "غير معروف"
+        return "في الانتظار"
     }
   }
 
-  const getStatusBadgeVariant = (status: string) => {
+  const getStatusBadgeVariant = (status?: string) => {
     switch (status) {
       case "approved":
         return "default"
       case "rejected":
         return "destructive"
       case "pending":
-        return "secondary"
       default:
-        return "outline"
+        return "secondary"
     }
+  }
+
+  const formatPrice = (price: number) => {
+    return `${price.toFixed(2)} ج.م`
   }
 
   if (!currentUser) return null
 
   return (
     <div className="space-y-6 p-6">
-      <div>
-        <h2 className="text-3xl font-bold tracking-tight">طلبات الإلغاء</h2>
-        <p className="text-muted-foreground">عرض وتتبع طلبات إلغاء الطلبات التي قمت بإرسالها</p>
+      <div className="flex justify-between items-center">
+        <div>
+          <h2 className="text-3xl font-bold tracking-tight">طلبات الإلغاء</h2>
+          <p className="text-muted-foreground">عرض وتتبع طلبات إلغاء الطلبات التي قمت بإرسالها</p>
+        </div>
+        <Button onClick={handleRefresh} disabled={loading} variant="outline">
+          <RefreshCw className={`w-4 h-4 mr-2 ${loading ? "animate-spin" : ""}`} />
+          تحديث
+        </Button>
       </div>
 
       <Card>
         <CardHeader>
-          <CardTitle>طلبات الإلغاء</CardTitle>
+          <CardTitle>طلبات الإلغاء ({requests.length})</CardTitle>
         </CardHeader>
         <CardContent>
-          {requests.length === 0 ? (
-            <div className="text-center py-8 text-muted-foreground">لا توجد طلبات إلغاء</div>
+          {loading ? (
+            <div className="flex items-center justify-center py-8">
+              <div className="text-center">
+                <Loader2 className="w-8 h-8 animate-spin mx-auto mb-4" />
+                <p>جاري تحميل طلبات الإلغاء...</p>
+              </div>
+            </div>
+          ) : error ? (
+            <div className="text-center py-8 text-red-600">
+              <AlertTriangle className="w-12 h-12 mx-auto mb-4 opacity-50" />
+              <p>{error}</p>
+              <Button onClick={handleRefresh} className="mt-4">
+                إعادة المحاولة
+              </Button>
+            </div>
+          ) : requests.length === 0 ? (
+            <div className="text-center py-8 text-muted-foreground">
+              <Clock className="w-12 h-12 mx-auto mb-4 opacity-50" />
+              <p>لا توجد طلبات إلغاء</p>
+            </div>
           ) : (
             <div className="space-y-6">
-              {requests.map((request) => {
-                const order = getOrderDetails(request.orderId)
-                return (
-                  <motion.div
-                    key={request.id}
-                    initial={{ opacity: 0, y: 20 }}
-                    animate={{ opacity: 1, y: 0 }}
-                    className={`border rounded-lg p-4 ${
-                      request.status === "approved"
-                        ? "bg-green-50 border-green-200"
-                        : request.status === "rejected"
-                          ? "bg-red-50 border-red-200"
-                          : "bg-orange-50 border-orange-200"
-                    }`}
-                  >
-                    <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
-                      <div className="flex-1">
-                        <div className="flex items-center gap-2 mb-2">
-                          <h3 className="font-medium">
-                            طلب إلغاء #{request.id} - طلب #{request.orderId}
-                          </h3>
-                          <Badge variant={getStatusBadgeVariant(request.status)}>{getStatusText(request.status)}</Badge>
-                        </div>
-                        <p className="text-sm text-muted-foreground mb-2">
-                          {new Date(request.timestamp).toLocaleString()}
-                        </p>
-                        <div className="bg-gray-50 p-3 rounded-md mb-3">
-                          <p className="text-sm font-medium mb-1">سبب الإلغاء:</p>
-                          <p className="text-sm">{request.reason}</p>
-                        </div>
+              {requests.map((request) => (
+                <motion.div
+                  key={request.cancelled_order_id}
+                  initial={{ opacity: 0, y: 20 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  className={`border rounded-lg p-4 ${
+                    request.status === "approved"
+                      ? "bg-green-50 border-green-200"
+                      : request.status === "rejected"
+                        ? "bg-red-50 border-red-200"
+                        : "bg-orange-50 border-orange-200"
+                  }`}
+                >
+                  <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+                    <div className="flex-1">
+                      <div className="flex items-center gap-2 mb-2">
+                        <h3 className="font-medium">
+                          طلب إلغاء #{request.cancelled_order_id.slice(-6)} - طلب #{request.order.order_id.slice(-6)}
+                        </h3>
+                        <Badge variant={getStatusBadgeVariant(request.status)}>{getStatusText(request.status)}</Badge>
                       </div>
-
-                      <div className="flex items-center gap-2">
-                        {getStatusIcon(request.status)}
-                        <span className="text-sm font-medium">{getStatusText(request.status)}</span>
+                      <div className="grid grid-cols-2 md:grid-cols-4 gap-2 text-sm text-muted-foreground mb-2">
+                        <span>العميل: {request.order.customer_name}</span>
+                        <span>النوع: {request.order.order_type === "dine-in" ? "تناول في المطعم" : request.order.order_type === "takeaway" ? "تيك اواي" : "توصيل"}</span>
+                        <span>المجموع: {formatPrice(request.order.total_price)}</span>
+                        <span>التاريخ: {new Date(request.cancelled_at).toLocaleDateString()}</span>
+                      </div>
+                      <div className="bg-gray-50 p-3 rounded-md mb-3">
+                        <p className="text-sm font-medium mb-1">سبب الإلغاء:</p>
+                        <p className="text-sm">{request.reason}</p>
                       </div>
                     </div>
 
-                    <Separator className="my-4" />
+                    <div className="flex items-center gap-2">
+                      {getStatusIcon(request.status)}
+                      <span className="text-sm font-medium">{getStatusText(request.status)}</span>
+                    </div>
+                  </div>
 
-                    <div>
-                      <h4 className="font-medium mb-2">تفاصيل الطلب:</h4>
-                      {order ? (
-                        <div className="bg-white rounded-xl shadow-lg p-6 w-full max-w-xs mx-auto">
-                          <div className="flex flex-col items-center mb-4">
-                            <img
-                              src="/images/logo.png"
-                              alt="Logo"
-                              className="rounded-full mb-2"
-                              style={{ width: 80, height: 80 }}
-                            />
-                            <h1 className="text-2xl font-bold">Dawar Juha</h1>
-                            <p className="text-sm text-gray-600">Restaurant & Café</p>
-                            <p className="text-sm text-gray-600">123 Main Street, City</p>
-                            <p className="text-sm text-gray-600">Tel: +123 456 7890</p>
-                          </div>
-                          <div className="w-full mb-2">
-                            <div className="flex justify-between mb-1 text-sm">
-                              <span className="font-medium">Order #:</span>
-                              <span>{order.id}</span>
-                            </div>
-                            <div className="flex justify-between mb-1 text-sm">
-                              <span className="font-medium">Date:</span>
-                              <span>{new Date(order.date).toLocaleDateString()}</span>
-                            </div>
-                            <div className="flex justify-between mb-1 text-sm">
-                              <span className="font-medium">Time:</span>
-                              <span>{new Date(order.date).toLocaleTimeString()}</span>
-                            </div>
-                            <div className="flex justify-between mb-1 text-sm">
-                              <span className="font-medium">Customer:</span>
-                              <span>{order.customerName}</span>
-                            </div>
-                            <div className="flex justify-between mb-1 text-sm">
-                              <span className="font-medium">Type:</span>
-                              <span className="capitalize">{order.orderType.replace("-", " ")}</span>
-                            </div>
-                            <div className="flex justify-between mb-1 text-sm">
-                              <span className="font-medium">Cashier:</span>
-                              <span>{order.cashier}</span>
-                            </div>
-                          </div>
-                          <div className="w-full mt-2 mb-2">
-                            <div className="flex font-semibold border-b pb-1 text-sm">
-                              <div className="w-1/3">Item</div>
-                              <div className="w-1/6 text-center">Qty</div>
-                              <div className="w-1/4 text-right">Price</div>
-                              <div className="w-1/4 text-right">Total</div>
-                            </div>
-                            {order.items.map((item: any) => (
-                              <div key={item.id} className="flex flex-col border-b last:border-0 py-1 text-xs">
-                                <div className="flex">
-                                  <div className="w-1/3 truncate">
-                                    {item.name}
-                                    {item.size && (
-                                      <span className="text-[10px] text-gray-500 block">
-                                        {item.size === "small"
-                                          ? "صغير"
-                                          : item.size === "medium"
-                                            ? "وسط"
-                                            : item.size === "large"
-                                              ? "كبير"
-                                              : item.size === "regular"
-                                                ? "عادي"
-                                                : item.size}
-                                      </span>
-                                    )}
-                                  </div>
-                                  <div className="w-1/6 text-center">{item.quantity}</div>
-                                  <div className="w-1/4 text-right">ج.م{item.price.toFixed(2)}</div>
-                                  <div className="w-1/4 text-right">ج.م{(item.price * item.quantity).toFixed(2)}</div>
+                  <Separator className="my-4" />
+
+                  <div>
+                    <h4 className="font-medium mb-2">تفاصيل الطلب:</h4>
+                    <div className="bg-white rounded-lg border p-4">
+                      <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm mb-4">
+                        <div>
+                          <span className="font-medium">رقم الطلب:</span>
+                          <div>#{request.order.order_id.slice(-6)}</div>
+                        </div>
+                        <div>
+                          <span className="font-medium">العميل:</span>
+                          <div>{request.order.customer_name}</div>
+                        </div>
+                        <div>
+                          <span className="font-medium">النوع:</span>
+                          <div>{request.order.order_type === "dine-in" ? "تناول في المطعم" : request.order.order_type === "takeaway" ? "تيك اواي" : "توصيل"}</div>
+                        </div>
+                        <div>
+                          <span className="font-medium">الكاشير:</span>
+                          <div>{request.order.cashier?.fullName || "غير محدد"}</div>
+                        </div>
+                      </div>
+                      
+                      {request.order.items && request.order.items.length > 0 && (
+                        <div>
+                          <h5 className="font-medium mb-2">عناصر الطلب:</h5>
+                          <div className="space-y-2">
+                            {request.order.items.map((item: any, index: number) => (
+                              <div key={index} className="flex justify-between items-center text-sm bg-gray-50 p-2 rounded">
+                                <span>{item.product_name || item.name || "منتج غير محدد"}</span>
+                                <div className="flex items-center gap-2">
+                                  <span>الكمية: {item.quantity}</span>
+                                  <span className="font-medium">{formatPrice(item.unit_price * item.quantity)}</span>
                                 </div>
-                                {item.extras && item.extras.length > 0 && (
-                                  <div className="w-full text-[10px] text-gray-500 pl-1 pt-0.5">
-                                    {item.extras.map((extra: any) => (
-                                      <div key={extra.name} className="flex justify-between">
-                                        <span>+ {extra.name}</span>
-                                        <span>ج.م{extra.price.toFixed(2)}</span>
-                                      </div>
-                                    ))}
-                                  </div>
-                                )}
-                                {item.notes && (
-                                  <div className="w-full text-[10px] italic text-gray-500 pl-1 pt-0.5">
-                                    Note: {item.notes}
-                                  </div>
-                                )}
                               </div>
                             ))}
                           </div>
-                          <div className="w-full border-t pt-2 mt-2">
-                            <div className="flex justify-between text-lg font-bold">
-                              <span>Total</span>
-                              <span>ج.م{order.total.toFixed(2)}</span>
-                            </div>
-                          </div>
-                          <div className="text-center text-xs text-gray-600 mt-4">
-                            <p>Thank you for your order!</p>
-                            <p>Please come again</p>
-                            <div className="flex flex-col items-center mt-3">
-                              <div className="w-12 h-1 rounded-full bg-gradient-to-r from-blue-400 to-blue-700 mb-1" />
-                              <div className="flex items-center gap-2 mt-1">
-                                <Image src="/images/eathrel.png" alt="Eathrel Logo" width={20} height={20} className="w-5 h-5 object-contain" />
-                                <span className="text-[11px] text-blue-700 font-semibold tracking-wide uppercase">
-                                  Powered by Ethereal
-                                </span>
-                              </div>
-                            </div>
+                          <div className="flex justify-between items-center mt-3 pt-3 border-t font-bold">
+                            <span>الإجمالي:</span>
+                            <span className="text-lg text-green-600">{formatPrice(request.order.total_price)}</span>
                           </div>
                         </div>
-                      ) : (
-                        <p className="text-sm text-muted-foreground">تفاصيل الطلب غير متوفرة</p>
                       )}
                     </div>
-                  </motion.div>
-                )
-              })}
+                  </div>
+                </motion.div>
+              ))}
             </div>
           )}
         </CardContent>
@@ -265,7 +267,7 @@ export default function CashierCancelRequestsPage() {
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
             <div className="text-center p-4 bg-blue-50 rounded-lg">
               <div className="text-2xl font-bold text-blue-600">
-                {requests.filter((r) => r.status === "pending").length}
+                {requests.filter((r) => !r.status || r.status === "pending").length}
               </div>
               <div className="text-sm text-blue-600">في الانتظار</div>
             </div>

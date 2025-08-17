@@ -54,6 +54,8 @@ export default function MonitoringPage() {
     refreshAllData,
     fetchLiveOrders,
     fetchShiftSummaries,
+    fetchShiftSummaryDetails,
+    deleteShift,
   } = useMonitoringData()
 
   const [activeTab, setActiveTab] = useState("live")
@@ -303,8 +305,10 @@ export default function MonitoringPage() {
             </Card>
 
             <ShiftSummaries 
-              shifts={shiftSummaries} 
+              shifts={shiftSummaries}
               isLoading={loading.shifts}
+              onDeleteShift={deleteShift}
+              onViewDetails={fetchShiftSummaryDetails}
             />
           </TabsContent>
 

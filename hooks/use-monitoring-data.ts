@@ -171,6 +171,7 @@ export function useMonitoringData() {
   }, [])
 
   // Fetch shift summaries
+
   const fetchShiftSummaries = useCallback(async () => {
     setLoading(prev => ({ ...prev, shifts: true }))
     try {
@@ -188,6 +189,30 @@ export function useMonitoringData() {
       setLoading(prev => ({ ...prev, shifts: false }))
     }
   }, [filters])
+
+  // Fetch details for a single shift
+  const fetchShiftSummaryDetails = useCallback(async (shiftId: string) => {
+    try {
+      const details = await MonitoringApiService.getShiftSummaryWithDetails(shiftId)
+      return details
+    } catch (error) {
+      setError('خطأ في تحميل تفاصيل الوردية')
+      throw error
+    }
+  }, [])
+
+  // Delete a shift
+  const deleteShift = useCallback(async (shiftId: string) => {
+    try {
+      await MonitoringApiService.deleteShift(shiftId)
+      // Refresh shift summaries after deletion
+      await fetchShiftSummaries()
+      setError(null)
+    } catch (error) {
+      setError('خطأ في حذف الوردية')
+      throw error
+    }
+  }, [fetchShiftSummaries])
 
   // Fetch cashier activities
   const fetchCashierActivities = useCallback(async () => {
@@ -271,5 +296,7 @@ export function useMonitoringData() {
     fetchLowStockItems,
     fetchShiftSummaries,
     fetchCashierActivities,
+  fetchShiftSummaryDetails,
+  deleteShift,
   }
 }

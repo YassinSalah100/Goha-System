@@ -83,6 +83,7 @@ export function Sidebar({ role }: SidebarProps) {
     owner: [
       { name: "لوحة التحكم", icon: Home, path: "/owner" },
       { name: "المراقبة المباشرة", icon: BarChart, path: "/owner/monitoring" },
+      { name: "طلبات الإلغاء", icon: AlertTriangle, path: "/owner/cancel-requests" },
       { name: "التقارير", icon: BarChart, path: "/owner/reports" },
       { name: "إدارة المنتجات", icon: Package, path: "/owner/products" },
       { name: "إدارة المخزون", icon: Package, path: "/owner/stock" },

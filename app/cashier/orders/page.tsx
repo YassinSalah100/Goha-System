@@ -7,8 +7,10 @@ import { Badge } from "@/components/ui/badge"
 import { ScrollArea } from "@/components/ui/scroll-area"
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog"
 import { Textarea } from "@/components/ui/textarea"
-import { FileText, Phone, User, Trash2, Loader2, RefreshCw, Clock, Users } from "lucide-react"
+import { FileText, Phone, User, Trash2, Loader2, RefreshCw, Clock, Users, X } from "lucide-react"
 import { AuthApiService } from "@/lib/services/auth-api"
+import { OrderStatus, OrderType, PaymentMethod } from "@/lib/types/enums"
+import { ShiftStatus, ShiftType } from "@/lib/types/monitoring"
 
 // Constants
 const API_BASE_URL = "http://20.77.41.130:3000/api/v1"
@@ -63,11 +65,11 @@ interface OrderItem {
 interface Order {
   order_id: string
   customer_name: string
-  order_type: "dine-in" | "takeaway" | "delivery"
+  order_type: OrderType
   phone_number?: string
   total_price: string | number
-  status: "pending" | "active" | "completed" | "cancelled"
-  payment_method: "cash" | "card"
+  status: OrderStatus
+  payment_method: PaymentMethod
   created_at: string
   updated_at?: string
   shift_id?: string
@@ -81,6 +83,7 @@ interface Order {
   }
   items: OrderItem[]
   cashier_name?: string
+  isApprovedCancellation?: boolean
 }
 
 interface Shift {
@@ -237,6 +240,14 @@ const normalizeOrder = (order: any): Order => {
     cashierName = order.user.name
   }
 
+  // Check if this order has a pending cancellation request
+  let orderStatus = order.status || OrderStatus.COMPLETED
+
+  // If the order status is PENDING_CANCELLATION, preserve it
+  if (order.status === OrderStatus.PENDING_CANCELLATION) {
+    orderStatus = OrderStatus.PENDING_CANCELLATION
+  }
+
   return {
     ...order,
     order_id: order.order_id || `order_${generateId()}`,
@@ -244,8 +255,8 @@ const normalizeOrder = (order: any): Order => {
     cashier_name: cashierName,
     customer_name: order.customer_name || "عميل عابر",
     phone_number: order.phone_number || order.customer_phone || null,
-    order_type: order.order_type || "dine-in",
-    status: "completed",
+    order_type: order.order_type || OrderType.DINE_IN,
+    status: orderStatus, // Use the determined status
     payment_method: order.payment_method || "cash",
     created_at: order.created_at || new Date().toISOString(),
     shift_id: order.shift_id,
@@ -286,6 +297,49 @@ const fetchCurrentShift = async (cashierId: string): Promise<Shift | null> => {
     console.error(`❌ Error fetching shifts:`, error)
   }
   return null
+}
+
+// Fetch cancelled orders for current shift
+const fetchCancelledOrdersFromAPI = async (shiftId: string): Promise<Order[]> => {
+  try {
+    console.log(`🗑️ Fetching cancelled orders for shift ${shiftId}`)
+    const result = await AuthApiService.apiRequest<any>(`/cancelled-orders/shift/${shiftId}`)
+    
+    if (result.success && result.data) {
+      const cancelledOrdersData = Array.isArray(result.data.cancelled_orders) 
+        ? result.data.cancelled_orders 
+        : Array.isArray(result.data) 
+          ? result.data 
+          : []
+      
+      console.log(`✅ Found ${cancelledOrdersData.length} cancelled orders for shift`)
+      
+      // Convert cancelled order data to Order format
+      const cancelledOrders = await Promise.all(
+        cancelledOrdersData.map(async (cancelledData: any) => {
+          const originalOrder = cancelledData.order || {}
+          
+          // Fetch items for the original order
+          const orderItems = await fetchOrderItems(originalOrder.order_id || "")
+          
+          return {
+            ...normalizeOrder(originalOrder),
+            status: OrderStatus.CANCELLED,
+            isApprovedCancellation: true,
+            items: orderItems,
+            cancellation_reason: cancelledData.cancellation_reason,
+            cancelled_at: cancelledData.cancelled_at,
+            cancelled_by: cancelledData.cancelled_by
+          }
+        })
+      )
+      
+      return cancelledOrders.filter((order) => order && order.order_id)
+    }
+  } catch (error) {
+    console.error("❌ Failed to fetch cancelled orders:", error)
+  }
+  return []
 }
 
 // Enhanced fetchOrderItems with better error handling
@@ -334,14 +388,43 @@ const fetchFromAPI = async (shiftId: string): Promise<Order[]> => {
       }
       // Filter by shiftId on the frontend
       const filteredOrders = orders.filter((order: any) => order.shift?.shift_id === shiftId || order.shift_id === shiftId)
-      // Fetch items for each order (if needed)
-      const ordersWithItems = await Promise.all(
+      
+      // Fetch items and check cancel requests for each order
+      const ordersWithItemsAndStatus = await Promise.all(
         filteredOrders.map(async (order: any) => {
           const orderId = order.order_id || order.id
           try {
+            // Fetch order items
             const orderItems = await fetchOrderItems(orderId)
+            
+            // Check if there's a pending cancel request for this order
+            let orderStatus = order.status || OrderStatus.COMPLETED
+            let isApprovedCancellation = false
+            
+            // First check if the order itself is already marked as cancelled
+            if (order.status === OrderStatus.CANCELLED) {
+              orderStatus = OrderStatus.CANCELLED_APPROVED
+              isApprovedCancellation = true
+              console.log(`❌ Order ${orderId} is directly marked as cancelled`)
+            } else {
+              // For cashiers, we'll rely on the order status and local tracking
+              // since they don't have permission to access /cancelled-orders endpoint
+              console.log(`� Order ${orderId} status from API: ${order.status}`)
+              
+              // Check if this order was marked as pending cancellation locally
+              const localOrders = JSON.parse(localStorage.getItem("pendingCancellations") || "[]")
+              const isPendingLocally = localOrders.includes(orderId)
+              
+              if (isPendingLocally && !order.status.includes("cancel")) {
+                orderStatus = OrderStatus.PENDING_CANCELLATION
+                console.log(`🟠 Order ${orderId} has pending cancellation request (local tracking)`)
+              }
+            }
+            
             return {
               ...order,
+              status: orderStatus,
+              isApprovedCancellation: isApprovedCancellation,
               items: orderItems,
             }
           } catch (error) {
@@ -352,8 +435,18 @@ const fetchFromAPI = async (shiftId: string): Promise<Order[]> => {
           }
         })
       )
-      const finalOrders = ordersWithItems.filter((order) => order && order.order_id).map(normalizeOrder)
-      return finalOrders
+      
+      const finalOrders = ordersWithItemsAndStatus.filter((order) => order && order.order_id).map(normalizeOrder)
+      
+      // Also fetch cancelled orders for this shift and include them in the total
+      console.log(`🗑️ Fetching cancelled orders for shift ${shiftId}`)
+      const cancelledOrders = await fetchCancelledOrdersFromAPI(shiftId)
+      
+      // Combine regular orders and cancelled orders
+      const allOrders = [...finalOrders, ...cancelledOrders]
+      console.log(`📊 Total orders (including cancelled): ${allOrders.length}`)
+      
+      return allOrders
     } catch (error) {
       console.error("❌ API fetch failed:", error)
       return []
@@ -382,18 +475,62 @@ const fetchFromLocalStorage = (shiftId?: string): Order[] => {
 
 const deleteOrderFromAPI = async (orderId: string, reason: string, cashier: string): Promise<boolean> => {
   try {
-    console.log(`🗑️ Attempting to delete order ${orderId}`)
-    const result = await AuthApiService.apiRequest<any>(`/orders/${orderId}`, {
-      method: "DELETE",
-      body: JSON.stringify({
-        deletion_reason: reason,
-        deleted_by: cashier,
-      }),
-    })
-    console.log(`✅ Order ${orderId} deleted successfully`)
-    return true
-  } catch (error) {
-    console.error("❌ API delete failed:", error)
+    console.log(`🗑️ Requesting cancellation for order ${orderId}`)
+    
+    // Get current user and shift for the cancel request
+    const currentUser = JSON.parse(localStorage.getItem("currentUser") || "{}")
+    const currentShift = JSON.parse(localStorage.getItem("currentShift") || "{}")
+    
+    const cancelRequestData = {
+      cancelled_by: currentUser?.user_id || currentUser?.worker_id || currentUser?.id,
+      shift_id: currentShift?.shift_id,
+      reason: reason || "طلب إلغاء من الكاشير",
+      cashier_name: cashier || currentUser?.full_name || currentUser?.fullName || "غير محدد"
+    }
+
+    console.log(`📤 Cancel request data:`, cancelRequestData)
+
+    // Try the request-cancel endpoint first
+    try {
+      const result = await AuthApiService.apiRequest<any>(`/orders/${orderId}/request-cancel`, {
+        method: "POST",
+        body: JSON.stringify(cancelRequestData),
+      })
+      
+      if (result.success) {
+        console.log(`✅ Cancel request submitted successfully for order ${orderId}`)
+        return true
+      } else {
+        console.log(`⚠️ Request-cancel failed, trying alternative approach...`)
+        throw new Error(result.message || "Request-cancel endpoint failed")
+      }
+    } catch (requestCancelError) {
+      console.log(`❌ Request-cancel endpoint failed:`, requestCancelError)
+      
+      // Fallback: Try using the cancelled-orders endpoint directly
+      console.log(`🔄 Attempting fallback using cancelled-orders endpoint...`)
+      
+      const fallbackData = {
+        original_order_id: orderId,
+        cancellation_reason: reason || "طلب إلغاء من الكاشير",
+        cancelled_by: currentUser?.user_id || currentUser?.worker_id || currentUser?.id,
+        shift_id: currentShift?.shift_id
+      }
+      
+      const fallbackResult = await AuthApiService.apiRequest<any>(`/cancelled-orders`, {
+        method: "POST",
+        body: JSON.stringify(fallbackData),
+      })
+      
+      if (fallbackResult.success) {
+        console.log(`✅ Fallback cancel request successful for order ${orderId}`)
+        return true
+      } else {
+        throw new Error(fallbackResult.message || "Both cancel request methods failed")
+      }
+    }
+  } catch (error: any) {
+    console.error("❌ Failed to request cancellation:", error)
     return false
   }
 }
@@ -641,6 +778,25 @@ export default function ShiftAwareOrdersPage() {
 
         console.log(`🎯 FINAL UNIQUE orders for shift ${currentShift.shift_id}: ${finalOrders.length}`)
         console.log(`📋 Order IDs: ${finalOrders.map((o) => o.order_id.slice(-6)).join(", ")}`)
+        
+        // Log cancellation statuses for debugging
+        const cancelledOrders = finalOrders.filter(order => order.isApprovedCancellation || order.status === OrderStatus.CANCELLED_APPROVED)
+        const pendingCancelOrders = finalOrders.filter(order => order.status === OrderStatus.PENDING_CANCELLATION)
+        
+        if (cancelledOrders.length > 0) {
+          console.log(`❌ Found ${cancelledOrders.length} cancelled orders:`, cancelledOrders.map(o => ({
+            id: o.order_id.slice(-6),
+            status: o.status,
+            isApprovedCancellation: o.isApprovedCancellation
+          })))
+        }
+        
+        if (pendingCancelOrders.length > 0) {
+          console.log(`🟠 Found ${pendingCancelOrders.length} pending cancellation orders:`, pendingCancelOrders.map(o => ({
+            id: o.order_id.slice(-6),
+            status: o.status
+          })))
+        }
 
         setOrders(finalOrders)
       } catch (err) {
@@ -655,20 +811,32 @@ export default function ShiftAwareOrdersPage() {
     [currentShift],
   )
 
-  // Calculate Stats
+  // Calculate Stats (excluding approved cancelled orders)
   const calculateStats = (orders: Order[]): OrderStats => {
+    // Include ALL orders in the total count (including cancelled)
     const totalOrders = orders.length
-    const totalRevenue = orders.reduce((sum, order) => sum + normalizePrice(order.total_price), 0)
+    
+    // Only include non-cancelled orders in revenue calculation
+    const activeOrders = orders.filter(order => 
+      !order.isApprovedCancellation && 
+      order.status !== OrderStatus.CANCELLED &&
+      order.status !== OrderStatus.CANCELLED_APPROVED
+    )
+    const totalRevenue = activeOrders.reduce((sum, order) => sum + normalizePrice(order.total_price), 0)
 
     const ordersByType = {
-      "dine-in": orders.filter((o) => o.order_type === "dine-in").length,
-      takeaway: orders.filter((o) => o.order_type === "takeaway").length,
-      delivery: orders.filter((o) => o.order_type === "delivery").length,
+      "dine-in": orders.filter((o) => o.order_type === OrderType.DINE_IN).length,
+      takeaway: orders.filter((o) => o.order_type === OrderType.TAKEAWAY).length,
+      delivery: orders.filter((o) => o.order_type === OrderType.DELIVERY).length,
     }
 
     const ordersByStatus = {
-      completed: orders.length, // All orders show as completed
-      cancelled: 0,
+      completed: activeOrders.length, // Active (non-cancelled) orders
+      cancelled: orders.filter(order => 
+        order.isApprovedCancellation || 
+        order.status === OrderStatus.CANCELLED ||
+        order.status === OrderStatus.CANCELLED_APPROVED
+      ).length, // Count all cancelled orders
     }
 
     return {
@@ -682,7 +850,10 @@ export default function ShiftAwareOrdersPage() {
   const calculateCategorySales = (): CategorySales[] => {
     const categoryMap = new Map<string, CategorySales>()
 
-    orders.forEach((order) => {
+    // Only include orders that are not approved cancellations
+    const activeOrders = orders.filter(order => !order.isApprovedCancellation)
+
+    activeOrders.forEach((order) => {
       order.items.forEach((item) => {
         const categoryName = getCategoryName(item)
         const productName = item.product_name || item.product?.name || "منتج غير محدد"
@@ -716,31 +887,44 @@ export default function ShiftAwareOrdersPage() {
     return Array.from(categoryMap.values()).sort((a, b) => b.categoryTotal - a.categoryTotal)
   }
 
-  // Delete Order Handler
+  // Create Cancel Request Handler
   const handleDeleteOrder = async (orderId: string, reason: string) => {
     try {
       setIsDeleting(true)
-      console.log(`🗑️ Starting delete process for order ${orderId}`)
+      console.log(`🗑️ Starting cancel request process for order ${orderId}`)
 
-      // Try API delete first
-      const apiSuccess = await deleteOrderFromAPI(orderId, reason, currentCashier)
+      // Create cancel request through API
+      const success = await deleteOrderFromAPI(orderId, reason, currentCashier)
 
-      // Always update localStorage regardless of API result
-      deleteOrderFromLocalStorage(orderId)
-      console.log(`🗑️ Removed order ${orderId} from localStorage`)
-
-      // Refresh orders to update the UI (force refresh)
-      await fetchOrders(true)
-
-      // Show appropriate success message
-      if (apiSuccess) {
-        alert("✅ تم حذف الطلب بنجاح من النظام والتخزين المحلي!")
+      if (success) {
+        // Track this order as pending cancellation locally
+        const localPendingCancellations = JSON.parse(localStorage.getItem("pendingCancellations") || "[]")
+        if (!localPendingCancellations.includes(orderId)) {
+          localPendingCancellations.push(orderId)
+          localStorage.setItem("pendingCancellations", JSON.stringify(localPendingCancellations))
+        }
+        
+        // Update the local order status to pending_cancellation immediately for UI feedback
+        setOrders(prevOrders => 
+          prevOrders.map(order => 
+            order.order_id === orderId 
+              ? { ...order, status: OrderStatus.PENDING_CANCELLATION }
+              : order
+          )
+        )
+        
+        alert("✅ تم إرسال طلب الإلغاء بنجاح! سيتم مراجعته من قبل المدير.")
+        
+        // Optionally refresh orders after a delay to get server state
+        setTimeout(() => {
+          fetchOrders(true)
+        }, 1000)
       } else {
-        alert("⚠️ تم حذف الطلب من التخزين المحلي. قد يحتاج إلى حذف يدوي من الخادم.")
+        alert("❌ فشل في إرسال طلب الإلغاء. يرجى المحاولة مرة أخرى.")
       }
     } catch (error: any) {
-      console.error("❌ Error deleting order:", error)
-      alert(`❌ فشل في حذف الطلب: ${error.message}`)
+      console.error("❌ Error creating cancel request:", error)
+      alert(`❌ فشل في إرسال طلب الإلغاء: ${error.message}`)
     } finally {
       setIsDeleting(false)
     }
@@ -749,11 +933,11 @@ export default function ShiftAwareOrdersPage() {
   // UI Helper Functions
   const getOrderTypeBadge = (type: string) => {
     switch (type) {
-      case "dine-in":
+      case OrderType.DINE_IN:
         return <Badge variant="outline">تناول في المطعم</Badge>
-      case "takeaway":
+      case OrderType.TAKEAWAY:
         return <Badge variant="outline">تيك اواي</Badge>
-      case "delivery":
+      case OrderType.DELIVERY:
         return <Badge variant="outline">توصيل</Badge>
       default:
         return <Badge variant="outline">{type}</Badge>
@@ -789,7 +973,10 @@ export default function ShiftAwareOrdersPage() {
           // Fetch current shift
           const shift = await fetchCurrentShift(user.user_id)
           setCurrentShift(shift)
-          if (!shift) {
+          if (shift) {
+            // Save current shift to localStorage for cancel requests
+            localStorage.setItem("currentShift", JSON.stringify(shift))
+          } else {
             setError("لا توجد وردية نشطة. يرجى بدء وردية جديدة.")
           }
         } else {
@@ -820,9 +1007,10 @@ export default function ShiftAwareOrdersPage() {
     }
   }, [orders])
 
-  // Event listener for order updates
+  // Event listener for order updates and cancellation status changes
   useEffect(() => {
     let timeoutId: NodeJS.Timeout
+    
     const handleOrderAdded = () => {
       console.log("📢 Order added event received - will refetch in 3 seconds...")
       clearTimeout(timeoutId)
@@ -832,9 +1020,51 @@ export default function ShiftAwareOrdersPage() {
       }, 3000) // 3 second delay to ensure order is fully saved
     }
 
+    const handleCancellationApproved = (event: CustomEvent) => {
+      console.log("✅ Order cancellation approved event received for:", event.detail.orderId)
+      
+      // Remove from local pending cancellations tracking
+      const localPendingCancellations = JSON.parse(localStorage.getItem("pendingCancellations") || "[]")
+      const updatedPending = localPendingCancellations.filter((id: string) => id !== event.detail.orderId)
+      localStorage.setItem("pendingCancellations", JSON.stringify(updatedPending))
+      
+      // Add to approved cancellations tracking
+      const approvedCancellations = JSON.parse(localStorage.getItem("approvedCancellations") || "[]")
+      if (!approvedCancellations.includes(event.detail.orderId)) {
+        approvedCancellations.push(event.detail.orderId)
+        localStorage.setItem("approvedCancellations", JSON.stringify(approvedCancellations))
+      }
+      
+      // Add a small delay to allow backend to process the cancellation
+      setTimeout(() => {
+        console.log("🔄 Refreshing orders after cancellation approval...")
+        fetchOrders(true) // Immediately refresh to show updated status
+      }, 2000) // 2 second delay
+    }
+
+    const handleCancellationRejected = (event: CustomEvent) => {
+      console.log("❌ Order cancellation rejected event received for:", event.detail.orderId)
+      
+      // Remove from local pending cancellations tracking
+      const localPendingCancellations = JSON.parse(localStorage.getItem("pendingCancellations") || "[]")
+      const updatedPending = localPendingCancellations.filter((id: string) => id !== event.detail.orderId)
+      localStorage.setItem("pendingCancellations", JSON.stringify(updatedPending))
+      
+      // Add a small delay to allow backend to process the rejection
+      setTimeout(() => {
+        console.log("🔄 Refreshing orders after cancellation rejection...")
+        fetchOrders(true) // Immediately refresh to show updated status
+      }, 1000) // 1 second delay
+    }
+
     window.addEventListener("orderAdded", handleOrderAdded)
+    window.addEventListener("orderCancellationApproved", handleCancellationApproved as EventListener)
+    window.addEventListener("orderCancellationRejected", handleCancellationRejected as EventListener)
+    
     return () => {
       window.removeEventListener("orderAdded", handleOrderAdded)
+      window.removeEventListener("orderCancellationApproved", handleCancellationApproved as EventListener)
+      window.removeEventListener("orderCancellationRejected", handleCancellationRejected as EventListener)
       clearTimeout(timeoutId)
     }
   }, [fetchOrders])
@@ -900,17 +1130,23 @@ export default function ShiftAwareOrdersPage() {
 
       {/* Stats Cards */}
       {stats && (
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+        <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
           <Card>
             <CardContent className="p-4">
               <div className="text-2xl font-bold text-blue-600">{stats.totalOrders}</div>
-              <div className="text-sm text-gray-600">إجمالي الطلبات</div>
+              <div className="text-sm text-gray-600">الطلبات النشطة</div>
             </CardContent>
           </Card>
           <Card>
             <CardContent className="p-4">
               <div className="text-2xl font-bold text-green-600">{formatPrice(stats.totalRevenue)}</div>
-              <div className="text-sm text-gray-600">إجمالي المبيعات</div>
+              <div className="text-sm text-gray-600">إجمالي المبيعات (بدون الملغية)</div>
+            </CardContent>
+          </Card>
+          <Card>
+            <CardContent className="p-4">
+              <div className="text-2xl font-bold text-red-600">{stats.ordersByStatus.cancelled}</div>
+              <div className="text-sm text-gray-600">الطلبات الملغية</div>
             </CardContent>
           </Card>
           <Card>
@@ -946,14 +1182,50 @@ export default function ShiftAwareOrdersPage() {
           ) : (
             <ScrollArea className="h-[600px] w-full">
               <div className="space-y-4 pr-4">
-                {orders.map((order) => (
-                  <Card key={order.order_id} className="border-l-4 border-l-blue-500">
-                    <CardContent className="p-4">
-                      <div className="flex justify-between items-start mb-3">
-                        <div className="flex items-center gap-3">
-                          <h3 className="font-semibold text-lg">#{order.order_id.slice(-6)}</h3>
-                          {getOrderTypeBadge(order.order_type)}
-                        </div>
+                {orders.map((order) => {
+                  // Check order status for visual styling
+                  const isPendingCancellation = order.status === OrderStatus.PENDING_CANCELLATION
+                  const isCancelledApproved = order.status === OrderStatus.CANCELLED_APPROVED || order.isApprovedCancellation
+                  const isCancelled = order.status === OrderStatus.CANCELLED || isCancelledApproved
+                  
+                  // Enhanced card styling based on status
+                  let cardClassName = "border-l-4"
+                  if (isCancelledApproved) {
+                    cardClassName += " border-l-red-500 bg-gradient-to-r from-red-50 to-red-100 opacity-75 shadow-lg ring-2 ring-red-200"
+                  } else if (isCancelled) {
+                    cardClassName += " border-l-red-500 bg-red-50 opacity-70"
+                  } else if (isPendingCancellation) {
+                    cardClassName += " border-l-orange-500 bg-gradient-to-r from-orange-50 to-yellow-50 shadow-lg ring-2 ring-orange-200"
+                  } else {
+                    cardClassName += " border-l-blue-500 hover:shadow-md transition-shadow"
+                  }
+                    
+                  return (
+                    <Card key={order.order_id} className={cardClassName}>
+                      <CardContent className="p-4">
+                        <div className="flex justify-between items-start mb-3">
+                          <div className="flex items-center gap-3">
+                            <h3 className="font-semibold text-lg">#{order.order_id.slice(-6)}</h3>
+                            {getOrderTypeBadge(order.order_type)}
+                            {isCancelledApproved && (
+                              <Badge variant="destructive" className="bg-red-100 text-red-800 border-red-300">
+                                <X className="w-3 h-3 mr-1" />
+                                تم إلغاء الطلب ✓
+                              </Badge>
+                            )}
+                            {isCancelled && !isCancelledApproved && (
+                              <Badge variant="destructive" className="bg-red-100 text-red-800 border-red-300">
+                                <X className="w-3 h-3 mr-1" />
+                                تم الإلغاء
+                              </Badge>
+                            )}
+                            {isPendingCancellation && (
+                              <Badge variant="outline" className="bg-orange-100 text-orange-800 border-orange-300 animate-pulse">
+                                <Clock className="w-3 h-3 mr-1" />
+                                في انتظار موافقة الإلغاء
+                              </Badge>
+                            )}
+                          </div>
                         <div className="text-right">
                           <p className="font-bold text-lg text-green-600">
                             {formatPrice(
@@ -1116,23 +1388,35 @@ export default function ShiftAwareOrdersPage() {
                       <div className="flex justify-between items-center pt-3 border-t text-sm text-gray-600">
                         <span>الكاشير: {order.cashier_name || currentCashier}</span>
                         <span>الدفع: {order.payment_method === "cash" ? "نقدي" : "كارت"}</span>
-                        <Button
-                          variant="destructive"
-                          size="sm"
-                          onClick={() => handleDeleteClick(order.order_id)}
-                          disabled={isDeleting}
-                        >
-                          {isDeleting ? (
-                            <Loader2 className="w-4 h-4 mr-1 animate-spin" />
-                          ) : (
-                            <Trash2 className="w-4 h-4 mr-1" />
-                          )}
-                          حذف
-                        </Button>
+                        {!isCancelled && !isCancelledApproved && (
+                          <Button
+                            variant="destructive"
+                            size="sm"
+                            onClick={() => handleDeleteClick(order.order_id)}
+                            disabled={isDeleting || isPendingCancellation}
+                            className={isPendingCancellation ? "opacity-50 cursor-not-allowed" : ""}
+                          >
+                            {isDeleting ? (
+                              <Loader2 className="w-4 h-4 mr-1 animate-spin" />
+                            ) : isPendingCancellation ? (
+                              <Clock className="w-4 h-4 mr-1" />
+                            ) : (
+                              <Trash2 className="w-4 h-4 mr-1" />
+                            )}
+                            {isPendingCancellation ? "في انتظار الموافقة" : "طلب إلغاء"}
+                          </Button>
+                        )}
+                        {(isCancelled || isCancelledApproved) && (
+                          <Badge variant="destructive" className="bg-red-100 text-red-800">
+                            <X className="w-4 h-4 mr-1" />
+                            {isCancelledApproved ? "تم إلغاء الطلب نهائياً" : "تم إلغاء الطلب"}
+                          </Badge>
+                        )}
                       </div>
                     </CardContent>
                   </Card>
-                ))}
+                  )
+                })}
               </div>
             </ScrollArea>
           )}
@@ -1143,12 +1427,15 @@ export default function ShiftAwareOrdersPage() {
       <Dialog open={showDialog} onOpenChange={setShowDialog}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>سبب حذف الطلب</DialogTitle>
+            <DialogTitle>طلب إلغاء الطلب</DialogTitle>
           </DialogHeader>
+          <div className="text-sm text-gray-600 mb-4">
+            سيتم إرسال طلب إلغاء إلى المدير للمراجعة والموافقة. لن يتم حذف الطلب فوراً.
+          </div>
           <Textarea
             value={deleteReason}
             onChange={(e) => setDeleteReason(e.target.value)}
-            placeholder="يرجى كتابة سبب حذف الطلب..."
+            placeholder="يرجى كتابة سبب طلب إلغاء الطلب..."
             rows={4}
           />
           <DialogFooter>
@@ -1156,10 +1443,10 @@ export default function ShiftAwareOrdersPage() {
               {isDeleting ? (
                 <>
                   <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-                  جاري الحذف...
+                  جاري الإرسال...
                 </>
               ) : (
-                "تأكيد الحذف"
+                "إرسال طلب الإلغاء"
               )}
             </Button>
             <Button variant="outline" onClick={() => setShowDialog(false)} disabled={isDeleting}>

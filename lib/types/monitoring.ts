@@ -1,4 +1,16 @@
 // Monitoring Page Types
+
+export enum ShiftStatus {
+  OPENED = 'opened',
+  CLOSED = 'closed',
+  REQUESTED_CLOSE = 'REQUESTED_CLOSE'
+}
+
+export enum ShiftType {
+  MORNING = 'morning',
+  NIGHT = 'night',
+}
+
 export interface OrderItem {
   order_item_id: string
   quantity: number
