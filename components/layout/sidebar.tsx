@@ -18,6 +18,7 @@ import {
   Coffee,
   BookOpen,
   Receipt,
+  Clock,
 } from "lucide-react"
 import Image from "next/image"
 import { cn } from "@/lib/utils"
@@ -84,6 +85,7 @@ export function Sidebar({ role }: SidebarProps) {
       { name: "لوحة التحكم", icon: Home, path: "/owner" },
       { name: "المراقبة المباشرة", icon: BarChart, path: "/owner/monitoring" },
       { name: "طلبات الإلغاء", icon: AlertTriangle, path: "/owner/cancel-requests" },
+      { name: "طلبات إنهاء الوردية", icon: Clock, path: "/owner/shift-requests" },
       { name: "التقارير", icon: BarChart, path: "/owner/reports" },
       { name: "إدارة المنتجات", icon: Package, path: "/owner/products" },
       { name: "إدارة المخزون", icon: Package, path: "/owner/stock" },
