@@ -27,6 +27,27 @@ import { useRouter } from "next/navigation"
 import { Textarea } from "@/components/ui/textarea"
 import { SavedOrdersTab } from "@/components/cafe-orders/SavedOrdersTab"
 
+// Enums for Cafe Orders
+enum CafeOrderStatus {
+  COMPLETED = 'completed',
+  CANCELLED = 'cancelled', 
+  ACTIVE = 'active',
+  PENDING = 'pending',
+  PROCESSING = 'processing',
+  READY = 'ready',
+  DELIVERED = 'delivered'
+}
+
+enum CafeOrderType {
+  CAFE = 'cafe'
+}
+
+enum CafeOrderPaymentMethod {
+  CASH = 'cash',
+  CARD = 'card',
+  WALLET = 'wallet',
+}
+
 const API_BASE_URL = "http://20.77.41.130:3000/api/v1"
 
 interface Category {
@@ -94,6 +115,7 @@ type OrderStatus = "pending" | "completed" | "cancelled" | "processing" | "ready
 interface CafeOrder {
   orderId: string
   staffName: string
+  cashier_id?: string // Add cashier_id for filtering
   shift_id: string // Use shift_id consistently
   items: CartItem[]
   total: number
@@ -372,6 +394,7 @@ export default function CafeOrdersPage() {
       const processedOrder: CafeOrder = {
         orderId: String(order.order_id || `api_unknown_${Date.now()}_${Math.random().toString(36).substr(2, 5)}`), // Ensure orderId is always a string
         staffName: order.customer_name || "موظف غير معروف",
+        cashier_id: order.cashier_id || order.created_by || order.user_id, // Add cashier_id from API
         shift_id: order.shift_id || order.shift?.shift_id || order.shift || "",
         items: normalizedItems,
         total: calculatedTotal, // Recalculate total based on normalized items
@@ -428,43 +451,56 @@ export default function CafeOrdersPage() {
     setLoading(true)
     setError(null)
     try {
-      // 1. Load local orders
-      const savedLocalOrders: CafeOrder[] = JSON.parse(localStorage.getItem("cafeOrders") || "[]")
-      console.log("DEBUG: LocalStorage 'cafeOrders' on load (raw):", savedLocalOrders)
-
-      // 2. Fetch API orders
+      // 1. Load local orders and filter by current cashier
       const storedUser = JSON.parse(localStorage.getItem("currentUser") || "{}")
+      const currentCashierId = storedUser.user_id || storedUser.worker_id || storedUser.id
+      let savedLocalOrders: CafeOrder[] = JSON.parse(localStorage.getItem("cafeOrders") || "[]")
+      if (currentCashierId) {
+        savedLocalOrders = savedLocalOrders.filter(order => order.cashier_id === currentCashierId)
+      }
+      console.log("DEBUG: LocalStorage 'cafeOrders' on load (filtered):", savedLocalOrders)
+
+      // 2. Fetch API orders using shift-based endpoint
       let apiOrdersList: any[] = []
       if (storedUser.user_id) {
         try {
-          const response = await fetch(`${API_BASE_URL}/orders/cafe`, {
-            headers: {
-              Authorization: `Bearer ${localStorage.getItem("authToken") || ""}`,
-            },
-          })
+          // Get current shift ID
+          const currentShift = JSON.parse(localStorage.getItem("currentShift") || "{}")
+          const shiftId = currentShift?.shift_id
+          
+          if (shiftId) {
+            console.log(`🔍 Fetching cafe orders for shift: ${shiftId}`)
+            const response = await fetch(`${API_BASE_URL}/orders/shift-cafe/${shiftId}`, {
+              headers: {
+                Authorization: `Bearer ${localStorage.getItem("authToken") || ""}`,
+              },
+            })
 
-          if (response.ok) {
-            const data = await response.json()
-            if (data.success && data.data) {
-              // Ensure data.data is an array or contains an 'orders' array
-              const rawApiOrders = Array.isArray(data.data) ? data.data : data.data.orders || []
+            if (response.ok) {
+              const data = await response.json()
+              if (data.success && data.data) {
+                // Ensure data.data is an array or contains an 'orders' array
+                const rawApiOrders = Array.isArray(data.data) ? data.data : data.data.orders || []
 
-              // Filter for cafe orders (table_number is not empty and not null)
-              apiOrdersList = rawApiOrders.filter(
-                (order: any) => order.table_number && order.table_number !== "" && order.table_number !== null,
-              )
-              // Fetch items for each order
-              apiOrdersList = await Promise.all(
-                apiOrdersList.map(async (order: any) => {
-                  const items = await fetchCafeOrderItems(order.order_id)
-                  return { ...order, items }
-                }),
-              )
-              console.log("DEBUG: API fetched cafe orders (filtered):", apiOrdersList)
-              // No need to store apiOrders in localStorage separately, merge directly
+                // All orders from shift-cafe endpoint are already cafe orders, but filter by cashier
+                apiOrdersList = rawApiOrders.filter(
+                  (order: any) => order.cashier_id === currentCashierId || order.created_by === currentCashierId
+                )
+                
+                // Fetch items for each order
+                apiOrdersList = await Promise.all(
+                  apiOrdersList.map(async (order: any) => {
+                    const items = await fetchCafeOrderItems(order.order_id)
+                    return { ...order, items }
+                  }),
+                )
+                console.log(`DEBUG: API fetched cafe orders for shift ${shiftId} (filtered by cashier):`, apiOrdersList)
+              }
+            } else {
+              console.warn("Failed to fetch cafe orders from API:", response.status, await response.text())
             }
           } else {
-            console.warn("Failed to fetch cafe orders from API:", response.status, await response.text())
+            console.warn("No shift ID available, skipping API fetch")
           }
         } catch (apiErr) {
           console.error("Error fetching cafe orders from API:", apiErr)
@@ -726,9 +762,13 @@ export default function CafeOrdersPage() {
       }
 
       // STEP 2: Update local state and localStorage
+      const currentUser = JSON.parse(localStorage.getItem("currentUser") || "{}")
+      const currentCashierId = currentUser.user_id || currentUser.worker_id || currentUser.id
+      
       const newCafeOrder: CafeOrder = {
         orderId: apiOrderId,
         staffName: staffName || "موظف الكافية",
+        cashier_id: currentCashierId, // Add cashier_id for filtering
         shift_id: currentUserShift,
         items: cart,
         total: calculateTotal(),
