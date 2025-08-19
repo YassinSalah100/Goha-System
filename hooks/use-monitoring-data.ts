@@ -263,9 +263,21 @@ export function useMonitoringData() {
     fetchShiftSummaries()
   }, [fetchShiftSummaries])
 
-  // Initial data load
+  // Initial data load and auto-refresh setup
   useEffect(() => {
+    // Initial load
     refreshAllData()
+    
+    // Set up auto-refresh every 30 seconds for shift summaries to catch new shifts
+    const autoRefreshInterval = setInterval(() => {
+      console.log('Auto-refreshing shift summaries to catch new shifts...')
+      fetchShiftSummaries()
+      fetchCashierActivities()
+    }, 30000) // 30 seconds
+    
+    return () => {
+      clearInterval(autoRefreshInterval)
+    }
   }, []) // Only run on mount
 
   return {

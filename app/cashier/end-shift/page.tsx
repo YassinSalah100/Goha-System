@@ -394,7 +394,92 @@ export default function EndShiftPageFixed() {
   const [error, setError] = useState<string | null>(null)
   const [isLoadingShiftDetails, setIsLoadingShiftDetails] = useState(false)
   const [isLoadingShiftData, setIsLoadingShiftData] = useState(false)
+  const [isWaitingForApproval, setIsWaitingForApproval] = useState(false)
+  const [approvalCheckInterval, setApprovalCheckInterval] = useState<NodeJS.Timeout | null>(null)
   const shiftReportRef = useRef<HTMLDivElement>(null)
+
+  // Check shift approval status
+  const checkShiftApprovalStatus = async () => {
+    if (!currentShift) return false
+    
+    try {
+      const shiftId = getShiftId(currentShift)
+      const response = await fetch(`${API_BASE_URL}/shifts/${shiftId}`, {
+        method: "GET",
+        headers: {
+          Authorization: `Bearer ${localStorage.getItem("authToken") || ""}`,
+          "Content-Type": "application/json",
+        },
+      })
+
+      if (response.ok) {
+        const result = await response.json()
+        console.log("✅ Shift status check:", result)
+        
+        // Check if shift is approved/closed
+        if (result.data && (result.data.is_closed || result.data.status === 'closed' || result.data.approved_by_admin_id)) {
+          console.log("✅ Shift has been approved/closed")
+          return true
+        }
+      }
+    } catch (error) {
+      console.error("❌ Error checking shift status:", error)
+    }
+    
+    return false
+  }
+
+  // Prevent navigation until approval
+  useEffect(() => {
+    if (!isWaitingForApproval) return
+
+    // Block browser back/forward navigation
+    const handlePopState = (e: PopStateEvent) => {
+      e.preventDefault()
+      window.history.pushState(null, "", window.location.href)
+      alert("لا يمكنك الخروج حتى يتم الموافقة على إغلاق الوردية من قبل المدير")
+    }
+
+    // Block page refresh/close
+    const handleBeforeUnload = (e: BeforeUnloadEvent) => {
+      e.preventDefault()
+      e.returnValue = "لا يمكنك الخروج حتى يتم الموافقة على إغلاق الوردية من قبل المدير"
+      return e.returnValue
+    }
+
+    // Start approval checking interval
+    const interval = setInterval(async () => {
+      console.log("🔄 Checking shift approval status...")
+      const isApproved = await checkShiftApprovalStatus()
+      
+      if (isApproved) {
+        console.log("✅ Shift approved! Allowing logout...")
+        setIsWaitingForApproval(false)
+        clearInterval(interval)
+        
+        // Clear user data and redirect
+        localStorage.removeItem("currentUser")
+        router.push("/")
+      }
+    }, 10000) // Check every 10 seconds
+
+    setApprovalCheckInterval(interval)
+
+    // Add event listeners
+    window.addEventListener("popstate", handlePopState)
+    window.addEventListener("beforeunload", handleBeforeUnload)
+    
+    // Push initial state to prevent back navigation
+    window.history.pushState(null, "", window.location.href)
+
+    return () => {
+      window.removeEventListener("popstate", handlePopState)
+      window.removeEventListener("beforeunload", handleBeforeUnload)
+      if (interval) {
+        clearInterval(interval)
+      }
+    }
+  }, [isWaitingForApproval, currentShift, router])
 
   // Helper function to get shift display name
   const getShiftDisplayName = (shift: any) => {
@@ -728,6 +813,11 @@ export default function EndShiftPageFixed() {
       clearTimeout(timeoutId)
       window.removeEventListener("orderAdded", handleOrderAdded)
       window.removeEventListener("storage", handleStorageChange)
+      
+      // Clean up approval checking interval
+      if (approvalCheckInterval) {
+        clearInterval(approvalCheckInterval)
+      }
     }
   }, [])
 
@@ -856,6 +946,10 @@ export default function EndShiftPageFixed() {
         if (response.ok && result.success) {
           apiSuccess = true
           console.log("✅ Shift close request sent successfully")
+          
+          // Set waiting for approval state
+          setIsWaitingForApproval(true)
+          setRequestSent(true)
         } else {
           console.warn("❌ Shift close request failed:", result.message || "Unknown error")
           setError(result.message || "فشل في إرسال طلب إنهاء الوردية")
@@ -893,20 +987,16 @@ export default function EndShiftPageFixed() {
       existingRequests.push(endShiftRequest)
       localStorage.setItem("endShiftRequests", JSON.stringify(existingRequests))
 
-      if (apiSuccess) {
+      // Don't automatically redirect - wait for approval
+      if (!apiSuccess) {
+        // If API failed, show error but don't redirect
         setRequestSent(true)
         setTimeout(() => {
-          localStorage.removeItem("currentUser")
-          router.push("/")
+          setRequestSent(false)
+          setError("فشل في إرسال الطلب للخادم. يرجى المحاولة مرة أخرى.")
         }, 3000)
-      } else {
-        // If API failed, still allow local save but show warning
-        setRequestSent(true)
-        setTimeout(() => {
-          localStorage.removeItem("currentUser")
-          router.push("/")
-        }, 5000) // Longer delay to show the error
       }
+      // If API succeeded, isWaitingForApproval is already set and will handle the flow
     } catch (error: any) {
       setError(error.message || "فشل في إرسال طلب إنهاء الوردية")
       console.error("Error ending shift:", error)
@@ -1008,7 +1098,44 @@ export default function EndShiftPageFixed() {
             </div>
           )}
 
-          {requestSent ? (
+          {requestSent && isWaitingForApproval ? (
+            <motion.div
+              initial={{ opacity: 0, y: 20 }}
+              animate={{ opacity: 1, y: 0 }}
+              className="flex flex-col items-center justify-center py-8 text-center"
+            >
+              <div className="h-16 w-16 mb-4 relative">
+                <div className="absolute inset-0 border-4 border-amber-200 rounded-full"></div>
+                <div className="absolute inset-0 border-4 border-amber-500 rounded-full border-t-transparent animate-spin"></div>
+              </div>
+              <h3 className="text-xl font-medium mb-2 text-amber-700">في انتظار موافقة المدير</h3>
+              <p className="text-muted-foreground mb-4">
+                تم إرسال طلب إنهاء الوردية بنجاح. يرجى الانتظار حتى يوافق المدير على الطلب.
+              </p>
+              <div className="bg-amber-50 border border-amber-200 rounded-lg p-4 max-w-md">
+                <div className="flex items-center gap-2 text-amber-700 mb-2">
+                  <AlertCircle className="h-4 w-4" />
+                  <span className="font-medium text-sm">تنبيه هام</span>
+                </div>
+                <p className="text-amber-600 text-sm">
+                  لا يمكنك تسجيل الخروج أو مغادرة هذه الصفحة حتى تتم الموافقة على إنهاء الوردية.
+                  سيتم توجيهك تلقائياً عند الموافقة.
+                </p>
+              </div>
+              <div className="mt-4 flex items-center gap-2 text-sm text-muted-foreground">
+                <RefreshCw className="h-4 w-4 animate-spin" />
+                <span>جاري التحقق من حالة الموافقة...</span>
+              </div>
+              <Button 
+                variant="outline" 
+                size="sm" 
+                onClick={checkShiftApprovalStatus}
+                className="mt-4"
+              >
+                تحقق الآن من حالة الموافقة
+              </Button>
+            </motion.div>
+          ) : requestSent ? (
             <motion.div
               initial={{ opacity: 0, y: 20 }}
               animate={{ opacity: 1, y: 0 }}
