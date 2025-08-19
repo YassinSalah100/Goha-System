@@ -1659,54 +1659,51 @@ export default function CashierStockPage() {
     if (!selectedItem) return
 
     try {
-      const newQuantity =
-        updateType === "add"
-          ? selectedItem.current_quantity + updateQuantity
-          : Math.max(0, selectedItem.current_quantity - updateQuantity)
-
-      // First, update the stock item
-      const result = await AuthApiService.apiRequest<any>(`/stock-items/${selectedItem.stock_item_id}`, {
-        method: "PUT",
-        body: JSON.stringify({
-          name: selectedItem.name,
-          type: selectedItem.type,
-          unit: selectedItem.unit,
-          current_quantity: newQuantity,
-          minimum_value: selectedItem.minimum_value,
-          status: selectedItem.status || "available",
-        }),
-      })
-
-      const updatedItem = result.data
-
-      // Try to create a transaction record (optional - don't fail if it doesn't work)
-      try {
-        const currentShiftId = getCurrentActiveShift()
-
-        const transactionData = {
-          stock_item_id: selectedItem.stock_item_id,
-          type: updateType === "add" ? "in" : "out",
-          quantity: updateQuantity,
-          user_id: currentUser?.id || currentUser?.user_id,
-          shift_id: currentShiftId,
-          notes: `Stock ${updateType === "add" ? "addition" : "reduction"} for ${selectedItem.name}`,
-        }
-
-        try {
-          await AuthApiService.apiRequest<any>('/stock-transactions', {
-            method: "POST",
-            body: JSON.stringify(transactionData),
-          })
-          console.log("Transaction recorded successfully")
-        } catch (transactionApiError) {
-          console.warn("Failed to create transaction record, continuing without it:", transactionApiError)
-        }
-      } catch (transactionError) {
-        console.warn("Error creating transaction, continuing without it:", transactionError)
-        // Don't fail the main operation if transaction creation fails
+      // Get current shift ID
+      const currentShiftId = getCurrentActiveShift()
+      
+      if (!currentShiftId) {
+        toast({
+          title: "خطأ",
+          description: "لا توجد وردية نشطة. يجب فتح وردية أولاً",
+          variant: "destructive",
+        })
+        return
       }
 
-      setStockItems(stockItems.map((item) => (item.stock_item_id === selectedItem.stock_item_id ? updatedItem : item)))
+      // Create stock transaction - this is the correct way for cashiers
+      const transactionData = {
+        stock_item_id: selectedItem.stock_item_id,
+        type: updateType === "add" ? "in" : "out",
+        quantity: updateQuantity,
+        user_id: currentUser?.id || currentUser?.user_id,
+        shift_id: currentShiftId,
+        notes: `Stock ${updateType === "add" ? "addition" : "reduction"} for ${selectedItem.name}`,
+      }
+
+      console.log("Creating stock transaction:", transactionData)
+
+      // Create the transaction (this will automatically update the stock item quantity on the backend)
+      const result = await AuthApiService.apiRequest<any>('/stock-transactions', {
+        method: "POST",
+        body: JSON.stringify(transactionData),
+      })
+
+      console.log("Stock transaction created successfully:", result)
+
+      // Update local state with the new quantity
+      const newQuantity = updateType === "add" 
+        ? selectedItem.current_quantity + updateQuantity
+        : Math.max(0, selectedItem.current_quantity - updateQuantity)
+
+      const updatedItem = {
+        ...selectedItem,
+        current_quantity: newQuantity
+      }
+
+      setStockItems(stockItems.map((item) => 
+        item.stock_item_id === selectedItem.stock_item_id ? updatedItem : item
+      ))
 
       setShowUpdateDialog(false)
       setSelectedItem(null)
@@ -1714,14 +1711,18 @@ export default function CashierStockPage() {
 
       toast({
         title: "نجح",
-        description: "تم تحديث الكمية بنجاح",
+        description: "تم تسجيل حركة المخزون بنجاح",
       })
 
+      // Refresh the stock data to get updated quantities
+      fetchStockItems()
       fetchLowStockItems()
-    } catch (error) {
+      
+    } catch (error: any) {
+      console.error("Error creating stock transaction:", error)
       toast({
         title: "خطأ",
-        description: "فشل في تحديث الكمية",
+        description: error.message || "فشل في تسجيل حركة المخزون",
         variant: "destructive",
       })
     }
@@ -1983,16 +1984,16 @@ export default function CashierStockPage() {
           </CardContent>
         </Card>
 
-        {/* Update Quantity Dialog */}
+        {/* Stock Transaction Dialog */}
         <Dialog open={showUpdateDialog} onOpenChange={setShowUpdateDialog}>
           <DialogContent className="max-w-md">
             <DialogHeader>
-              <DialogTitle>تحديث كمية العنصر</DialogTitle>
-              <DialogDescription>تحديث كمية {selectedItem?.name}</DialogDescription>
+              <DialogTitle>تسجيل حركة مخزون</DialogTitle>
+              <DialogDescription>تسجيل حركة مخزون لـ {selectedItem?.name}</DialogDescription>
             </DialogHeader>
             <div className="grid gap-4 py-4">
               <div className="grid gap-2">
-                <Label htmlFor="updateType">نوع التحديث</Label>
+                <Label htmlFor="updateType">نوع الحركة</Label>
                 <Select value={updateType} onValueChange={(value: "add" | "reduce") => setUpdateType(value)}>
                   <SelectTrigger>
                     <SelectValue />
@@ -2016,7 +2017,7 @@ export default function CashierStockPage() {
             </div>
             <DialogFooter>
               <Button onClick={handleUpdateQuantity} disabled={updateQuantity <= 0}>
-                تحديث
+                تسجيل الحركة
               </Button>
               <Button variant="outline" onClick={() => setShowUpdateDialog(false)}>
                 إلغاء
