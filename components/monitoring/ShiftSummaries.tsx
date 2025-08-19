@@ -12,7 +12,8 @@ import {
   Receipt, 
   Clock,
   Eye,
-  AlertTriangle
+  AlertTriangle,
+  RefreshCw
 } from "lucide-react"
 import { DetailedShiftSummary, ShiftType, ShiftStatus } from "@/lib/types/monitoring"
 import { formatPrice } from "@/lib/services/monitoring-api"
@@ -23,11 +24,26 @@ interface ShiftSummariesProps {
   isLoading?: boolean
   onDeleteShift?: (shiftId: string) => Promise<void>
   onViewDetails?: (shiftId: string) => Promise<any>
+  onRefresh?: () => Promise<void>
 }
 
-export function ShiftSummaries({ shifts, isLoading = false, onDeleteShift, onViewDetails }: ShiftSummariesProps) {
+export function ShiftSummaries({ shifts, isLoading = false, onDeleteShift, onViewDetails, onRefresh }: ShiftSummariesProps) {
   const [selectedShiftDetails, setSelectedShiftDetails] = useState<any>(null)
   const [isLoadingDetails, setIsLoadingDetails] = useState(false)
+  const [isRefreshing, setIsRefreshing] = useState(false)
+  const handleRefresh = async () => {
+    if (!onRefresh) return
+    
+    setIsRefreshing(true)
+    try {
+      await onRefresh()
+    } catch (error) {
+      console.error('Error refreshing shifts:', error)
+    } finally {
+      setIsRefreshing(false)
+    }
+  }
+
   const handleViewDetails = async (shiftId: string) => {
     if (!onViewDetails) return
     
@@ -93,10 +109,23 @@ export function ShiftSummaries({ shifts, isLoading = false, onDeleteShift, onVie
   return (
     <Card>
       <CardHeader>
-        <CardTitle className="flex items-center gap-2">
-          <Briefcase className="w-5 h-5" />
-          ملخص الورديات ({shifts.length})
-        </CardTitle>
+        <div className="flex items-center justify-between">
+          <CardTitle className="flex items-center gap-2">
+            <Briefcase className="w-5 h-5" />
+            ملخص الورديات ({shifts.length})
+          </CardTitle>
+          {onRefresh && (
+            <Button
+              onClick={handleRefresh}
+              disabled={isRefreshing || isLoading}
+              variant="outline"
+              size="sm"
+            >
+              <RefreshCw className={`w-4 h-4 mr-2 ${isRefreshing ? 'animate-spin' : ''}`} />
+              {isRefreshing ? 'جاري التحديث...' : 'تحديث الورديات'}
+            </Button>
+          )}
+        </div>
       </CardHeader>
       <CardContent>
         {shifts.length === 0 ? (

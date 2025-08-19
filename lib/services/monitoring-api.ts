@@ -193,27 +193,27 @@ export class MonitoringApiService {
     }
   }
 
-  // Fetch shifts by status - using the correct available endpoint
+  // Fetch shifts by status - using the correct backend endpoint
   static async fetchShiftsByStatus(status: 'opened' | 'closed'): Promise<DetailedShiftSummary[]> {
     try {
       console.log(`Fetching shifts with status: ${status}`)
       
-      // Use the working endpoint that returns all shifts with nested user objects
-      const endpoint = '/shifts/close/requested'
+      // Use the correct endpoint that you specified: /shifts/status/:status
+      const endpoint = `/shifts/status/${status}`
+      console.log(`Using endpoint: ${endpoint}`)
+      
       const data = await AuthApiService.apiRequest<any>(endpoint)
       console.log(`Raw data from ${endpoint}:`, data)
       
-      // Handle the new API format with embedded user objects
+      // Handle the API response format
       let shifts = Array.isArray(data) ? data : (data.shifts || data.data || [])
       
-      // Filter by status if specified
-      if (status === 'closed') {
-        shifts = shifts.filter((shift: any) => shift.is_closed === true || shift.status === 'closed')
-      } else if (status === 'opened') {
-        shifts = shifts.filter((shift: any) => shift.is_closed === false && shift.status !== 'closed')
+      if (!Array.isArray(shifts)) {
+        console.log('No shifts array found in response')
+        return []
       }
       
-      console.log(`Filtered ${shifts.length} shifts with status: ${status}`)
+      console.log(`Found ${shifts.length} shifts with status: ${status}`)
       
       return shifts.map((shift: any) => this.transformShiftToDetailedSummary(shift, status))
     } catch (error) {
@@ -222,71 +222,143 @@ export class MonitoringApiService {
     }
   }
 
-  // Transform the new API response format to DetailedShiftSummary
+  // Transform the API response format to DetailedShiftSummary
   static transformShiftToDetailedSummary(shift: any, fetchedStatus: string): DetailedShiftSummary {
-    // Handle both object and string formats for opened_by and closed_by
+    console.log('Transforming shift:', shift)
+    
+    // Handle user data from the shift response
     let openedBy = null
     let closedBy = null
     
-    if (typeof shift.opened_by === 'object' && shift.opened_by) {
-      openedBy = {
-        worker_id: shift.opened_by.id,
-        full_name: shift.opened_by.fullName || shift.opened_by.username
+    // Try different ways to get the user who opened the shift
+    if (shift.opened_by) {
+      if (typeof shift.opened_by === 'object' && shift.opened_by !== null) {
+        openedBy = {
+          worker_id: shift.opened_by.id || shift.opened_by.user_id || shift.opened_by.worker_id,
+          full_name: shift.opened_by.fullName || 
+                    shift.opened_by.full_name || 
+                    shift.opened_by.username || 
+                    shift.opened_by.name ||
+                    'غير محدد'
+        }
+      } else if (typeof shift.opened_by === 'string') {
+        openedBy = {
+          worker_id: shift.opened_by,
+          full_name: `User ${shift.opened_by.slice(-6)}`
+        }
       }
-    } else if (typeof shift.opened_by === 'string') {
-      openedBy = {
-        worker_id: shift.opened_by,
-        full_name: `User ${shift.opened_by.slice(-6)}` // Show last 6 chars of ID
+    } else if (shift.user) {
+      // Sometimes the user info is in a 'user' field
+      if (typeof shift.user === 'object' && shift.user !== null) {
+        openedBy = {
+          worker_id: shift.user.id || shift.user.user_id,
+          full_name: shift.user.fullName || 
+                    shift.user.full_name || 
+                    shift.user.username || 
+                    shift.user.name ||
+                    'غير محدد'
+        }
+      }
+    } else if (shift.cashier) {
+      // Sometimes the cashier info is in a 'cashier' field
+      if (typeof shift.cashier === 'object' && shift.cashier !== null) {
+        openedBy = {
+          worker_id: shift.cashier.id || shift.cashier.user_id,
+          full_name: shift.cashier.fullName || 
+                    shift.cashier.full_name || 
+                    shift.cashier.username || 
+                    shift.cashier.name ||
+                    'غير محدد'
+        }
       }
     }
     
-    if (typeof shift.closed_by === 'object' && shift.closed_by) {
-      closedBy = {
-        worker_id: shift.closed_by.id,
-        full_name: shift.closed_by.fullName || shift.closed_by.username
-      }
-    } else if (typeof shift.closed_by === 'string') {
-      closedBy = {
-        worker_id: shift.closed_by,
-        full_name: `User ${shift.closed_by.slice(-6)}` // Show last 6 chars of ID
+    // Handle closed_by user data if shift is closed
+    if (shift.closed_by) {
+      if (typeof shift.closed_by === 'object' && shift.closed_by !== null) {
+        closedBy = {
+          worker_id: shift.closed_by.id || shift.closed_by.user_id || shift.closed_by.worker_id,
+          full_name: shift.closed_by.fullName || 
+                    shift.closed_by.full_name || 
+                    shift.closed_by.username || 
+                    shift.closed_by.name ||
+                    'غير محدد'
+        }
+      } else if (typeof shift.closed_by === 'string') {
+        closedBy = {
+          worker_id: shift.closed_by,
+          full_name: `User ${shift.closed_by.slice(-6)}`
+        }
       }
     }
+    
+    // Determine actual shift status
+    let actualStatus: 'opened' | 'closed' | 'REQUESTED_CLOSE' = fetchedStatus as any
+    
+    // Check various status indicators
+    if (shift.status) {
+      if (shift.status === 'closed' || shift.status === 'CLOSED') {
+        actualStatus = 'closed'
+      } else if (shift.status === 'opened' || shift.status === 'OPENED' || shift.status === 'active') {
+        actualStatus = 'opened'
+      }
+    }
+    
+    // Also check is_closed boolean flag
+    if (typeof shift.is_closed === 'boolean') {
+      actualStatus = shift.is_closed ? 'closed' : 'opened'
+    }
+    
+    // Check if end_time indicates a closed shift
+    if (shift.end_time && shift.start_time && shift.end_time !== shift.start_time) {
+      const startTime = new Date(shift.start_time).getTime()
+      const endTime = new Date(shift.end_time).getTime()
+      // If there's more than 1 minute difference, consider it closed
+      if (Math.abs(endTime - startTime) > 60000) {
+        actualStatus = 'closed'
+      }
+    }
+    
+    console.log(`Shift ${shift.shift_id} status determined as: ${actualStatus}`)
+    console.log(`Opened by:`, openedBy)
     
     return {
-      shift_id: shift.shift_id,
-      type: shift.shift_type,
-      status: shift.status || fetchedStatus,
-      start_time: shift.start_time,
-      end_time: shift.end_time,
+      shift_id: shift.shift_id || shift.id,
+      type: shift.shift_type || shift.type || 'morning',
+      status: actualStatus,
+      start_time: shift.start_time || shift.created_at,
+      end_time: actualStatus === 'closed' ? (shift.end_time || shift.closed_at) : null,
       opened_by: openedBy,
-      closed_by: closedBy,
-      // Set default values for missing financial data
-      total_orders: 0,
-      total_sales: 0,
-      total_workers: shift.shiftWorkers?.length || 0,
-      active_workers: shift.shiftWorkers?.filter((w: any) => !w.end_time)?.length || 0,
-      total_expenses: 0,
-      expenses_count: 0,
-      total_staff_cost: 0,
+      closed_by: actualStatus === 'closed' ? closedBy : undefined,
+      // Set default values for missing financial data - will be populated when detailed data is fetched
+      total_orders: shift.total_orders || 0,
+      total_sales: shift.total_sales || shift.total_revenue || 0,
+      total_workers: shift.total_workers || (shift.shiftWorkers?.length) || 0,
+      active_workers: shift.active_workers || (shift.shiftWorkers?.filter((w: any) => !w.end_time)?.length) || 0,
+      total_expenses: shift.total_expenses || 0,
+      expenses_count: shift.expenses_count || (shift.expenses?.length) || 0,
+      total_staff_cost: shift.total_staff_cost || 0,
       orders_by_type: {
-        "dine-in": 0,
-        takeaway: 0,
-        delivery: 0,
-        cafe: 0
+        "dine-in": shift.orders_by_type?.["dine-in"] || 0,
+        takeaway: shift.orders_by_type?.takeaway || 0,
+        delivery: shift.orders_by_type?.delivery || 0,
+        cafe: shift.orders_by_type?.cafe || shift.total_cafe_orders || 0
       },
       orders_by_status: {
-        completed: 0,
-        pending: 0,
-        cancelled: 0
+        completed: shift.orders_by_status?.completed || shift.total_orders || 0,
+        pending: shift.orders_by_status?.pending || 0,
+        cancelled: shift.orders_by_status?.cancelled || 0
       },
       orders_by_payment: {
-        cash: 0,
-        card: 0
+        cash: shift.orders_by_payment?.cash || shift.total_orders || 0,
+        card: shift.orders_by_payment?.card || 0
       },
-      average_order_value: 0,
-      workers: [],
-      expenses_by_category: {},
-      expenses: []
+      average_order_value: (shift.total_orders && shift.total_orders > 0) 
+        ? (shift.total_sales || shift.total_revenue || 0) / shift.total_orders 
+        : 0,
+      workers: shift.workers || shift.shiftWorkers || [],
+      expenses_by_category: shift.expenses_by_category || {},
+      expenses: shift.expenses || []
     }
   }
 
@@ -302,7 +374,7 @@ export class MonitoringApiService {
     }
   }
 
-  // Fetch detailed shift summaries - Now working with status endpoint
+  // Fetch detailed shift summaries - Using the correct status endpoint
   static async fetchDetailedShiftSummaries(
     date?: string,
     shiftType?: string,
@@ -311,26 +383,22 @@ export class MonitoringApiService {
     try {
       console.log(`fetchDetailedShiftSummaries called with date: ${date}, type: ${shiftType}, status: ${status}`)
       
-      // Get shifts by status using the available endpoint
-      let allShifts: Array<{shift: any, fetchedStatus: string}> = []
+      // Get shifts by status using the correct backend endpoint
+      let allShifts: DetailedShiftSummary[] = []
       
-      if (status && status !== 'all') {
-        // Map 'active' to 'opened' for backend compatibility
+      if (status && status !== 'all' && status !== 'active') {
+        // Fetch specific status
         const mappedStatus = status === 'active' ? 'opened' : status
-        console.log(`Fetching shifts with status: ${mappedStatus}`)
-        const shifts = await this.fetchShiftsByStatus(mappedStatus as 'opened' | 'closed')
-        allShifts = shifts.map(shift => ({ shift, fetchedStatus: mappedStatus }))
+        console.log(`Fetching shifts with specific status: ${mappedStatus}`)
+        allShifts = await this.fetchShiftsByStatus(mappedStatus as 'opened' | 'closed')
       } else {
-        // Fetch both opened and closed shifts
-        console.log('Fetching both opened and closed shifts')
+        // Fetch both opened and closed shifts to show ALL shifts
+        console.log('Fetching ALL shifts (both opened and closed)')
         const [openedShifts, closedShifts] = await Promise.all([
           this.fetchShiftsByStatus('opened'),
           this.fetchShiftsByStatus('closed')
         ])
-        allShifts = [
-          ...openedShifts.map(shift => ({ shift, fetchedStatus: 'opened' })),
-          ...closedShifts.map(shift => ({ shift, fetchedStatus: 'closed' }))
-        ]
+        allShifts = [...openedShifts, ...closedShifts]
       }
       
       console.log(`Found ${allShifts.length} shifts from status endpoints`)
@@ -340,25 +408,24 @@ export class MonitoringApiService {
         return []
       }
       
-      // Extract shift IDs and fetch detailed information for each shift
-      console.log(`Fetching details for ${allShifts.length} shifts`)
-      
-      const shiftDetailsPromises = allShifts.map(async ({ shift, fetchedStatus }) => {
-        try {
-          const details = await this.getShiftSummaryWithDetails(shift.shift_id)
-          // Transform the data with the correct status
-          return this.transformShiftData(details, fetchedStatus)
-        } catch (error) {
-          console.error(`Failed to fetch details for shift ${shift.shift_id}:`, error)
-          return null
-        }
-      })
-      
-      const allShiftDetails = await Promise.all(shiftDetailsPromises)
-      const validShifts = allShiftDetails.filter(shift => shift !== null) as DetailedShiftSummary[]
+      // For each shift, try to get more detailed information if available
+      const enhancedShifts = await Promise.all(
+        allShifts.map(async (shift) => {
+          try {
+            // Try to get detailed information for better data
+            const details = await this.getShiftSummaryWithDetails(shift.shift_id)
+            // Merge the detailed data with the basic shift data
+            return this.mergeShiftWithDetails(shift, details)
+          } catch (error) {
+            console.log(`Could not fetch details for shift ${shift.shift_id}, using basic data:`, error.message)
+            // Return the basic shift data if detailed fetch fails
+            return shift
+          }
+        })
+      )
       
       // Apply filters
-      let filteredShifts = validShifts
+      let filteredShifts = enhancedShifts
       
       // Filter by date
       if (date && date !== 'all') {
@@ -372,6 +439,13 @@ export class MonitoringApiService {
         filteredShifts = filteredShifts.filter(shift => shift.type === shiftType)
       }
       
+      // Sort shifts by start_time (newest first)
+      filteredShifts.sort((a, b) => {
+        const dateA = new Date(a.start_time || '').getTime()
+        const dateB = new Date(b.start_time || '').getTime()
+        return dateB - dateA // Newest first
+      })
+      
       console.log(`Returning ${filteredShifts.length} filtered shifts`)
       return filteredShifts
       
@@ -381,7 +455,24 @@ export class MonitoringApiService {
     }
   }
 
-  // Transform API response to match our interface
+  // Helper method to merge basic shift data with detailed data
+  private static mergeShiftWithDetails(basicShift: DetailedShiftSummary, detailedData: any): DetailedShiftSummary {
+    return {
+      ...basicShift,
+      // Update with detailed financial data if available
+      total_orders: detailedData.total_orders || basicShift.total_orders,
+      total_sales: detailedData.total_revenue || basicShift.total_sales,
+      total_expenses: detailedData.total_expenses || basicShift.total_expenses,
+      total_staff_cost: detailedData.total_salaries || basicShift.total_staff_cost,
+      workers: detailedData.workers || basicShift.workers,
+      expenses: detailedData.expenses || basicShift.expenses,
+      // Keep the user info from basic shift (which should have correct names)
+      opened_by: basicShift.opened_by,
+      closed_by: basicShift.closed_by,
+    }
+  }
+
+  // Transform API response to match our interface (kept for compatibility)
   private static transformShiftData(apiData: any, actualStatus?: string): DetailedShiftSummary {
     // Determine the correct status
     let shiftStatus: 'opened' | 'closed' | 'REQUESTED_CLOSE' = 'opened'
@@ -450,7 +541,7 @@ export class MonitoringApiService {
     }
   }
 
-  // Fetch cashier activities - now using status endpoint
+  // Fetch cashier activities - using the correct status endpoint
   static async fetchCashierActivities(): Promise<CashierActivity[]> {
     try {
       console.log('Fetching cashier activities from shift data')
@@ -458,7 +549,7 @@ export class MonitoringApiService {
       // Get today's date
       const today = new Date().toISOString().split('T')[0]
       
-      // Fetch both opened and closed shifts
+      // Fetch both opened and closed shifts using the correct endpoint
       const [openedShifts, closedShifts] = await Promise.all([
         this.fetchShiftsByStatus('opened'),
         this.fetchShiftsByStatus('closed')
