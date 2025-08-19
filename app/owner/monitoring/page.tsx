@@ -285,7 +285,6 @@ export default function MonitoringPage() {
                         <SelectItem value="all">جميع الحالات</SelectItem>
                         <SelectItem value="opened">مفتوحة</SelectItem>
                         <SelectItem value="closed">مغلقة</SelectItem>
-                        <SelectItem value="REQUESTED_CLOSE">طلب إغلاق</SelectItem>
                       </SelectContent>
                     </Select>
                   </div>

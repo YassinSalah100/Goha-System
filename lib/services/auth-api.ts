@@ -1,4 +1,4 @@
-import { LoginDto, RegisterDto, ChangePasswordDto, AuthResponseDto } from '@/lib/types/auth'
+import type { LoginDto, RegisterDto, ChangePasswordDto, AuthResponseDto } from "@/lib/types/auth"
 
 const API_BASE_URL = "http://20.77.41.130:3000/api/v1"
 
@@ -6,13 +6,13 @@ const API_BASE_URL = "http://20.77.41.130:3000/api/v1"
  * Shift type constants matching backend enums
  */
 export const SHIFT_TYPES = {
-  MORNING: 'morning',
-  NIGHT: 'night'
+  MORNING: "morning",
+  NIGHT: "night",
 } as const
 
 export const SHIFT_STATUS = {
-  OPENED: 'opened',
-  CLOSED: 'closed'
+  OPENED: "opened",
+  CLOSED: "closed",
 } as const
 
 /**
@@ -21,38 +21,38 @@ export const SHIFT_STATUS = {
  */
 export const PERMISSIONS = {
   // Core access levels
-  OWNER_ACCESS: 'OWNER_ACCESS',
-  CASHIER_ACCESS: 'access:cashier',
-  
+  OWNER_ACCESS: "OWNER_ACCESS",
+  CASHIER_ACCESS: "access:cashier",
+
   // User management permissions
-  USERS_READ: 'access:users',
-  USERS_CREATE: 'users:create',
-  USERS_EDIT: 'users:edit',
-  USERS_DELETE: 'users:delete',
-  
+  USERS_READ: "access:users",
+  USERS_CREATE: "users:create",
+  USERS_EDIT: "users:edit",
+  USERS_DELETE: "users:delete",
+
   // Permission management
-  PERMISSIONS_READ: 'access:permissions',
-  PERMISSIONS_ASSIGN: 'permissions:assign',
-  PERMISSIONS_REVOKE: 'permissions:revoke',
-  
+  PERMISSIONS_READ: "access:permissions",
+  PERMISSIONS_ASSIGN: "permissions:assign",
+  PERMISSIONS_REVOKE: "permissions:revoke",
+
   // Feature access permissions (matching backend routes)
-  PRODUCTS_ACCESS: 'access:products',
-  CATEGORIES_ACCESS: 'access:category',
-  SHIFTS_ACCESS: 'access:shift',
-  SHIFT_APPROVE: 'shift:approve',
-  SHIFT_SUMMARY: 'shift:summary',
-  SHIFT_MANAGE: 'shift:manage',
-  STOCK_ACCESS: 'access:stock',
-  ORDERS_ACCESS: 'access:orders',
-  ORDERS_CANCELLED: 'orders:cancelled',
-  EXPENSES_ACCESS: 'access:expenses',
-  WORKERS_ACCESS: 'access:workers',
-  
+  PRODUCTS_ACCESS: "access:products",
+  CATEGORIES_ACCESS: "access:category",
+  SHIFTS_ACCESS: "access:shift",
+  SHIFT_APPROVE: "shift:approve",
+  SHIFT_SUMMARY: "shift:summary",
+  SHIFT_MANAGE: "shift:manage",
+  STOCK_ACCESS: "access:stock",
+  ORDERS_ACCESS: "access:orders",
+  ORDERS_CANCELLED: "orders:cancelled",
+  EXPENSES_ACCESS: "access:expenses",
+  WORKERS_ACCESS: "access:workers",
+
   // Specific action permissions
-  INVENTORY_MANAGE: 'inventory:manage',
-  REPORTS_VIEW: 'reports:view',
-  EXTERNAL_RECEIPTS: 'external:receipts',
-  SHIFT_WORKERS: 'shift:workers'
+  INVENTORY_MANAGE: "inventory:manage",
+  REPORTS_VIEW: "reports:view",
+  EXTERNAL_RECEIPTS: "external:receipts",
+  SHIFT_WORKERS: "shift:workers",
 } as const
 
 /**
@@ -61,49 +61,30 @@ export const PERMISSIONS = {
 export const PERMISSION_GROUPS = {
   // Full access
   OWNER: [PERMISSIONS.OWNER_ACCESS],
-  
+
   // Cashier permissions
-  CASHIER: [
-    PERMISSIONS.CASHIER_ACCESS,
-    PERMISSIONS.ORDERS_ACCESS,
-    PERMISSIONS.EXTERNAL_RECEIPTS
-  ],
-  
+  CASHIER: [PERMISSIONS.CASHIER_ACCESS, PERMISSIONS.ORDERS_ACCESS, PERMISSIONS.EXTERNAL_RECEIPTS],
+
   // User management
-  USER_MANAGEMENT: [
-    PERMISSIONS.USERS_READ,
-    PERMISSIONS.USERS_CREATE,
-    PERMISSIONS.USERS_EDIT,
-    PERMISSIONS.USERS_DELETE
-  ],
-  
+  USER_MANAGEMENT: [PERMISSIONS.USERS_READ, PERMISSIONS.USERS_CREATE, PERMISSIONS.USERS_EDIT, PERMISSIONS.USERS_DELETE],
+
   // Permission management
-  PERMISSION_MANAGEMENT: [
-    PERMISSIONS.PERMISSIONS_READ,
-    PERMISSIONS.PERMISSIONS_ASSIGN,
-    PERMISSIONS.PERMISSIONS_REVOKE
-  ],
-  
+  PERMISSION_MANAGEMENT: [PERMISSIONS.PERMISSIONS_READ, PERMISSIONS.PERMISSIONS_ASSIGN, PERMISSIONS.PERMISSIONS_REVOKE],
+
   // Product management
-  PRODUCT_MANAGEMENT: [
-    PERMISSIONS.PRODUCTS_ACCESS,
-    PERMISSIONS.CATEGORIES_ACCESS
-  ],
-  
+  PRODUCT_MANAGEMENT: [PERMISSIONS.PRODUCTS_ACCESS, PERMISSIONS.CATEGORIES_ACCESS],
+
   // Shift management
   SHIFT_MANAGEMENT: [
     PERMISSIONS.SHIFTS_ACCESS,
     PERMISSIONS.SHIFT_APPROVE,
     PERMISSIONS.SHIFT_SUMMARY,
     PERMISSIONS.SHIFT_MANAGE,
-    PERMISSIONS.SHIFT_WORKERS
+    PERMISSIONS.SHIFT_WORKERS,
   ],
-  
+
   // Stock management
-  STOCK_MANAGEMENT: [
-    PERMISSIONS.STOCK_ACCESS,
-    PERMISSIONS.INVENTORY_MANAGE
-  ]
+  STOCK_MANAGEMENT: [PERMISSIONS.STOCK_ACCESS, PERMISSIONS.INVENTORY_MANAGE],
 } as const
 
 export class AuthApiService {
@@ -112,11 +93,11 @@ export class AuthApiService {
    */
   static normalizePermissionName(permission: string): string {
     switch (permission) {
-      case 'cashier:access':
-        return 'access:cashier'
+      case "cashier:access":
+        return "access:cashier"
       // Handle both formats to ensure compatibility
-      case 'access:cashier':
-        return 'access:cashier'
+      case "access:cashier":
+        return "access:cashier"
       default:
         return permission
     }
@@ -129,7 +110,7 @@ export class AuthApiService {
     try {
       const t = token || this.getAuthToken()
       if (!t) return null
-      const [, payload] = t.split('.')
+      const [, payload] = t.split(".")
       if (!payload) return null
       return JSON.parse(atob(payload))
     } catch {
@@ -143,16 +124,16 @@ export class AuthApiService {
   static normalizePermissions(perms: string[] | undefined | null): string[] {
     if (!Array.isArray(perms)) return []
     // Ensure uniqueness after normalization
-  const normalized = perms.map(p => this.normalizePermissionName(p))
-  return Array.from(new Set(normalized))
+    const normalized = perms.map((p) => this.normalizePermissionName(p))
+    return Array.from(new Set(normalized))
   }
   /**
    * Get the current auth token from localStorage
    */
   static getAuthToken(): string | null {
-    if (typeof window === 'undefined') return null
-    const token = localStorage.getItem('authToken')
-    
+    if (typeof window === "undefined") return null
+    const token = localStorage.getItem("authToken")
+
     // Check token expiration
     if (token) {
       try {
@@ -161,11 +142,11 @@ export class AuthApiService {
           this.clearAuthData()
           return null
         }
-        
-        const payload = JSON.parse(atob(token.split('.')[1]))
+
+        const payload = JSON.parse(atob(token.split(".")[1]))
         const now = Math.floor(Date.now() / 1000)
         const isValid = payload.exp > now
-        
+
         if (!isValid) {
           this.clearAuthData()
           return null
@@ -175,7 +156,7 @@ export class AuthApiService {
         return null
       }
     }
-    
+
     return token
   }
 
@@ -183,8 +164,8 @@ export class AuthApiService {
    * Get the current user from localStorage
    */
   static getCurrentUser(): any | null {
-    if (typeof window === 'undefined') return null
-    const userStr = localStorage.getItem('currentUser')
+    if (typeof window === "undefined") return null
+    const userStr = localStorage.getItem("currentUser")
     return userStr ? JSON.parse(userStr) : null
   }
 
@@ -194,27 +175,24 @@ export class AuthApiService {
   static createAuthHeaders(): HeadersInit {
     const token = this.getAuthToken()
     const headers: HeadersInit = {
-      'Content-Type': 'application/json',
-      'Accept': 'application/json',
+      "Content-Type": "application/json",
+      Accept: "application/json",
     }
-    
+
     if (token) {
-      headers['Authorization'] = `Bearer ${token}`
+      headers["Authorization"] = `Bearer ${token}`
     }
-    
+
     return headers
   }
 
   /**
    * Make an authenticated API request with enhanced error handling
    */
-  static async apiRequest<T>(
-    endpoint: string,
-    options: RequestInit & { isRetry?: boolean } = {}
-  ): Promise<T> {
+  static async apiRequest<T>(endpoint: string, options: RequestInit & { isRetry?: boolean } = {}): Promise<T> {
     const { isRetry = false, ...requestOptions } = options
     const url = `${API_BASE_URL}${endpoint}`
-    
+
     // Always include auth headers if available
     const config: RequestInit = {
       ...requestOptions,
@@ -225,13 +203,13 @@ export class AuthApiService {
     }
 
     console.log(`Making request to: ${url}`)
-    if (config.method !== 'GET' && config.body && typeof config.body === 'string') {
+    if (config.method !== "GET" && config.body && typeof config.body === "string") {
       console.log(`Request body for ${endpoint}:`, JSON.parse(config.body))
     }
 
     try {
       const response = await fetch(url, config)
-      
+
       console.log(`Response from ${endpoint}:`, {
         status: response.status,
         statusText: response.statusText,
@@ -241,45 +219,49 @@ export class AuthApiService {
       if (!response.ok) {
         // For 404 - endpoint doesn't exist on backend
         if (response.status === 404) {
-          console.warn(`🚫 Backend endpoint ${endpoint} not implemented (404) - This endpoint doesn't exist on the backend`)
+          console.warn(
+            `🚫 Backend endpoint ${endpoint} not implemented (404) - This endpoint doesn't exist on the backend`,
+          )
           throw new Error(`Backend endpoint ${endpoint} not implemented`)
         }
-        
+
         // For 401 - authentication failed, try token refresh
         if (response.status === 401) {
           const token = this.getAuthToken()
-          console.warn(`🔐 Authentication failed for ${endpoint} (401) - Backend missing authMiddleware.authenticate for this route`)
-          
+          console.warn(
+            `🔐 Authentication failed for ${endpoint} (401) - Backend missing authMiddleware.authenticate for this route`,
+          )
+
           // Attempt token refresh if we have a token and this isn't a retry
           if (token && !isRetry) {
-            console.log('🔄 Attempting token refresh...')
+            console.log("🔄 Attempting token refresh...")
             const refreshed = await this.refreshToken()
             if (refreshed) {
-              console.log('✅ Token refreshed, retrying request...')
+              console.log("✅ Token refreshed, retrying request...")
               return this.apiRequest<T>(endpoint, { ...options, isRetry: true })
             }
           }
-          
-          throw new Error('Authentication failed')
+
+          throw new Error("Authentication failed")
         }
-        
+
         // Handle other error status codes
         let errorMessage = `HTTP ${response.status}: ${response.statusText}`
         try {
           const errorData = await response.json()
           errorMessage = errorData.message || errorData.error || errorMessage
           // Normalize legacy permission name in backend error messages
-          if (errorMessage.includes('cashier:access')) {
-            errorMessage = errorMessage.replace('cashier:access', 'access:cashier (alias cashier:access)')
+          if (errorMessage.includes("cashier:access")) {
+            errorMessage = errorMessage.replace("cashier:access", "access:cashier (alias cashier:access)")
           }
-          if (errorMessage.includes('One of these permissions required') && !/access:cashier/.test(errorMessage)) {
+          if (errorMessage.includes("One of these permissions required") && !/access:cashier/.test(errorMessage)) {
             // Ensure modern key is visible
-            errorMessage += ' | Expecting: OWNER_ACCESS or access:cashier'
+            errorMessage += " | Expecting: OWNER_ACCESS or access:cashier"
           }
         } catch (e) {
           // Ignore JSON parse errors for error responses
         }
-        
+
         throw new Error(errorMessage)
       }
 
@@ -298,27 +280,27 @@ export class AuthApiService {
   static async login(credentials: LoginDto): Promise<AuthResponseDto> {
     try {
       const response = await fetch(`${API_BASE_URL}/auth/login`, {
-        method: 'POST',
+        method: "POST",
         headers: {
-          'Content-Type': 'application/json',
+          "Content-Type": "application/json",
         },
         body: JSON.stringify(credentials),
       })
 
       if (!response.ok) {
-        const errorData = await response.json().catch(() => ({ message: 'Login failed' }))
+        const errorData = await response.json().catch(() => ({ message: "Login failed" }))
         throw new Error(errorData.message || `HTTP ${response.status}`)
       }
 
       const data = await response.json()
-      
+
       if (!data.success || !data.data) {
-        throw new Error('Invalid response format')
+        throw new Error("Invalid response format")
       }
-      
+
       if (data.data.user) {
         const u = data.data.user
-        const normalizedRole = (u.role || '').toString().toLowerCase()
+        const normalizedRole = (u.role || "").toString().toLowerCase()
         u.role = normalizedRole // persist normalized role client-side
 
         // Ensure permissions array exists
@@ -330,31 +312,33 @@ export class AuthApiService {
         u.permissions = this.normalizePermissions(u.permissions)
 
         // Add role-based permissions (case-insensitive)
-        if (normalizedRole === 'owner' && !u.permissions.includes('OWNER_ACCESS')) {
-          u.permissions.push('OWNER_ACCESS')
+        if (normalizedRole === "owner" && !u.permissions.includes("OWNER_ACCESS")) {
+          u.permissions.push("OWNER_ACCESS")
         }
 
-        if (normalizedRole === 'cashier' && !u.permissions.includes('access:cashier')) {
-          u.permissions.push('access:cashier')
+        if (normalizedRole === "cashier" && !u.permissions.includes("access:cashier")) {
+          u.permissions.push("access:cashier")
         }
 
         // Final fallback: if role is cashier but still no cashier related perms, flag it
-        if (normalizedRole === 'cashier' && !u.permissions.some(p => p === 'access:cashier')) {
-          try { localStorage.setItem('permissionWarning', 'Missing cashier permission from backend'); } catch {}
+        if (normalizedRole === "cashier" && !u.permissions.some((p) => p === "access:cashier")) {
+          try {
+            localStorage.setItem("permissionWarning", "Missing cashier permission from backend")
+          } catch {}
         }
 
-        console.log('User with normalized permissions:', u.permissions)
-        
+        console.log("User with normalized permissions:", u.permissions)
+
         // Store auth data immediately after successful login
         if (data.data.token) {
-          localStorage.setItem('authToken', data.data.token)
-          localStorage.setItem('currentUser', JSON.stringify(u))
+          localStorage.setItem("authToken", data.data.token)
+          localStorage.setItem("currentUser", JSON.stringify(u))
         }
       }
 
       return data.data
     } catch (error) {
-      console.error('Login error:', error)
+      console.error("Login error:", error)
       throw error
     }
   }
@@ -365,27 +349,27 @@ export class AuthApiService {
   static async register(userData: RegisterDto): Promise<AuthResponseDto> {
     try {
       const response = await fetch(`${API_BASE_URL}/auth/register`, {
-        method: 'POST',
+        method: "POST",
         headers: {
-          'Content-Type': 'application/json',
+          "Content-Type": "application/json",
         },
         body: JSON.stringify(userData),
       })
 
       if (!response.ok) {
-        const errorData = await response.json().catch(() => ({ message: 'Registration failed' }))
+        const errorData = await response.json().catch(() => ({ message: "Registration failed" }))
         throw new Error(errorData.message || `HTTP ${response.status}`)
       }
 
       const data = await response.json()
-      
+
       if (!data.success || !data.data) {
-        throw new Error('Invalid response format')
+        throw new Error("Invalid response format")
       }
 
       return data.data
     } catch (error) {
-      console.error('Registration error:', error)
+      console.error("Registration error:", error)
       throw error
     }
   }
@@ -394,7 +378,7 @@ export class AuthApiService {
    * Get user profile
    */
   static async getProfile(): Promise<any> {
-    return this.apiRequest('/auth/profile')
+    return this.apiRequest("/auth/profile")
   }
 
   /**
@@ -403,26 +387,26 @@ export class AuthApiService {
   static async refreshToken(): Promise<{ token: string; expiresIn: number }> {
     try {
       const response = await fetch(`${API_BASE_URL}/auth/refresh-token`, {
-        method: 'POST',
+        method: "POST",
         headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${this.getAuthToken()}`
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${this.getAuthToken()}`,
         },
       })
-      
+
       if (!response.ok) {
         throw new Error(`Refresh failed: ${response.status}`)
       }
-      
+
       const data = await response.json()
-      
+
       if (data.success && data.data) {
         return data.data
       } else {
-        throw new Error('Invalid refresh response format')
+        throw new Error("Invalid refresh response format")
       }
     } catch (error) {
-      console.error('Token refresh failed:', error)
+      console.error("Token refresh failed:", error)
       throw error
     }
   }
@@ -431,8 +415,8 @@ export class AuthApiService {
    * Change user password
    */
   static async changePassword(passwordData: ChangePasswordDto): Promise<void> {
-    await this.apiRequest('/auth/change-password', {
-      method: 'POST',
+    await this.apiRequest("/auth/change-password", {
+      method: "POST",
       body: JSON.stringify(passwordData),
     })
   }
@@ -442,12 +426,12 @@ export class AuthApiService {
    */
   static async logout(): Promise<void> {
     try {
-      await this.apiRequest('/auth/logout', {
-        method: 'POST',
+      await this.apiRequest("/auth/logout", {
+        method: "POST",
       })
     } catch (error) {
       // Don't throw error on logout, just clear local data
-      console.warn('Logout request failed:', error)
+      console.warn("Logout request failed:", error)
     } finally {
       this.clearAuthData()
     }
@@ -457,11 +441,11 @@ export class AuthApiService {
    * Clear authentication data from localStorage
    */
   static clearAuthData(): void {
-    if (typeof window === 'undefined') return
-    
-    localStorage.removeItem('authToken')
-    localStorage.removeItem('refreshToken')
-    localStorage.removeItem('currentUser')
+    if (typeof window === "undefined") return
+
+    localStorage.removeItem("authToken")
+    localStorage.removeItem("refreshToken")
+    localStorage.removeItem("currentUser")
   }
 
   /**
@@ -488,14 +472,14 @@ export class AuthApiService {
     const userRole = this.getUserRole()
     return userRole === role
   }
-  
+
   /**
    * Check if current user has owner access
    */
   static hasOwnerAccess(): boolean {
     const user = this.getCurrentUser()
     // Check if user role is owner or has OWNER_ACCESS permission
-    return user?.role === 'owner' || (Array.isArray(user?.permissions) && user?.permissions.includes('OWNER_ACCESS'))
+    return user?.role === "owner" || (Array.isArray(user?.permissions) && user?.permissions.includes("OWNER_ACCESS"))
   }
 
   /**
@@ -504,8 +488,9 @@ export class AuthApiService {
   static hasCashierAccess(): boolean {
     const user = this.getCurrentUser()
     // Check if user has the cashier role or access:cashier permission
-    return user?.role === 'cashier' || 
-           (Array.isArray(user?.permissions) && user?.permissions.includes('access:cashier'))
+    return (
+      user?.role === "cashier" || (Array.isArray(user?.permissions) && user?.permissions.includes("access:cashier"))
+    )
   }
 
   /**
@@ -514,18 +499,20 @@ export class AuthApiService {
   static getUserPermissions(): string[] {
     const user = this.getCurrentUser()
     if (!user) return []
-    
-  const permissions: string[] = this.normalizePermissions(Array.isArray(user.permissions) ? [...user.permissions] : [])
-    
+
+    const permissions: string[] = this.normalizePermissions(
+      Array.isArray(user.permissions) ? [...user.permissions] : [],
+    )
+
     // Add role-based permissions
-    if (user.role === 'owner' && !permissions.includes('OWNER_ACCESS')) {
-      permissions.push('OWNER_ACCESS')
+    if (user.role === "owner" && !permissions.includes("OWNER_ACCESS")) {
+      permissions.push("OWNER_ACCESS")
     }
-    
-    if (user.role === 'cashier' && !permissions.includes('access:cashier')) {
-      permissions.push('access:cashier')
+
+    if (user.role === "cashier" && !permissions.includes("access:cashier")) {
+      permissions.push("access:cashier")
     }
-    
+
     return permissions
   }
 
@@ -537,17 +524,17 @@ export class AuthApiService {
     if (this.hasOwnerAccess()) {
       return true
     }
-    
+
     const permissions = this.getUserPermissions()
     if (permissions.length === 0) {
       return false
     }
-    
+
     if (Array.isArray(permission)) {
       // Check if user has any of the permissions
-      return permission.some(p => permissions.includes(p))
+      return permission.some((p) => permissions.includes(p))
     }
-    
+
     // Check single permission
     return permissions.includes(permission)
   }
@@ -568,7 +555,7 @@ export class AuthApiService {
       PERMISSIONS.USERS_READ,
       PERMISSIONS.USERS_CREATE,
       PERMISSIONS.USERS_EDIT,
-      PERMISSIONS.USERS_DELETE
+      PERMISSIONS.USERS_DELETE,
     ])
   }
 
@@ -580,7 +567,7 @@ export class AuthApiService {
       PERMISSIONS.OWNER_ACCESS,
       PERMISSIONS.PERMISSIONS_READ,
       PERMISSIONS.PERMISSIONS_ASSIGN,
-      PERMISSIONS.PERMISSIONS_REVOKE
+      PERMISSIONS.PERMISSIONS_REVOKE,
     ])
   }
 
@@ -588,11 +575,7 @@ export class AuthApiService {
    * Check if user can access products
    */
   static canAccessProducts(): boolean {
-    return this.hasPermission([
-      PERMISSIONS.OWNER_ACCESS,
-      PERMISSIONS.PRODUCTS_ACCESS,
-      PERMISSIONS.CASHIER_ACCESS
-    ])
+    return this.hasPermission([PERMISSIONS.OWNER_ACCESS, PERMISSIONS.PRODUCTS_ACCESS, PERMISSIONS.CASHIER_ACCESS])
   }
 
   /**
@@ -603,7 +586,7 @@ export class AuthApiService {
       PERMISSIONS.OWNER_ACCESS,
       PERMISSIONS.SHIFTS_ACCESS,
       PERMISSIONS.SHIFT_APPROVE,
-      PERMISSIONS.SHIFT_MANAGE
+      PERMISSIONS.SHIFT_MANAGE,
     ])
   }
 
@@ -611,10 +594,7 @@ export class AuthApiService {
    * Check if user can access stock management
    */
   static canAccessStock(): boolean {
-    return this.hasPermission([
-      PERMISSIONS.OWNER_ACCESS,
-      PERMISSIONS.STOCK_ACCESS
-    ])
+    return this.hasPermission([PERMISSIONS.OWNER_ACCESS, PERMISSIONS.STOCK_ACCESS])
   }
 
   /**
@@ -626,20 +606,20 @@ export class AuthApiService {
       return true
     }
     switch (feature) {
-  case 'orders':
-	return this.hasPermission(['access:cashier', 'orders:access'])
-  case 'shifts':
-	return this.hasPermission(['access:cashier', 'shift:approve'])
-  case 'expenses':
-	return this.hasPermission(['access:cashier', 'expenses:access'])
-      case 'stock':
-        return this.hasPermission(['access:stock'])
-      case 'cancelled-orders':
-        return this.hasPermission(['orders:cancelled'])
-      case 'external-receipts':
-    return this.hasPermission(['access:cashier'])
-      case 'shift-workers':
-    return this.hasPermission(['access:cashier', 'shift:workers'])
+      case "orders":
+        return this.hasPermission(["access:cashier", "orders:access"])
+      case "shifts":
+        return this.hasPermission(["access:cashier", "shift:approve"])
+      case "expenses":
+        return this.hasPermission(["access:cashier", "expenses:access"])
+      case "stock":
+        return this.hasPermission(["access:stock"])
+      case "cancelled-orders":
+        return this.hasPermission(["orders:cancelled"])
+      case "external-receipts":
+        return this.hasPermission(["access:cashier"])
+      case "shift-workers":
+        return this.hasPermission(["access:cashier", "shift:workers"])
       default:
         return false
     }
@@ -650,13 +630,13 @@ export class AuthApiService {
    */
   static getCashierPermissions(): { [key: string]: boolean } {
     return {
-      canAccessOrders: this.hasCashierFeatureAccess('orders'),
-      canAccessShifts: this.hasCashierFeatureAccess('shifts'),
-      canAccessExpenses: this.hasCashierFeatureAccess('expenses'),
-      canAccessStock: this.hasCashierFeatureAccess('stock'),
-      canAccessCancelledOrders: this.hasCashierFeatureAccess('cancelled-orders'),
-      canAccessExternalReceipts: this.hasCashierFeatureAccess('external-receipts'),
-      canAccessShiftWorkers: this.hasCashierFeatureAccess('shift-workers'),
+      canAccessOrders: this.hasCashierFeatureAccess("orders"),
+      canAccessShifts: this.hasCashierFeatureAccess("shifts"),
+      canAccessExpenses: this.hasCashierFeatureAccess("expenses"),
+      canAccessStock: this.hasCashierFeatureAccess("stock"),
+      canAccessCancelledOrders: this.hasCashierFeatureAccess("cancelled-orders"),
+      canAccessExternalReceipts: this.hasCashierFeatureAccess("external-receipts"),
+      canAccessShiftWorkers: this.hasCashierFeatureAccess("shift-workers"),
     }
   }
 
@@ -665,7 +645,7 @@ export class AuthApiService {
    */
   static isValidTokenFormat(token: string): boolean {
     // Basic JWT format check (3 parts separated by dots)
-    const parts = token.split('.')
+    const parts = token.split(".")
     return parts.length === 3
   }
 
@@ -676,27 +656,28 @@ export class AuthApiService {
     try {
       const user = this.getCurrentUser()
       if (!user?.id) {
-        console.warn('No user ID available to get current shift')
+        console.warn("No user ID available to get current shift")
         return null
       }
 
       console.log(`Getting shifts for cashier ID: ${user.id}`)
-      
+
       // Use the /cashier/:cashierId route to get shifts for the current user
       // This route allows ['OWNER_ACCESS', 'access:cashier', 'access:shift'] permissions
       const response: any = await this.apiRequest(`/shifts/cashier/${user.id}`)
-      
+
       if (response && response.success && Array.isArray(response.data) && response.data.length > 0) {
         // Return the most recent active shift
-        const activeShift = response.data.find((shift: any) => shift.status === 'OPENED' || shift.status === 'opened') || response.data[0]
-        console.log('Found shift for cashier:', activeShift)
+        const activeShift =
+          response.data.find((shift: any) => shift.status === "OPENED" || shift.status === "opened") || response.data[0]
+        console.log("Found shift for cashier:", activeShift)
         return activeShift
       }
-      
-      console.log('No shifts found for cashier')
+
+      console.log("No shifts found for cashier")
       return null
     } catch (error) {
-      console.warn('Failed to get current shift:', error)
+      console.warn("Failed to get current shift:", error)
       return null
     }
   }
@@ -709,7 +690,7 @@ export class AuthApiService {
       const response = await this.apiRequest(`/shifts/${shiftId}`)
       return response
     } catch (error) {
-      console.warn('Failed to get shift by ID:', error)
+      console.warn("Failed to get shift by ID:", error)
       return null
     }
   }
@@ -719,8 +700,8 @@ export class AuthApiService {
    */
   static async updateShiftType(shiftId: string, type: string): Promise<any> {
     return this.apiRequest(`/shifts/${shiftId}/type`, {
-      method: 'PATCH',
-      body: JSON.stringify({ type })
+      method: "PATCH",
+      body: JSON.stringify({ type }),
     })
   }
 
@@ -728,20 +709,20 @@ export class AuthApiService {
    * Create a new shift (if really needed - use with caution)
    */
   static async createShift(shiftData: { type?: string } = {}): Promise<any> {
-    console.warn('⚠️ Creating new shift - this may require special permissions')
+    console.warn("⚠️ Creating new shift - this may require special permissions")
     const payload = {
-      type: shiftData.type || 'DAY',
-      ...shiftData
+      type: shiftData.type || "DAY",
+      ...shiftData,
     }
-    
+
     try {
-      const response = await this.apiRequest('/shifts', {
-        method: 'POST',
-        body: JSON.stringify(payload)
+      const response = await this.apiRequest("/shifts", {
+        method: "POST",
+        body: JSON.stringify(payload),
       })
       return response
     } catch (error) {
-      console.error('Failed to create shift:', error)
+      console.error("Failed to create shift:", error)
       throw error
     }
   }
@@ -751,7 +732,7 @@ export class AuthApiService {
    */
   static async requestCloseShift(shiftId: string): Promise<any> {
     return this.apiRequest(`/shifts/${shiftId}/request-close`, {
-      method: 'PATCH'
+      method: "PATCH",
     })
   }
 
@@ -762,56 +743,61 @@ export class AuthApiService {
     try {
       const user = this.getCurrentUser()
       if (!user?.id) {
-        throw new Error('No user ID available - cannot check shift status')
+        throw new Error("No user ID available - cannot check shift status")
       }
 
       console.log(`Checking for active shift for user: ${user.id}`)
-      
+
       // Try to get existing shift using the cashier route
       const currentShift = await this.getCurrentShift()
-      
+
       if (currentShift) {
-        console.log('Found existing active shift:', currentShift)
-        
+        console.log("Found existing active shift:", currentShift)
+
         // Update user data with shift information
         const updatedUser = { ...user, shift: currentShift }
-        localStorage.setItem('currentUser', JSON.stringify(updatedUser))
-        
+        localStorage.setItem("currentUser", JSON.stringify(updatedUser))
+
         return currentShift
       }
-      
-      console.log('No active shift found for user')
-      
+
+      console.log("No active shift found for user")
+
       // If user is cashier and has permission to create shifts, suggest creating one
-      if (user.role === 'cashier' && this.hasPermission(['access:cashier', 'access:shift'])) {
-        console.log('💡 Cashier has no active shift but can create one. Consider calling createShift().')
+      if (user.role === "cashier" && this.hasPermission(["access:cashier", "access:shift"])) {
+        console.log("💡 Cashier has no active shift but can create one. Consider calling createShift().")
       }
-      
+
       return null // Return null instead of trying to create
-      
     } catch (error) {
-      console.error('Error checking active shift:', error)
-      
+      console.error("Error checking active shift:", error)
+
       // If we get authentication error (401), it means backend is missing auth middleware
-      if (error instanceof Error && error.message.includes('Authentication failed')) {
-        console.error('🚨 Backend shift routes are missing AuthMiddleware.authenticate() - Cannot access shift endpoints without authentication')
-        throw new Error('Backend authentication issue: Shift routes need AuthMiddleware.authenticate() before authorization checks')
+      if (error instanceof Error && error.message.includes("Authentication failed")) {
+        console.error(
+          "🚨 Backend shift routes are missing AuthMiddleware.authenticate() - Cannot access shift endpoints without authentication",
+        )
+        throw new Error(
+          "Backend authentication issue: Shift routes need AuthMiddleware.authenticate() before authorization checks",
+        )
       }
-      
+
       // If we get permission error, provide helpful message
-      if (error instanceof Error && error.message.includes('403')) {
+      if (error instanceof Error && error.message.includes("403")) {
         const user = this.getCurrentUser()
         const permissions = this.getUserPermissions()
-        console.error('Shift access denied. User permissions:', permissions)
-        
+        console.error("Shift access denied. User permissions:", permissions)
+
         // Check if user should have cashier access
-        if (user?.role === 'cashier' && !permissions.includes('access:cashier')) {
-          throw new Error('Missing cashier permissions. Please contact administrator to grant access:cashier permission.')
+        if (user?.role === "cashier" && !permissions.includes("access:cashier")) {
+          throw new Error(
+            "Missing cashier permissions. Please contact administrator to grant access:cashier permission.",
+          )
         }
       }
-      
+
       // Don't throw error for shift checking - just return null
-      console.warn('Could not check shift status, continuing without shift data')
+      console.warn("Could not check shift status, continuing without shift data")
       return null
     }
   }
@@ -822,7 +808,7 @@ export class AuthApiService {
   static async createShiftForCurrentUser(shiftType?: string): Promise<any> {
     const user = this.getCurrentUser()
     if (!user?.id) {
-      throw new Error('No user ID available to create shift')
+      throw new Error("No user ID available to create shift")
     }
 
     // Determine shift type based on current time if not provided
@@ -835,31 +821,31 @@ export class AuthApiService {
     const shiftData = {
       opened_by: user.id,
       shift_type: shiftType,
-      workers: [user.id] // Include the cashier as a worker
+      workers: [user.id], // Include the cashier as a worker
     }
 
-    console.log('Creating shift for current user:', shiftData)
-    
+    console.log("Creating shift for current user:", shiftData)
+
     try {
-      const response: any = await this.apiRequest('/shifts', {
-        method: 'POST',
-        body: JSON.stringify(shiftData)
+      const response: any = await this.apiRequest("/shifts", {
+        method: "POST",
+        body: JSON.stringify(shiftData),
       })
-      
+
       if (response) {
-        console.log('✅ Shift created successfully:', response)
-        
+        console.log("✅ Shift created successfully:", response)
+
         // Update user data with new shift
         const shiftData = response.data || response
         const updatedUser = { ...user, shift: shiftData }
-        localStorage.setItem('currentUser', JSON.stringify(updatedUser))
-        
+        localStorage.setItem("currentUser", JSON.stringify(updatedUser))
+
         return shiftData
       }
-      
+
       return null
     } catch (error) {
-      console.error('Failed to create shift for current user:', error)
+      console.error("Failed to create shift for current user:", error)
       throw error
     }
   }

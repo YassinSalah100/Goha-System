@@ -4,56 +4,49 @@ import { useState, useEffect } from "react"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
-import { ScrollArea } from "@/components/ui/scroll-area"
 import { Separator } from "@/components/ui/separator"
-import { 
-  Clock, 
-  User, 
-  Calendar, 
-  CheckCircle, 
-  XCircle, 
-  Loader2, 
-  RefreshCw,
-  DollarSign,
-  ShoppingCart,
-  Users,
-  AlertCircle,
-  TrendingUp,
-  Package
-} from "lucide-react"
-import { AuthApiService } from "@/lib/services/auth-api"
-import { ShiftStatus, ShiftType } from "@/lib/types/monitoring"
+import { Clock, User, Calendar, CheckCircle, Loader2, RefreshCw, DollarSign, AlertCircle } from "lucide-react"
+import { AuthApiService, SHIFT_STATUS, SHIFT_TYPES } from "@/lib/services/auth-api"
 
 // Interfaces
-interface CloseRequestDetails {
-  shift_id: string
-  shift_type: ShiftType
-  cashier: {
-    worker_id: string
-    full_name: string
-    username?: string
-  }
-  start_time: string
-  requested_close_time: string
-  total_orders: number
-  total_sales: number
-  cash_sales: number
-  card_sales: number
-  orders_by_type: {
-    "dine-in": number
-    takeaway: number
-    delivery: number
-    cafe: number
-  }
-  workers_count: number
-  total_expenses: number
-  status: ShiftStatus
+interface CashierInfo {
+  id: string
+  name: string
+  email?: string
+  phone?: string
 }
 
-interface ShiftSummary {
+interface CloseRequestDetails {
   shift_id: string
-  total_hours: number
-  summary: string
+  opened_by:
+    | {
+        id: string
+        username: string
+        fullName: string
+        phone?: string
+        hourRate?: string
+      }
+    | string // Can be either object or string for backward compatibility
+  closed_by?:
+    | {
+        id: string
+        username: string
+        fullName: string
+        phone?: string
+        hourRate?: string
+      }
+    | string
+    | null
+  shift_type: string
+  status: string
+  start_time: string
+  end_time: string
+  initial_balance?: string
+  intial_balance?: string // API has typo, handle both
+  created_at: string
+  is_closed: boolean
+  is_close_requested: boolean
+  cashier_info?: CashierInfo
 }
 
 export default function ShiftRequestsPage() {
@@ -61,33 +54,131 @@ export default function ShiftRequestsPage() {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [approving, setApproving] = useState<string | null>(null)
+  const [isMounted, setIsMounted] = useState(true)
+
+  const fetchCashierInfo = async (cashierId: string): Promise<CashierInfo | null> => {
+    try {
+      console.log(`🔍 Fetching cashier info for ID: ${cashierId}`)
+      const result = await AuthApiService.apiRequest<any>(`/users/${cashierId}`)
+      console.log(`📊 Cashier API response:`, result)
+
+      if (result && (result.id || result.user_id)) {
+        const cashierInfo = {
+          id: result.id || result.user_id,
+          name: result.fullName || result.full_name || result.name || result.username || "غير محدد",
+          email: result.email || "",
+          phone: result.phone || "",
+        }
+        console.log(`✅ Cashier info processed:`, cashierInfo)
+        return cashierInfo
+      }
+      return null
+    } catch (err) {
+      console.warn(`❌ Failed to fetch cashier info for ${cashierId}:`, err)
+      return null
+    }
+  }
+
+  const fetchShiftDetails = async (shiftId: string): Promise<any> => {
+    try {
+      console.log(`🔍 Fetching shift details for ID: ${shiftId}`)
+      const result = await AuthApiService.apiRequest<any>(`/shifts/${shiftId}`)
+      console.log(`📊 Shift details response:`, result)
+      return result
+    } catch (err) {
+      console.warn(`❌ Failed to fetch shift details for ${shiftId}:`, err)
+      return null
+    }
+  }
 
   // Fetch close requests
   const fetchCloseRequests = async () => {
+    if (!isMounted) return // Prevent fetch if component unmounted
+
     setLoading(true)
     setError(null)
     try {
       console.log("🔍 Fetching shift close requests...")
-      const result = await AuthApiService.apiRequest<any>('/shifts/close-requested')
-      
-      if (result.success && result.data) {
-        const requests = Array.isArray(result.data.shifts) 
-          ? result.data.shifts 
-          : Array.isArray(result.data) 
-            ? result.data 
-            : []
-        
-        console.log("✅ Close requests fetched:", requests)
-        setCloseRequests(requests)
+      const result = await AuthApiService.apiRequest<any>("/shifts/close/requested")
+
+      console.log("📊 Raw API result:", result)
+      console.log("📊 Result type:", typeof result)
+      console.log("📊 Is array:", Array.isArray(result))
+
+      // Handle different response formats
+      let requests: any[] = []
+      if (Array.isArray(result)) {
+        requests = result
+        console.log("✅ Processing direct array response")
+      } else if (result && typeof result === "object" && result.data) {
+        requests = Array.isArray(result.data) ? result.data : []
+        console.log("✅ Processing wrapped response")
+      } else if (result && typeof result === "object") {
+        requests = [result]
+        console.log("✅ Processing single object response")
       } else {
-        console.warn("❌ Failed to fetch close requests:", result.message)
-        setError(result.message || "فشل في تحميل طلبات إنهاء الوردية")
+        console.warn("❌ Unexpected response format:", result)
+        setError("تنسيق استجابة غير متوقع من الخادم")
+        return
+      }
+
+      // Filter for shifts that have close requests pending
+      const closeRequestedShifts = requests.filter(
+        (request) => request.is_close_requested === true && !request.is_closed,
+      )
+
+      console.log(
+        `🔍 Found ${closeRequestedShifts.length} shifts with close requests out of ${requests.length} total shifts`,
+      )
+
+      // Process requests - handle both API formats (object vs string IDs)
+      const processedRequests = await Promise.all(
+        closeRequestedShifts.map(async (request) => {
+          let cashierInfo: CashierInfo | null = null
+          let shiftDetails: any = null
+
+          // Try to get shift details first
+          shiftDetails = await fetchShiftDetails(request.shift_id)
+
+          if (typeof request.opened_by === "object" && request.opened_by) {
+            // New format: cashier info included as object
+            cashierInfo = {
+              id: request.opened_by.id,
+              name: request.opened_by.fullName || request.opened_by.username,
+              email: "", // Not provided in this API
+              phone: request.opened_by.phone || "",
+            }
+          } else if (typeof request.opened_by === "string") {
+            // Old format: only ID provided, fetch details
+            console.log(`🔍 Fetching cashier info for ID: ${request.opened_by}`)
+            cashierInfo = await fetchCashierInfo(request.opened_by)
+          }
+
+          // Merge shift details if available
+          const enhancedRequest = {
+            ...request,
+            cashier_info: cashierInfo,
+            shift_details: shiftDetails,
+          }
+
+          console.log(`✅ Enhanced request for shift ${request.shift_id}:`, enhancedRequest)
+          return enhancedRequest
+        }),
+      )
+
+      console.log("✅ Close requests processed:", processedRequests.length, "requests")
+      if (isMounted) {
+        setCloseRequests(processedRequests)
       }
     } catch (err) {
       console.error("❌ Error fetching close requests:", err)
-      setError(err instanceof Error ? err.message : "حدث خطأ في تحميل البيانات")
+      if (isMounted) {
+        setError(err instanceof Error ? err.message : "حدث خطأ في تحميل البيانات")
+      }
     } finally {
-      setLoading(false)
+      if (isMounted) {
+        setLoading(false)
+      }
     }
   }
 
@@ -96,26 +187,64 @@ export default function ShiftRequestsPage() {
     setApproving(shiftId)
     try {
       console.log(`✅ Approving shift close for: ${shiftId}`)
+
+      const currentUser = AuthApiService.getCurrentUser()
+      const adminId = currentUser?.id || currentUser?.user_id
+
+      if (!adminId) {
+        throw new Error("لا يمكن العثور على معرف المدير. يرجى تسجيل الدخول مرة أخرى.")
+      }
+
+      // Use PATCH method as per backend route definition
       const result = await AuthApiService.apiRequest<any>(`/shifts/${shiftId}/approve-close`, {
         method: "PATCH",
         body: JSON.stringify({
-          approved_by: "owner",
-          close_reason: "موافق على إنهاء الوردية"
-        })
+          approved_by_admin_id: adminId, // Send actual admin UUID instead of string
+        }),
       })
-      
-      if (result.success) {
-        console.log("✅ Shift closed successfully")
+
+      console.log("📊 Approve response:", result)
+
+      // Check for successful response (handle different formats)
+      const isSuccess =
+        !result?.error &&
+        (result?.success === true ||
+          result?.status === "success" ||
+          result?.message?.includes("success") ||
+          result?.message?.includes("approved") ||
+          Object.keys(result || {}).length > 0) // Non-empty response usually means success
+
+      if (isSuccess) {
+        console.log("✅ Shift approved successfully")
         // Remove from pending requests
-        setCloseRequests(prev => prev.filter(req => req.shift_id !== shiftId))
+        setCloseRequests((prev) => prev.filter((req) => req.shift_id !== shiftId))
         // Show success message
-        alert("تم إغلاق الوردية بنجاح")
+        alert("تم الموافقة على إغلاق الوردية بنجاح")
+        // Refresh the list to get updated data
+        await fetchCloseRequests()
       } else {
-        throw new Error(result.message || "فشل في إغلاق الوردية")
+        console.warn("❌ Failed to approve shift:", result)
+        const errorMessage = result?.message || result?.error || "فشل في الموافقة على إغلاق الوردية"
+        alert(errorMessage)
       }
     } catch (err) {
-      console.error("❌ Error closing shift:", err)
-      alert(err instanceof Error ? err.message : "حدث خطأ في إغلاق الوردية")
+      console.error("❌ Error approving shift:", err)
+      const errorMessage = err instanceof Error ? err.message : "حدث خطأ في الموافقة على الوردية"
+
+      // Handle specific server errors
+      if (errorMessage.includes("Internal server error")) {
+        alert("خطأ في الخادم. يرجى المحاولة مرة أخرى أو التواصل مع الدعم الفني.")
+      } else if (errorMessage.includes("500")) {
+        alert("خطأ في الخادم (500). يرجى التحقق من صلاحيات المستخدم ومحاولة مرة أخرى.")
+      } else if (errorMessage.includes("403") || errorMessage.includes("Forbidden")) {
+        alert("ليس لديك صلاحية للموافقة على إغلاق الورديات. يرجى التواصل مع المدير.")
+      } else if (errorMessage.includes("401") || errorMessage.includes("Unauthorized")) {
+        alert("يرجى تسجيل الدخول مرة أخرى للمتابعة.")
+      } else if (errorMessage.includes("Failed to fetch")) {
+        alert("لا يمكن الاتصال بالخادم. يرجى التحقق من اتصال الإنترنت والمحاولة مرة أخرى.")
+      } else {
+        alert(errorMessage)
+      }
     } finally {
       setApproving(null)
     }
@@ -124,12 +253,12 @@ export default function ShiftRequestsPage() {
   // Format time
   const formatTime = (timeString: string) => {
     try {
-      return new Date(timeString).toLocaleString('ar-SA', {
-        year: 'numeric',
-        month: 'short',
-        day: 'numeric',
-        hour: '2-digit',
-        minute: '2-digit'
+      return new Date(timeString).toLocaleString("ar-SA", {
+        year: "numeric",
+        month: "short",
+        day: "numeric",
+        hour: "2-digit",
+        minute: "2-digit",
       })
     } catch {
       return timeString
@@ -137,37 +266,92 @@ export default function ShiftRequestsPage() {
   }
 
   // Calculate shift duration
-  const calculateDuration = (startTime: string, requestedCloseTime: string) => {
+  const calculateDuration = (startTime: string, endTime: string) => {
     try {
       const start = new Date(startTime)
-      const end = new Date(requestedCloseTime)
+      const end = new Date(endTime)
       const diffMs = end.getTime() - start.getTime()
+
+      if (diffMs < 0) {
+        return "غير محدد"
+      }
+
       const diffHours = Math.floor(diffMs / (1000 * 60 * 60))
       const diffMinutes = Math.floor((diffMs % (1000 * 60 * 60)) / (1000 * 60))
-      return `${diffHours} ساعة و ${diffMinutes} دقيقة`
+
+      if (diffHours === 0 && diffMinutes === 0) {
+        return "أقل من دقيقة"
+      } else if (diffHours === 0) {
+        return `${diffMinutes} دقيقة`
+      } else if (diffMinutes === 0) {
+        return `${diffHours} ساعة`
+      } else {
+        return `${diffHours} ساعة و ${diffMinutes} دقيقة`
+      }
     } catch {
       return "غير محدد"
     }
   }
 
   // Get shift type badge
-  const getShiftTypeBadge = (type: ShiftType) => {
+  const getShiftTypeBadge = (type: string) => {
     switch (type) {
-      case ShiftType.MORNING:
-        return <Badge variant="outline" className="bg-yellow-50 text-yellow-700 border-yellow-200">صباحي</Badge>
-      case ShiftType.NIGHT:
-        return <Badge variant="outline" className="bg-blue-50 text-blue-700 border-blue-200">مسائي</Badge>
+      case SHIFT_TYPES.MORNING:
+        return (
+          <Badge variant="outline" className="bg-yellow-50 text-yellow-700 border-yellow-200">
+            صباحي
+          </Badge>
+        )
+      case SHIFT_TYPES.NIGHT:
+        return (
+          <Badge variant="outline" className="bg-blue-50 text-blue-700 border-blue-200">
+            مسائي
+          </Badge>
+        )
       default:
         return <Badge variant="outline">{type}</Badge>
     }
   }
 
+  const getStatusBadge = (status: string) => {
+    switch (status.toLowerCase()) {
+      case SHIFT_STATUS.OPENED:
+        return (
+          <Badge variant="outline" className="bg-green-50 text-green-700 border-green-200">
+            مفتوح
+          </Badge>
+        )
+      case SHIFT_STATUS.CLOSED:
+        return (
+          <Badge variant="outline" className="bg-gray-50 text-gray-700 border-gray-200">
+            مغلق
+          </Badge>
+        )
+      default:
+        return <Badge variant="secondary">{status}</Badge>
+    }
+  }
+
   useEffect(() => {
+    setIsMounted(true)
     fetchCloseRequests()
-    
-    // Refresh every 30 seconds
-    const interval = setInterval(fetchCloseRequests, 30000)
-    return () => clearInterval(interval)
+
+    const interval = setInterval(() => {
+      if (isMounted) {
+        fetchCloseRequests()
+      }
+    }, 60000) // Refresh every 60 seconds instead of 30
+
+    return () => {
+      setIsMounted(false)
+      clearInterval(interval)
+    }
+  }, [])
+
+  useEffect(() => {
+    return () => {
+      setIsMounted(false)
+    }
   }, [])
 
   if (loading) {
@@ -192,7 +376,7 @@ export default function ShiftRequestsPage() {
           <p className="text-muted-foreground">مراجعة وموافقة على طلبات إنهاء الورديات من الكاشيرين</p>
         </div>
         <Button onClick={fetchCloseRequests} disabled={loading}>
-          <RefreshCw className={`h-4 w-4 mr-2 ${loading ? 'animate-spin' : ''}`} />
+          <RefreshCw className={`h-4 w-4 mr-2 ${loading ? "animate-spin" : ""}`} />
           تحديث
         </Button>
       </div>
@@ -232,11 +416,11 @@ export default function ShiftRequestsPage() {
                       <CardTitle className="text-xl">طلب إنهاء وردية</CardTitle>
                       <div className="flex items-center gap-2 mt-1">
                         {getShiftTypeBadge(request.shift_type)}
-                        <Badge variant="secondary">معلق</Badge>
+                        {getStatusBadge(request.status)}
                       </div>
                     </div>
                   </div>
-                  <Button 
+                  <Button
                     onClick={() => approveShiftClose(request.shift_id)}
                     disabled={approving === request.shift_id}
                     className="bg-green-600 hover:bg-green-700"
@@ -262,17 +446,24 @@ export default function ShiftRequestsPage() {
                   <div className="flex items-center gap-3">
                     <User className="h-5 w-5 text-blue-500" />
                     <div>
-                      <p className="font-medium">اسم الكاشير</p>
-                      <p className="text-muted-foreground">{request.cashier.full_name}</p>
+                      <p className="font-medium">الكاشير</p>
+                      <p className="text-muted-foreground">
+                        {request.cashier_info?.name ||
+                          (typeof request.opened_by === "object"
+                            ? request.opened_by.fullName || request.opened_by.username
+                            : request.opened_by) ||
+                          "غير محدد"}
+                      </p>
+                      {request.cashier_info?.email && (
+                        <p className="text-xs text-muted-foreground">{request.cashier_info.email}</p>
+                      )}
                     </div>
                   </div>
                   <div className="flex items-center gap-3">
                     <Calendar className="h-5 w-5 text-green-500" />
                     <div>
                       <p className="font-medium">مدة الوردية</p>
-                      <p className="text-muted-foreground">
-                        {calculateDuration(request.start_time, request.requested_close_time)}
-                      </p>
+                      <p className="text-muted-foreground">{calculateDuration(request.start_time, request.end_time)}</p>
                     </div>
                   </div>
                 </div>
@@ -286,70 +477,31 @@ export default function ShiftRequestsPage() {
                     <p className="font-medium">{formatTime(request.start_time)}</p>
                   </div>
                   <div>
-                    <p className="font-medium text-sm text-muted-foreground mb-1">وقت طلب الإنهاء</p>
-                    <p className="font-medium">{formatTime(request.requested_close_time)}</p>
+                    <p className="font-medium text-sm text-muted-foreground mb-1">وقت نهاية الوردية</p>
+                    <p className="font-medium">{formatTime(request.end_time)}</p>
                   </div>
                 </div>
 
                 <Separator />
 
-                {/* Financial Summary */}
-                <div className="grid md:grid-cols-4 gap-4">
-                  <div className="text-center p-3 bg-green-50 rounded-lg">
-                    <DollarSign className="h-6 w-6 mx-auto text-green-600 mb-2" />
-                    <p className="text-sm text-muted-foreground">إجمالي المبيعات</p>
-                    <p className="text-lg font-bold text-green-600">{request.total_sales.toFixed(2)} ر.س</p>
-                  </div>
+                {/* Shift Details */}
+                <div className="grid md:grid-cols-3 gap-4">
                   <div className="text-center p-3 bg-blue-50 rounded-lg">
-                    <ShoppingCart className="h-6 w-6 mx-auto text-blue-600 mb-2" />
-                    <p className="text-sm text-muted-foreground">عدد الطلبات</p>
-                    <p className="text-lg font-bold text-blue-600">{request.total_orders}</p>
+                    <DollarSign className="h-6 w-6 mx-auto text-blue-600 mb-2" />
+                    <p className="text-sm text-muted-foreground">الرصيد الأولي</p>
+                    <p className="text-lg font-bold text-blue-600">
+                      {request.initial_balance || request.intial_balance || "0.00"} ر.س
+                    </p>
+                  </div>
+                  <div className="text-center p-3 bg-green-50 rounded-lg">
+                    <CheckCircle className="h-6 w-6 mx-auto text-green-600 mb-2" />
+                    <p className="text-sm text-muted-foreground">حالة الوردية</p>
+                    <p className="text-lg font-bold text-green-600">{request.status}</p>
                   </div>
                   <div className="text-center p-3 bg-purple-50 rounded-lg">
-                    <Users className="h-6 w-6 mx-auto text-purple-600 mb-2" />
-                    <p className="text-sm text-muted-foreground">عدد العمال</p>
-                    <p className="text-lg font-bold text-purple-600">{request.workers_count}</p>
-                  </div>
-                  <div className="text-center p-3 bg-red-50 rounded-lg">
-                    <TrendingUp className="h-6 w-6 mx-auto text-red-600 mb-2" />
-                    <p className="text-sm text-muted-foreground">إجمالي المصروفات</p>
-                    <p className="text-lg font-bold text-red-600">{request.total_expenses.toFixed(2)} ر.س</p>
-                  </div>
-                </div>
-
-                {/* Payment Methods */}
-                <div className="grid md:grid-cols-2 gap-4">
-                  <div className="p-3 bg-gray-50 rounded-lg">
-                    <p className="text-sm text-muted-foreground mb-1">المبيعات النقدية</p>
-                    <p className="text-lg font-semibold">{request.cash_sales.toFixed(2)} ر.س</p>
-                  </div>
-                  <div className="p-3 bg-gray-50 rounded-lg">
-                    <p className="text-sm text-muted-foreground mb-1">مبيعات البطاقة</p>
-                    <p className="text-lg font-semibold">{request.card_sales.toFixed(2)} ر.س</p>
-                  </div>
-                </div>
-
-                {/* Order Types */}
-                <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-                  <div className="text-center p-2 bg-yellow-50 rounded">
-                    <Package className="h-4 w-4 mx-auto text-yellow-600 mb-1" />
-                    <p className="text-xs text-muted-foreground">داخل المطعم</p>
-                    <p className="font-semibold">{request.orders_by_type["dine-in"]}</p>
-                  </div>
-                  <div className="text-center p-2 bg-green-50 rounded">
-                    <Package className="h-4 w-4 mx-auto text-green-600 mb-1" />
-                    <p className="text-xs text-muted-foreground">تيك أواي</p>
-                    <p className="font-semibold">{request.orders_by_type.takeaway}</p>
-                  </div>
-                  <div className="text-center p-2 bg-blue-50 rounded">
-                    <Package className="h-4 w-4 mx-auto text-blue-600 mb-1" />
-                    <p className="text-xs text-muted-foreground">توصيل</p>
-                    <p className="font-semibold">{request.orders_by_type.delivery}</p>
-                  </div>
-                  <div className="text-center p-2 bg-purple-50 rounded">
-                    <Package className="h-4 w-4 mx-auto text-purple-600 mb-1" />
-                    <p className="text-xs text-muted-foreground">كافية</p>
-                    <p className="font-semibold">{request.orders_by_type.cafe}</p>
+                    <Clock className="h-6 w-6 mx-auto text-purple-600 mb-2" />
+                    <p className="text-sm text-muted-foreground">تاريخ الإنشاء</p>
+                    <p className="text-lg font-bold text-purple-600">{formatTime(request.created_at)}</p>
                   </div>
                 </div>
               </CardContent>

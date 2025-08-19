@@ -197,11 +197,96 @@ export class MonitoringApiService {
   static async fetchShiftsByStatus(status: 'opened' | 'closed'): Promise<DetailedShiftSummary[]> {
     try {
       console.log(`Fetching shifts with status: ${status}`)
-      const data = await AuthApiService.apiRequest<any>(`/shifts/status/${status}`)
-      return data.shifts || data.data || data || []
+      
+      // Use the working endpoint that returns all shifts with nested user objects
+      const endpoint = '/shifts/close/requested'
+      const data = await AuthApiService.apiRequest<any>(endpoint)
+      console.log(`Raw data from ${endpoint}:`, data)
+      
+      // Handle the new API format with embedded user objects
+      let shifts = Array.isArray(data) ? data : (data.shifts || data.data || [])
+      
+      // Filter by status if specified
+      if (status === 'closed') {
+        shifts = shifts.filter((shift: any) => shift.is_closed === true || shift.status === 'closed')
+      } else if (status === 'opened') {
+        shifts = shifts.filter((shift: any) => shift.is_closed === false && shift.status !== 'closed')
+      }
+      
+      console.log(`Filtered ${shifts.length} shifts with status: ${status}`)
+      
+      return shifts.map((shift: any) => this.transformShiftToDetailedSummary(shift, status))
     } catch (error) {
       console.error(`Error fetching ${status} shifts:`, error)
       return []
+    }
+  }
+
+  // Transform the new API response format to DetailedShiftSummary
+  static transformShiftToDetailedSummary(shift: any, fetchedStatus: string): DetailedShiftSummary {
+    // Handle both object and string formats for opened_by and closed_by
+    let openedBy = null
+    let closedBy = null
+    
+    if (typeof shift.opened_by === 'object' && shift.opened_by) {
+      openedBy = {
+        worker_id: shift.opened_by.id,
+        full_name: shift.opened_by.fullName || shift.opened_by.username
+      }
+    } else if (typeof shift.opened_by === 'string') {
+      openedBy = {
+        worker_id: shift.opened_by,
+        full_name: `User ${shift.opened_by.slice(-6)}` // Show last 6 chars of ID
+      }
+    }
+    
+    if (typeof shift.closed_by === 'object' && shift.closed_by) {
+      closedBy = {
+        worker_id: shift.closed_by.id,
+        full_name: shift.closed_by.fullName || shift.closed_by.username
+      }
+    } else if (typeof shift.closed_by === 'string') {
+      closedBy = {
+        worker_id: shift.closed_by,
+        full_name: `User ${shift.closed_by.slice(-6)}` // Show last 6 chars of ID
+      }
+    }
+    
+    return {
+      shift_id: shift.shift_id,
+      type: shift.shift_type,
+      status: shift.status || fetchedStatus,
+      start_time: shift.start_time,
+      end_time: shift.end_time,
+      opened_by: openedBy,
+      closed_by: closedBy,
+      // Set default values for missing financial data
+      total_orders: 0,
+      total_sales: 0,
+      total_workers: shift.shiftWorkers?.length || 0,
+      active_workers: shift.shiftWorkers?.filter((w: any) => !w.end_time)?.length || 0,
+      total_expenses: 0,
+      expenses_count: 0,
+      total_staff_cost: 0,
+      orders_by_type: {
+        "dine-in": 0,
+        takeaway: 0,
+        delivery: 0,
+        cafe: 0
+      },
+      orders_by_status: {
+        completed: 0,
+        pending: 0,
+        cancelled: 0
+      },
+      orders_by_payment: {
+        cash: 0,
+        card: 0
+      },
+      average_order_value: 0,
+      workers: [],
+      expenses_by_category: {},
+      expenses: []
     }
   }
 
