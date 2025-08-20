@@ -7,6 +7,8 @@ import { Button } from "@/components/ui/button"
 import { Textarea } from "@/components/ui/textarea"
 import { Badge } from "@/components/ui/badge"
 import { Separator } from "@/components/ui/separator"
+import { AuthApiService } from "@/lib/services/auth-api"
+import { toast } from "sonner"
 import { 
   AlertCircle, 
   CheckCircle2, 
@@ -395,31 +397,73 @@ export default function EndShiftPageFixed() {
   const [isLoadingShiftDetails, setIsLoadingShiftDetails] = useState(false)
   const [isLoadingShiftData, setIsLoadingShiftData] = useState(false)
   const [isWaitingForApproval, setIsWaitingForApproval] = useState(false)
+  const [isApproved, setIsApproved] = useState(false)
   const [approvalCheckInterval, setApprovalCheckInterval] = useState<NodeJS.Timeout | null>(null)
   const shiftReportRef = useRef<HTMLDivElement>(null)
 
-  // Check shift approval status
+  // Check shift approval status - ONLY when we're actively waiting for approval
   const checkShiftApprovalStatus = async () => {
     if (!currentShift) return false
     
+    // IMPORTANT: Only check for approval if we're in waiting state
+    if (!isWaitingForApproval) {
+      console.log("ℹ️ Not waiting for approval - skipping approval check")
+      return false
+    }
+    
     try {
       const shiftId = getShiftId(currentShift)
+      console.log(`🔍 Checking approval status for shift: ${shiftId} (waiting mode: ${isWaitingForApproval})`)
+      
+      // Use direct fetch to avoid automatic token expiration logout during approval waiting
+      const token = localStorage.getItem("authToken")
+      if (!token) {
+        console.log("❌ No auth token found")
+        return false
+      }
+      
       const response = await fetch(`${API_BASE_URL}/shifts/${shiftId}`, {
         method: "GET",
         headers: {
-          Authorization: `Bearer ${localStorage.getItem("authToken") || ""}`,
+          Authorization: `Bearer ${token}`,
           "Content-Type": "application/json",
         },
       })
 
       if (response.ok) {
         const result = await response.json()
-        console.log("✅ Shift status check:", result)
+        console.log("📊 Full shift status response:", result)
         
         // Check if shift is approved/closed
-        if (result.data && (result.data.is_closed || result.data.status === 'closed' || result.data.approved_by_admin_id)) {
-          console.log("✅ Shift has been approved/closed")
+        const isApproved = result.data && (
+          result.data.is_closed || 
+          result.data.status === 'closed' || 
+          result.data.approved_by_admin_id
+        )
+        
+        console.log(`✅ Approval status check result:`, {
+          is_closed: result.data?.is_closed,
+          status: result.data?.status,
+          approved_by_admin_id: result.data?.approved_by_admin_id,
+          isApproved,
+          waitingForApproval: isWaitingForApproval
+        })
+        
+        if (isApproved && isWaitingForApproval) {
+          console.log("✅ Shift has been approved/closed and we were waiting for it")
           return true
+        } else if (isApproved && !isWaitingForApproval) {
+          console.log("ℹ️ Shift is approved but we weren't waiting for approval - ignoring")
+          return false
+        } else {
+          console.log("⏳ Shift is still pending approval")
+        }
+      } else {
+        console.warn(`⚠️ Failed to check shift status: ${response.status} ${response.statusText}`)
+        
+        // If 401, token expired but don't auto-logout during approval waiting
+        if (response.status === 401) {
+          console.log("⚠️ Token expired during approval waiting - continuing to wait for owner approval")
         }
       }
     } catch (error) {
@@ -431,7 +475,19 @@ export default function EndShiftPageFixed() {
 
   // Prevent navigation until approval
   useEffect(() => {
-    if (!isWaitingForApproval) return
+    console.log(`🚦 Approval useEffect triggered. isWaitingForApproval: ${isWaitingForApproval}`)
+    
+    if (!isWaitingForApproval) {
+      console.log("ℹ️ Not waiting for approval, skipping setup")
+      // Re-enable token expiration checks when not waiting
+      AuthApiService.setBypassTokenExpiration(false)
+      return
+    }
+    
+    console.log("🔒 Setting up approval waiting mode...")
+    
+    // Disable token expiration checks during approval waiting to prevent auto-logout
+    AuthApiService.setBypassTokenExpiration(true)
 
     // Block browser back/forward navigation
     const handlePopState = (e: PopStateEvent) => {
@@ -447,34 +503,110 @@ export default function EndShiftPageFixed() {
       return e.returnValue
     }
 
-    // Start approval checking interval
+    // Listen for shift approval events from admin page
+    const handleShiftApproved = (event: CustomEvent) => {
+      console.log("🎉 Received shift approval event:", event.detail)
+      const { shiftId } = event.detail
+      const currentShiftId = getShiftId(currentShift)
+      
+      console.log(`🔍 Comparing shift IDs: received=${shiftId}, current=${currentShiftId}`)
+      
+      if (shiftId === currentShiftId) {
+        console.log("✅ Current shift approved! Preparing logout...")
+        console.log("🔄 Setting states: isWaitingForApproval=false, isApproved=true")
+        
+        // Re-enable token expiration checks
+        AuthApiService.setBypassTokenExpiration(false)
+        
+        // Update states to show approval - USE SINGLE setState CALL
+        setIsWaitingForApproval(false)
+        setIsApproved(true)
+        
+        console.log("🎯 States updated: isWaitingForApproval=false, isApproved=true")
+        
+        // Show success toast with countdown
+        toast.success("تم الموافقة على إغلاق الوردية! ✅", {
+          description: "سيتم تسجيل الخروج خلال 4 ثوانٍ...",
+          duration: 4000,
+        })
+        
+        // Wait 4 seconds before logout to make it feel more natural
+        setTimeout(() => {
+          console.log("🚪 Logging out cashier after approval delay...")
+          // Clear user data and redirect
+          localStorage.removeItem("currentUser")
+          router.push("/")
+        }, 4000) // 4 second delay
+      } else {
+        console.log("ℹ️ Approved shift doesn't match current shift")
+      }
+    }
+
+    // Start approval checking interval (backup method) - ONLY when waiting for approval
+    console.log("⏰ Starting approval checking interval (every 5 seconds)")
     const interval = setInterval(async () => {
-      console.log("🔄 Checking shift approval status...")
+      console.log("🔄 Checking shift approval status via polling...")
+      
+      // Double-check we're still waiting for approval
+      if (!isWaitingForApproval) {
+        console.log("ℹ️ No longer waiting for approval - stopping polling")
+        clearInterval(interval)
+        return
+      }
+      
       const isApproved = await checkShiftApprovalStatus()
       
       if (isApproved) {
-        console.log("✅ Shift approved! Allowing logout...")
+        console.log("✅ Shift approved via polling! Preparing logout...")
+        console.log("🔄 Setting states: isWaitingForApproval=false, isApproved=true")
+        
+        // Re-enable token expiration checks
+        AuthApiService.setBypassTokenExpiration(false)
+        
+        // Update states to show approval - USE SINGLE setState CALL
         setIsWaitingForApproval(false)
+        setIsApproved(true)
         clearInterval(interval)
         
-        // Clear user data and redirect
-        localStorage.removeItem("currentUser")
-        router.push("/")
+        console.log("🎯 States updated: isWaitingForApproval=false, isApproved=true")
+        
+        // Show success toast with countdown
+        toast.success("تم الموافقة على إغلاق الوردية! ✅", {
+          description: "سيتم تسجيل الخروج خلال 4 ثوانٍ...",
+          duration: 4000,
+        })
+        
+        // Wait 4 seconds before logout to make it feel more natural
+        setTimeout(() => {
+          console.log("🚪 Logging out cashier after approval delay...")
+          // Clear user data and redirect
+          localStorage.removeItem("currentUser")
+          router.push("/")
+        }, 4000) // 4 second delay
+      } else {
+        console.log("⏳ Still waiting for approval...")
       }
-    }, 10000) // Check every 10 seconds
+    }, 5000) // Check every 5 seconds (reduced from 10 seconds)
 
     setApprovalCheckInterval(interval)
 
     // Add event listeners
     window.addEventListener("popstate", handlePopState)
     window.addEventListener("beforeunload", handleBeforeUnload)
+    window.addEventListener("shiftApproved", handleShiftApproved as EventListener)
     
     // Push initial state to prevent back navigation
     window.history.pushState(null, "", window.location.href)
 
     return () => {
+      console.log("🧹 Cleaning up approval waiting mode...")
+      
+      // Re-enable token expiration checks
+      AuthApiService.setBypassTokenExpiration(false)
+      
       window.removeEventListener("popstate", handlePopState)
       window.removeEventListener("beforeunload", handleBeforeUnload)
+      window.removeEventListener("shiftApproved", handleShiftApproved as EventListener)
       if (interval) {
         clearInterval(interval)
       }
@@ -665,6 +797,22 @@ export default function EndShiftPageFixed() {
           if (shiftId) {
             const shiftDetails = await fetchShiftDetails(shiftId)
             if (shiftDetails) {
+              // Check if shift is already closed - show warning but don't auto-close
+              if (shiftDetails.is_closed || shiftDetails.status === 'closed' || shiftDetails.approved_by_admin_id) {
+                console.log("⚠️ WARNING: This shift appears to be already closed!")
+                console.log("📊 Shift details:", {
+                  is_closed: shiftDetails.is_closed,
+                  status: shiftDetails.status,
+                  approved_by_admin_id: shiftDetails.approved_by_admin_id
+                })
+                
+                // Show a warning toast but don't auto-logout
+                toast.warning("تنبيه: هذه الوردية مغلقة بالفعل", {
+                  description: "يبدو أن هذه الوردية تم إغلاقها من قبل. يرجى التحقق مع المدير.",
+                  duration: 6000,
+                })
+              }
+              
               // Merge API shift details with local shift data
               setCurrentShift({
                 ...user.shift,
@@ -892,12 +1040,20 @@ export default function EndShiftPageFixed() {
       return
     }
 
+    // Prevent multiple requests
+    if (loading || requestSent || isWaitingForApproval) {
+      console.log("⚠️ Request already in progress or already sent")
+      return
+    }
+
     try {
       setError(null)
       setLoading(true)
 
       const shiftId = getShiftId(currentShift)
       const userId = currentUser.user_id || currentUser.id
+
+      console.log(`🚀 Starting end shift request for shift: ${shiftId}, user: ${userId}`)
 
       let apiSuccess = false
       let summaryData = shiftSummary
@@ -942,12 +1098,46 @@ export default function EndShiftPageFixed() {
 
         const result = await response.json()
         console.log("📡 Shift close request response:", result)
+        console.log("📊 Response details:", {
+          success: result.success,
+          message: result.message,
+          data: result.data,
+          shift: result.shift
+        })
 
         if (response.ok && result.success) {
           apiSuccess = true
           console.log("✅ Shift close request sent successfully")
           
-          // Set waiting for approval state
+          // Check if the shift was auto-approved in the response
+          if (result.data && (result.data.is_closed || result.data.approved_by_admin_id)) {
+            console.log("⚡ WARNING: Shift appears to be auto-approved!")
+            console.log("📊 Auto-approval details:", {
+              is_closed: result.data.is_closed,
+              approved_by_admin_id: result.data.approved_by_admin_id,
+              status: result.data.status
+            })
+            
+            // If auto-approved, show success and logout immediately
+            toast.success("تم إغلاق الوردية تلقائياً! ✅", {
+              description: "سيتم تسجيل الخروج خلال 4 ثوانٍ...",
+              duration: 4000,
+            })
+            
+            setRequestSent(true)
+            setIsApproved(true)
+            
+            // Wait 4 seconds before logout
+            setTimeout(() => {
+              console.log("🚪 Auto-logout after auto-approval...")
+              localStorage.removeItem("currentUser")
+              router.push("/")
+            }, 4000)
+            
+            return
+          }
+          
+          // Set waiting for approval state only if not auto-approved
           setIsWaitingForApproval(true)
           setRequestSent(true)
         } else {
@@ -1098,7 +1288,25 @@ export default function EndShiftPageFixed() {
             </div>
           )}
 
-          {requestSent && isWaitingForApproval ? (
+          {isApproved ? (
+            <motion.div
+              initial={{ opacity: 0, y: 20 }}
+              animate={{ opacity: 1, y: 0 }}
+              className="flex flex-col items-center justify-center py-8 text-center"
+            >
+              <CheckCircle2 className="h-16 w-16 text-green-500 mb-4" />
+              <h3 className="text-xl font-medium mb-2">تم الموافقة على إنهاء الوردية</h3>
+              <p className="text-muted-foreground mb-4">تم الموافقة على طلبك. سيتم تسجيل الخروج خلال لحظات...</p>
+              <div className="w-full max-w-xs bg-gray-200 rounded-full h-2.5 mt-4">
+                <motion.div
+                  className="bg-green-500 h-2.5 rounded-full"
+                  initial={{ width: "0%" }}
+                  animate={{ width: "100%" }}
+                  transition={{ duration: 3 }}
+                ></motion.div>
+              </div>
+            </motion.div>
+          ) : requestSent && isWaitingForApproval ? (
             <motion.div
               initial={{ opacity: 0, y: 20 }}
               animate={{ opacity: 1, y: 0 }}
@@ -1134,24 +1342,6 @@ export default function EndShiftPageFixed() {
               >
                 تحقق الآن من حالة الموافقة
               </Button>
-            </motion.div>
-          ) : requestSent ? (
-            <motion.div
-              initial={{ opacity: 0, y: 20 }}
-              animate={{ opacity: 1, y: 0 }}
-              className="flex flex-col items-center justify-center py-8 text-center"
-            >
-              <CheckCircle2 className="h-16 w-16 text-green-500 mb-4" />
-              <h3 className="text-xl font-medium mb-2">تم إرسال طلب إنهاء الوردية</h3>
-              <p className="text-muted-foreground mb-4">تم إرسال طلبك للمدير للموافقة عليه. يرجى الانتظار...</p>
-              <div className="w-full max-w-xs bg-gray-200 rounded-full h-2.5 mt-4">
-                <motion.div
-                  className="bg-green-500 h-2.5 rounded-full"
-                  initial={{ width: "0%" }}
-                  animate={{ width: "100%" }}
-                  transition={{ duration: 3 }}
-                ></motion.div>
-              </div>
             </motion.div>
           ) : (
             <>

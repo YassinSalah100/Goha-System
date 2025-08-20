@@ -51,6 +51,32 @@ export function Sidebar({ role }: SidebarProps) {
 
   const handleLogout = async () => {
     try {
+      // Check if cashier has active shift and prevent logout
+      if (role === "cashier") {
+        const currentUser = JSON.parse(localStorage.getItem("currentUser") || "{}")
+        const activeShift = currentUser?.shift
+        
+        console.log("🔍 Checking for active shift before logout:", {
+          user: currentUser?.name,
+          shift: activeShift,
+          is_closed: activeShift?.is_closed,
+          status: activeShift?.status
+        })
+        
+        // Check if cashier has any active shift
+        if (activeShift && 
+            (activeShift.status === "active" || 
+             activeShift.status === "ACTIVE" || 
+             activeShift.is_active || 
+             !activeShift.is_closed)) {
+          
+          console.log("❌ Preventing logout - active shift detected")
+          alert("لا يمكنك تسجيل الخروج أثناء وجود وردية نشطة! يرجى إنهاء الوردية أولاً.")
+          return // Prevent logout
+        }
+      }
+      
+      console.log("✅ Proceeding with logout")
       await AuthApiService.logout()
       router.push("/")
     } catch (error) {

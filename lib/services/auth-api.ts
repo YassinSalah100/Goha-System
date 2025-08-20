@@ -88,6 +88,17 @@ export const PERMISSION_GROUPS = {
 } as const
 
 export class AuthApiService {
+  // Flag to bypass token expiration during critical operations (like shift approval waiting)
+  private static bypassTokenExpiration = false
+
+  /**
+   * Set flag to bypass token expiration checks
+   */
+  static setBypassTokenExpiration(bypass: boolean): void {
+    this.bypassTokenExpiration = bypass
+    console.log(`🔧 Token expiration bypass ${bypass ? 'ENABLED' : 'DISABLED'}`)
+  }
+
   /**
    * Normalize permission names to backend-supported forms
    */
@@ -134,8 +145,8 @@ export class AuthApiService {
     if (typeof window === "undefined") return null
     const token = localStorage.getItem("authToken")
 
-    // Check token expiration
-    if (token) {
+    // Check token expiration (unless bypassed for critical operations)
+    if (token && !this.bypassTokenExpiration) {
       try {
         // Validate token format first
         if (!this.isValidTokenFormat(token)) {
@@ -148,13 +159,17 @@ export class AuthApiService {
         const isValid = payload.exp > now
 
         if (!isValid) {
+          console.log("🕒 Token expired, clearing auth data")
           this.clearAuthData()
           return null
         }
       } catch (e) {
+        console.log("❌ Token validation failed, clearing auth data")
         this.clearAuthData()
         return null
       }
+    } else if (token && this.bypassTokenExpiration) {
+      console.log("⏳ Token expiration check bypassed during critical operation")
     }
 
     return token

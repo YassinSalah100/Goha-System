@@ -216,6 +216,12 @@ export default function ShiftRequestsPage() {
 
       if (isSuccess) {
         console.log("✅ Shift approved successfully")
+        
+        // 🆕 Dispatch event to notify cashier that shift was approved
+        window.dispatchEvent(new CustomEvent('shiftApproved', { 
+          detail: { shiftId, adminId } 
+        }))
+        
         // Remove from pending requests
         setCloseRequests((prev) => prev.filter((req) => req.shift_id !== shiftId))
         // Show success message

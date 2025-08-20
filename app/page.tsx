@@ -31,6 +31,7 @@ export default function LoginPage() {
   const [showForgotPassword, setShowForgotPassword] = useState(false)
   const [forgotPasswordEmail, setForgotPasswordEmail] = useState("")
   const [loggedInUser, setLoggedInUser] = useState<any>(null)
+  const [isRecoveringShift, setIsRecoveringShift] = useState(false)
 
   // Load saved credentials if remember me was checked
   useEffect(() => {
@@ -48,7 +49,67 @@ export default function LoginPage() {
       const user = JSON.parse(currentUser)
       setLoggedInUser(user)
     }
+
+    // Check for interrupted active shifts (e.g., internet disconnection)
+    checkForInterruptedActiveShift()
   }, [])
+
+  // Check for interrupted active shifts and auto-recover
+  const checkForInterruptedActiveShift = async () => {
+    try {
+      const authToken = localStorage.getItem("authToken")
+      const userData = localStorage.getItem("currentUser")
+      
+      if (!authToken || !userData) return
+      
+      const user = JSON.parse(userData)
+      
+      // Only check for cashiers
+      if (user.role !== "cashier") return
+      
+      console.log("🔍 Checking for interrupted active shift...")
+      setIsRecoveringShift(true)
+      
+      // Check if user has active shift on the server
+      const activeShift = await checkActiveShift(user.user_id || user.id, authToken)
+      
+      if (activeShift && user.shift && !user.shift.is_closed) {
+        console.log("✅ Found interrupted active shift, auto-recovering...")
+        
+        // Show recovery toast
+        toast.success("تم العثور على وردية نشطة!", {
+          description: "سيتم إعادة تسجيل الدخول تلقائياً...",
+          duration: 3000,
+        })
+        
+        // Update user data with current shift info
+        const updatedUser = {
+          ...user,
+          shift: {
+            ...activeShift,
+            status: "active",
+            is_active: true,
+            is_closed: false,
+          },
+          loginTime: user.loginTime || new Date().toISOString(),
+        }
+        
+        localStorage.setItem("currentUser", JSON.stringify(updatedUser))
+        setLoggedInUser(updatedUser)
+        
+        // Small delay for user to see the message
+        setTimeout(() => {
+          router.push("/cashier/sales")
+        }, 2000)
+        return
+      }
+      
+    } catch (error) {
+      console.error("Error checking for interrupted shift:", error)
+    } finally {
+      setIsRecoveringShift(false)
+    }
+  }
 
   // Handle keyboard shortcuts
   useEffect(() => {
@@ -588,6 +649,13 @@ export default function LoginPage() {
           </CardHeader>
 
           <CardContent className="px-6 md:px-8">
+            {isRecoveringShift ? (
+              <div className="flex flex-col items-center justify-center py-16">
+                <div className="animate-spin rounded-full h-16 w-16 border-b-2 border-orange-600 mb-6"></div>
+                <h2 className="text-2xl font-bold text-gray-800 mb-4">جارِ استعادة الوردية...</h2>
+                <p className="text-gray-600 text-center">تم العثور على وردية نشطة، سيتم إعادة تسجيل الدخول تلقائياً</p>
+              </div>
+            ) : (
             <form onSubmit={handleLogin} className="space-y-5">
               <motion.div
                 initial={{ opacity: 0, x: -20 }}
@@ -798,7 +866,7 @@ export default function LoginPage() {
                 </Button>
               </motion.div>
             </form>
-
+            )}
 
           </CardContent>
 
