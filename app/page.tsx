@@ -361,7 +361,7 @@ export default function LoginPage() {
         fullName: fullName, // Add both formats
         username: userData.username || username,
         name: fullName, // Add this for cashier pages
-        role: selectedRole as 'owner' | 'admin' | 'cashier',
+        role: selectedRole as 'owner' | 'cashier',
         permissions: userData.userPermissions || [], // Add user permissions
         shift: activeShift
           ? {
@@ -447,10 +447,6 @@ export default function LoginPage() {
             // Go to a safe landing page prompting to start shift later
             router.push("/cashier/")
           }
-          break
-        case "admin":
-          console.log("Redirecting to admin page")
-          router.push("/admin/")
           break
         case "owner":
           console.log("Redirecting to owner page")
@@ -618,9 +614,7 @@ export default function LoginPage() {
                           {loggedInUser.username} •{" "}
                           {loggedInUser.role === "cashier"
                             ? "كاشير"
-                            : loggedInUser.role === "admin"
-                              ? "مدير"
-                              : loggedInUser.role === "owner"
+                            : loggedInUser.role === "owner"
                                 ? "مالك"
                                 : "مستخدم"}
                         </p>
@@ -783,16 +777,6 @@ export default function LoginPage() {
                     <RadioGroupItem value="cashier" id="cashier" className="text-orange-600" />
                     <Label htmlFor="cashier" className="text-base md:text-lg cursor-pointer font-medium">
                       كاشير - إدارة المبيعات والطلبات
-                    </Label>
-                  </motion.div>
-                  <motion.div
-                    whileHover={{ scale: 1.02 }}
-                    whileTap={{ scale: 0.98 }}
-                    className="flex items-center space-x-3 bg-gradient-to-r from-blue-50 to-indigo-50 p-3 md:p-4 rounded-xl border-2 border-blue-200 hover:border-blue-300 transition-all duration-300 cursor-pointer"
-                  >
-                    <RadioGroupItem value="admin" id="admin" className="text-blue-600" />
-                    <Label htmlFor="admin" className="text-base md:text-lg cursor-pointer font-medium">
-                      مدير - إدارة العمال والمخزون
                     </Label>
                   </motion.div>
                   <motion.div

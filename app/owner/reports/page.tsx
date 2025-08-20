@@ -8,8 +8,6 @@ import { Label } from "@/components/ui/label"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Download } from "lucide-react"
-import { orders } from "../../../mock-data/orders"
-import { dailyReports } from "../../../mock-data/daily-reports"
 
 export default function ReportsPage() {
   const [currentUser, setCurrentUser] = useState<any>(null)
@@ -27,6 +25,10 @@ export default function ReportsPage() {
       setCurrentUser(user)
     }
   }, [])
+
+  // Placeholder data - replace with actual API calls
+  const orders: any[] = []
+  const dailyReports: any[] = []
 
   const filteredOrders = orders.filter((order) => {
     const orderDate = new Date(order.date).toISOString().split("T")[0]

@@ -26,7 +26,7 @@ import { motion } from "framer-motion"
 import { AuthApiService } from "@/lib/services/auth-api"
 
 type SidebarProps = {
-  role: "cashier" | "admin" | "owner"
+  role: "cashier" | "owner"
 }
 
 export function Sidebar({ role }: SidebarProps) {
@@ -98,14 +98,6 @@ export function Sidebar({ role }: SidebarProps) {
       { name: "حساب جحا", icon: Receipt, path: "/cashier/juha-balance" },
       { name: "طلبات الإلغاء", icon: AlertTriangle, path: "/cashier/cancel-requests" },
       { name: "إنهاء الوردية", icon: LogOut, path: "/cashier/end-shift" },
-    ],
-    admin: [
-      { name: "لوحة التحكم", icon: Home, path: "/admin" },
-      { name: "طلبات الإلغاء", icon: ShoppingCart, path: "/admin/cancel-requests" },
-      { name: "موافقات الورديات", icon: Users, path: "/admin/shift-approvals", permission: ['OWNER_ACCESS', 'shift:approve'] },
-      { name: "إدارة المخزون", icon: Package, path: "/admin/inventory" },
-      { name: "التقرير اليومي", icon: BarChart, path: "/admin/daily-report" },
-      { name: "إدارة العاملين", icon: Users, path: "/admin/workers" },
     ],
     owner: [
       { name: "لوحة التحكم", icon: Home, path: "/owner" },
@@ -186,7 +178,7 @@ export function Sidebar({ role }: SidebarProps) {
             <div className="flex flex-col">
               <span className="text-sm font-medium">{currentUser.name}</span>
               <span className="text-xs text-muted-foreground capitalize">
-                {currentUser.role === "cashier" ? "كاشير" : currentUser.role === "admin" ? "مدير" : "مالك"}
+                {currentUser.role === "cashier" ? "كاشير" : "مالك"}
               </span>
             </div>
           )}

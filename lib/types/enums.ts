@@ -32,7 +32,6 @@ export enum CancelRequestStatus {
 // to avoid conflicts - they use different backend values
 
 export enum UserRole {
-  ADMIN = 'admin',
   OWNER = 'owner',
   CASHIER = 'cashier',
   MANAGER = 'manager'

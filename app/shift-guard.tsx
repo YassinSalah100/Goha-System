@@ -10,7 +10,7 @@ const API_BASE_URL = "http://20.77.41.130:3000/api/v1"
 
 interface ShiftGuardProps {
   children: React.ReactNode
-  requiredRole?: "cashier" | "admin" | "owner"
+  requiredRole?: "cashier" | "owner"
   requireActiveShift?: boolean
   requiredPermission?: string | string[]
 }

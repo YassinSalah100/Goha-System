@@ -47,7 +47,7 @@ export interface LoginFormData {
   username: string
   password: string
   shift: 'morning' | 'evening'
-  selectedRole: 'owner' | 'admin' | 'cashier'
+  selectedRole: 'owner' | 'cashier'
   rememberMe: boolean
 }
 
@@ -58,7 +58,7 @@ export interface CurrentUser {
   fullName?: string // Add optional fullName field for compatibility
   username: string
   name: string // alias for compatibility
-  role: 'owner' | 'admin' | 'cashier'
+  role: 'owner' | 'cashier'
   permissions?: string[] // Add permissions field
   shift?: {
     shift_id: string
