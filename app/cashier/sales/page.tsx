@@ -814,6 +814,31 @@ export default function SalesPage() {
     return Math.min(...product.sizePrices.map((sp) => Number.parseFloat(sp.price)))
   }
 
+  // Function to sort Arabic sizes properly (صغير → وسط → كبير)
+  const sortArabicSizes = (sizePrices: SizePrice[]) => {
+    const sizeOrder = {
+      'صغير': 1,
+      'وسط': 2,
+      'كبير': 3
+    }
+    
+    return [...sizePrices].sort((a, b) => {
+      const sizeA = a.size.size_name.trim()
+      const sizeB = b.size.size_name.trim()
+      
+      // Get order values, default to 999 for unknown sizes (puts them at the end)
+      const orderA = sizeOrder[sizeA as keyof typeof sizeOrder] || 999
+      const orderB = sizeOrder[sizeB as keyof typeof sizeOrder] || 999
+      
+      // If both have the same order value, sort alphabetically
+      if (orderA === orderB) {
+        return sizeA.localeCompare(sizeB, 'ar')
+      }
+      
+      return orderA - orderB
+    })
+  }
+
   // Add a single print ref for both receipts
   const bothReceiptsRef = useRef<HTMLDivElement>(null)
   const handlePrintBothReceipts = useReactToPrint({
@@ -1003,7 +1028,7 @@ export default function SalesPage() {
                               <div className="mt-2">
                                 <div className="text-xs text-gray-500 mb-1">الأحجام المتاحة:</div>
                                 <div className="flex flex-wrap gap-1">
-                                  {item.sizePrices.slice(0, 3).map((sizePrice) => (
+                                  {sortArabicSizes(item.sizePrices).slice(0, 3).map((sizePrice) => (
                                     <span
                                       key={sizePrice.product_size_id}
                                       className="text-[10px] bg-gray-100 text-gray-600 px-1 py-0.5 rounded"
@@ -1174,27 +1199,6 @@ export default function SalesPage() {
                     />
                   </div>
                 )}
-                {/* Debug buttons */}
-                <div className="flex gap-2 mt-2">
-                  <Button
-                    type="button"
-                    size="sm"
-                    variant="outline"
-                    onClick={debugSavedOrders}
-                    className="text-xs bg-transparent"
-                  >
-                    Debug Orders
-                  </Button>
-                  <Button
-                    type="button"
-                    size="sm"
-                    variant="outline"
-                    onClick={cleanupDuplicateOrders}
-                    className="text-xs bg-red-50 text-red-600"
-                  >
-                    Clean Duplicates
-                  </Button>
-                </div>
               </div>
             </div>
           )}
@@ -1754,7 +1758,7 @@ export default function SalesPage() {
                   <div>
                     <label className="text-sm font-medium mb-1 block">الحجم</label>
                     <div className="grid grid-cols-1 gap-2">
-                      {currentItem.sizePrices.map((sizePrice) => (
+                      {sortArabicSizes(currentItem.sizePrices).map((sizePrice) => (
                         <Button
                           key={sizePrice.product_size_id}
                           variant={itemSizeId === sizePrice.size.size_id ? "default" : "outline"}

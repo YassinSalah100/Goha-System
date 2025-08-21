@@ -12,8 +12,6 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { Loader2, CheckCircle, AlertCircle, Plus, Edit, Trash2, Search, Package, Tag, Ruler, DollarSign, BarChart3, Filter, TrendingUp, X } from 'lucide-react'
 
-const API_BASE_URL = "http://20.77.41.130:3000/api/v1"
-
 interface Category {
   id: string
   name: string
@@ -166,6 +164,31 @@ export default function IntegratedProductManagement() {
       totalSizes: Array.isArray(sizes) ? sizes.length : 0,
       totalExtras: Array.isArray(extras) ? extras.length : 0,
       totalRevenue,
+    })
+  }
+
+  // Function to sort Arabic sizes properly (صغير → وسط → كبير)
+  const sortArabicSizes = (sizePrices: any[]) => {
+    const sizeOrder = {
+      'صغير': 1,
+      'وسط': 2,
+      'كبير': 3
+    }
+    
+    return [...sizePrices].sort((a, b) => {
+      const sizeA = (a.size?.size_name || '').trim()
+      const sizeB = (b.size?.size_name || '').trim()
+      
+      // Get order values, default to 999 for unknown sizes (puts them at the end)
+      const orderA = sizeOrder[sizeA as keyof typeof sizeOrder] || 999
+      const orderB = sizeOrder[sizeB as keyof typeof sizeOrder] || 999
+      
+      // If both have the same order value, sort alphabetically
+      if (orderA === orderB) {
+        return sizeA.localeCompare(sizeB, 'ar')
+      }
+      
+      return orderA - orderB
     })
   }
 
@@ -971,16 +994,13 @@ const removeImage = () => {
       // Step 1: Delete all product-size-prices for all sizes in this category
       for (const size of categorySizes) {
         try {
-          const productSizePricesResponse = await fetch(`${API_BASE_URL}/product-size-prices?size_id=${size.id}`)
-          if (productSizePricesResponse.ok) {
-            const pricingData = await productSizePricesResponse.json()
-            const pricingArray = Array.isArray(pricingData) ? pricingData : pricingData.data || []
-            // Delete each pricing record
-            for (const pricing of pricingArray) {
-              await fetch(`${API_BASE_URL}/product-size-prices/${pricing.id || pricing.product_size_id}`, {
-                method: "DELETE",
-              })
-            }
+          const pricingData = await AuthApiService.apiRequest<any>(`/product-size-prices?size_id=${size.id}`)
+          const pricingArray = Array.isArray(pricingData) ? pricingData : pricingData.data || []
+          // Delete each pricing record
+          for (const pricing of pricingArray) {
+            await AuthApiService.apiRequest<any>(`/product-size-prices/${pricing.id || pricing.product_size_id}`, {
+              method: 'DELETE'
+            })
           }
         } catch (error) {
           console.warn("Error deleting product size prices for size:", size.id, error)
@@ -990,16 +1010,13 @@ const removeImage = () => {
       // Step 2: Delete all product-size-prices for products in this category
       for (const product of categoryProducts) {
         try {
-          const productSizePricesResponse = await fetch(`${API_BASE_URL}/product-size-prices?product_id=${product.id}`)
-          if (productSizePricesResponse.ok) {
-            const pricingData = await productSizePricesResponse.json()
-            const pricingArray = Array.isArray(pricingData) ? pricingData : pricingData.data || []
-            // Delete each pricing record
-            for (const pricing of pricingArray) {
-              await fetch(`${API_BASE_URL}/product-size-prices/${pricing.id || pricing.product_size_id}`, {
-                method: "DELETE",
-              })
-            }
+          const pricingData = await AuthApiService.apiRequest<any>(`/product-size-prices?product_id=${product.id}`)
+          const pricingArray = Array.isArray(pricingData) ? pricingData : pricingData.data || []
+          // Delete each pricing record
+          for (const pricing of pricingArray) {
+            await AuthApiService.apiRequest<any>(`/product-size-prices/${pricing.id || pricing.product_size_id}`, {
+              method: 'DELETE'
+            })
           }
         } catch (error) {
           console.warn("Error deleting product size prices for product:", product.id, error)
@@ -1009,68 +1026,43 @@ const removeImage = () => {
       // Step 3: Delete all products in this category
       for (const product of categoryProducts) {
         try {
-          const productResponse = await fetch(`${API_BASE_URL}/products/${product.id}`, {
-            method: "DELETE",
+          await AuthApiService.apiRequest<any>(`/products/${product.id}`, {
+            method: 'DELETE'
           })
-          if (!productResponse.ok) {
-            console.warn(`Failed to delete product ${product.id}:`, await productResponse.text())
-          }
         } catch (error) {
-          console.warn("Error deleting product:", error)
+          console.warn("Error deleting product:", product.id, error)
         }
       }
 
       // Step 4: Delete all sizes in this category
       for (const size of categorySizes) {
         try {
-          const sizeResponse = await fetch(`${API_BASE_URL}/category-sizes/${size.id}`, {
-            method: "DELETE",
+          await AuthApiService.apiRequest<any>(`/category-sizes/${size.id}`, {
+            method: 'DELETE'
           })
-          if (!sizeResponse.ok) {
-            console.warn(`Failed to delete size ${size.id}:`, await sizeResponse.text())
-          }
         } catch (error) {
-          console.warn("Error deleting size:", error)
+          console.warn("Error deleting size:", size.id, error)
         }
       }
 
       // Step 5: Delete all extras in this category
       for (const extra of categoryExtras) {
         try {
-          const extraResponse = await fetch(`${API_BASE_URL}/category-extras/${extra.id}`, {
-            method: "DELETE",
+          await AuthApiService.apiRequest<any>(`/category-extras/${extra.id}`, {
+            method: 'DELETE'
           })
-          if (!extraResponse.ok) {
-            console.warn(`Failed to delete extra ${extra.id}:`, await extraResponse.text())
-          }
         } catch (error) {
-          console.warn("Error deleting extra:", error)
+          console.warn("Error deleting extra:", extra.id, error)
         }
       }
 
       // Step 6: Finally delete the category
-      const response = await fetch(`${API_BASE_URL}/categories/${id}`, {
-        method: "DELETE",
+      await AuthApiService.apiRequest<any>(`/categories/${id}`, {
+        method: 'DELETE'
       })
 
-      if (response.ok) {
-        showMessage("success", "تم حذف الفئة وجميع البيانات المرتبطة بها بنجاح")
-        await fetchAllData()
-      } else {
-        const errorText = await response.text()
-        console.error("Category delete failed:", response.status, errorText)
-        // Try to parse error message
-        let errorMessage = `خطأ في حذف الفئة: ${response.status}`
-        try {
-          const errorData = JSON.parse(errorText)
-          if (errorData.message) {
-            errorMessage = errorData.message
-          }
-        } catch (e) {
-          // Use default message
-        }
-        showMessage("error", errorMessage)
-      }
+      showMessage("success", "تم حذف الفئة وجميع البيانات المرتبطة بها بنجاح")
+      await fetchAllData()
     } catch (error) {
       console.error("Error deleting category:", error)
       showMessage("error", "خطأ في الاتصال أثناء حذف الفئة")
@@ -1088,34 +1080,25 @@ const removeImage = () => {
       console.log("Deleting product and related pricing:", id)
       // Step 1: Delete all product-size-prices for this product
       try {
-        const productSizePricesResponse = await fetch(`${API_BASE_URL}/product-size-prices?product_id=${id}`)
-        if (productSizePricesResponse.ok) {
-          const pricingData = await productSizePricesResponse.json()
-          const pricingArray = Array.isArray(pricingData) ? pricingData : pricingData.data || []
-          // Delete each pricing record
-          for (const pricing of pricingArray) {
-            await fetch(`${API_BASE_URL}/product-size-prices/${pricing.id || pricing.product_size_id}`, {
-              method: "DELETE",
-            })
-          }
+        const pricingData = await AuthApiService.apiRequest<any>(`/product-size-prices?product_id=${id}`)
+        const pricingArray = Array.isArray(pricingData) ? pricingData : pricingData.data || []
+        // Delete each pricing record
+        for (const pricing of pricingArray) {
+          await AuthApiService.apiRequest<any>(`/product-size-prices/${pricing.id || pricing.product_size_id}`, {
+            method: 'DELETE'
+          })
         }
       } catch (error) {
         console.warn("Error deleting product size prices:", error)
       }
 
       // Step 2: Delete the product
-      const response = await fetch(`${API_BASE_URL}/products/${id}`, {
-        method: "DELETE",
+      await AuthApiService.apiRequest<any>(`/products/${id}`, {
+        method: 'DELETE'
       })
 
-      if (response.ok) {
-        showMessage("success", "تم حذف المنتج بنجاح")
-        await fetchAllData()
-      } else {
-        const errorText = await response.text()
-        console.error("Product delete failed:", response.status, errorText)
-        showMessage("error", `خطأ في حذف المنتج: ${response.status}`)
-      }
+      showMessage("success", "تم حذف المنتج بنجاح")
+      await fetchAllData()
     } catch (error) {
       console.error("Error deleting product:", error)
       showMessage("error", "خطأ في الاتصال")
@@ -1536,7 +1519,7 @@ const removeImage = () => {
                           <TableCell>
                             <div className="flex flex-wrap gap-1">
                               {product.sizePrices && product.sizePrices.length > 0 ? (
-                                product.sizePrices.map((sp: any, index: number) => (
+                                sortArabicSizes(product.sizePrices).map((sp: any, index: number) => (
                                   <Badge key={index} variant="secondary" className="text-xs">
                                     {sp.size?.size_name || "غير محدد"}: {sp.price}ج.م
                                   </Badge>

@@ -218,8 +218,44 @@ export class AuthApiService {
     }
 
     console.log(`Making request to: ${url}`)
+    console.log(`🔐 Authorization headers:`, config.headers?.['Authorization'] ? 'Bearer token present' : 'No auth token')
+    
+    // Debug token payload for critical endpoints
+    if (endpoint.includes('cancelled-orders') || endpoint.includes('orders') || endpoint.includes('products')) {
+      const token = this.getAuthToken()
+      if (token) {
+        try {
+          const payload = JSON.parse(atob(token.split('.')[1]))
+          console.log(`🎯 Token payload for ${endpoint}:`, {
+            userId: payload.id || payload.user_id || payload.sub,
+            role: payload.role,
+            permissions: payload.permissions || payload.scopes || 'Not found in token',
+            exp: new Date(payload.exp * 1000).toISOString()
+          })
+        } catch (e) {
+          console.log(`⚠️ Could not decode token for debugging:`, e)
+        }
+      } else {
+        console.log(`❌ No token found for ${endpoint}`)
+      }
+    }
+    
     if (config.method !== "GET" && config.body && typeof config.body === "string") {
-      console.log(`Request body for ${endpoint}:`, JSON.parse(config.body))
+      console.log(`📤 Request body for ${endpoint}:`, JSON.parse(config.body))
+    }
+    
+    // Check if token is expired
+    const token = this.getAuthToken()
+    if (token) {
+      try {
+        const payload = JSON.parse(atob(token.split('.')[1]))
+        const now = Math.floor(Date.now() / 1000)
+        if (payload.exp < now) {
+          console.log(`⚠️ TOKEN EXPIRED! Exp: ${new Date(payload.exp * 1000).toISOString()}, Now: ${new Date().toISOString()}`)
+        }
+      } catch (e) {
+        console.log(`⚠️ Could not check token expiration:`, e)
+      }
     }
 
     try {
@@ -513,20 +549,47 @@ export class AuthApiService {
    */
   static getUserPermissions(): string[] {
     const user = this.getCurrentUser()
-    if (!user) return []
+    if (!user) {
+      console.log(`⚠️ getUserPermissions: No user found`)
+      return []
+    }
+
+    console.log(`🔍 getUserPermissions: Raw user data:`, {
+      id: user.user_id || user.id,
+      role: user.role,
+      permissions: user.permissions,
+      fullUserObject: user
+    })
 
     const permissions: string[] = this.normalizePermissions(
       Array.isArray(user.permissions) ? [...user.permissions] : [],
     )
 
+    console.log(`🔍 getUserPermissions: After normalization:`, permissions)
+
     // Add role-based permissions
     if (user.role === "owner" && !permissions.includes("OWNER_ACCESS")) {
       permissions.push("OWNER_ACCESS")
+      console.log(`✅ Added OWNER_ACCESS for owner role`)
     }
 
-    if (user.role === "cashier" && !permissions.includes("access:cashier")) {
-      permissions.push("access:cashier")
+    if (user.role === "cashier") {
+      // Add all cashier permissions from PERMISSION_GROUPS.CASHIER
+      const cashierPermissions = [
+        PERMISSIONS.CASHIER_ACCESS,      // "access:cashier"
+        PERMISSIONS.ORDERS_ACCESS,       // "access:orders"
+        PERMISSIONS.EXTERNAL_RECEIPTS    // "external:receipts"
+      ]
+      
+      cashierPermissions.forEach(perm => {
+        if (!permissions.includes(perm)) {
+          permissions.push(perm)
+          console.log(`✅ Added ${perm} for cashier role`)
+        }
+      })
     }
+
+    console.log(`🎯 getUserPermissions: Final permissions:`, permissions)
 
     return permissions
   }
@@ -542,16 +605,23 @@ export class AuthApiService {
 
     const permissions = this.getUserPermissions()
     if (permissions.length === 0) {
+      console.log(`⚠️ hasPermission: No permissions found for user`)
       return false
     }
 
     if (Array.isArray(permission)) {
       // Check if user has any of the permissions
-      return permission.some((p) => permissions.includes(p))
+      const hasAny = permission.some((p) => permissions.includes(p))
+      console.log(`🔍 hasPermission check (OR): ${permission.join(' OR ')} -> ${hasAny}`)
+      console.log(`🔍 User permissions:`, permissions)
+      return hasAny
     }
 
     // Check single permission
-    return permissions.includes(permission)
+    const hasSingle = permissions.includes(permission)
+    console.log(`🔍 hasPermission check (single): ${permission} -> ${hasSingle}`)
+    console.log(`🔍 User permissions:`, permissions)
+    return hasSingle
   }
 
   /**
@@ -622,19 +692,19 @@ export class AuthApiService {
     }
     switch (feature) {
       case "orders":
-        return this.hasPermission(["access:cashier", "orders:access"])
+        return this.hasPermission([PERMISSIONS.CASHIER_ACCESS, PERMISSIONS.ORDERS_ACCESS])
       case "shifts":
-        return this.hasPermission(["access:cashier", "shift:approve"])
+        return this.hasPermission([PERMISSIONS.CASHIER_ACCESS, PERMISSIONS.SHIFT_APPROVE])
       case "expenses":
-        return this.hasPermission(["access:cashier", "expenses:access"])
+        return this.hasPermission([PERMISSIONS.CASHIER_ACCESS, PERMISSIONS.EXPENSES_ACCESS])
       case "stock":
-        return this.hasPermission(["access:stock"])
+        return this.hasPermission([PERMISSIONS.STOCK_ACCESS])
       case "cancelled-orders":
-        return this.hasPermission(["orders:cancelled"])
+        return this.hasPermission([PERMISSIONS.ORDERS_CANCELLED, PERMISSIONS.CASHIER_ACCESS, PERMISSIONS.ORDERS_ACCESS])
       case "external-receipts":
-        return this.hasPermission(["access:cashier"])
+        return this.hasPermission([PERMISSIONS.CASHIER_ACCESS])
       case "shift-workers":
-        return this.hasPermission(["access:cashier", "shift:workers"])
+        return this.hasPermission([PERMISSIONS.CASHIER_ACCESS, PERMISSIONS.SHIFT_WORKERS])
       default:
         return false
     }

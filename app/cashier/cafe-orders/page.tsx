@@ -953,6 +953,31 @@ export default function CafeOrdersPage() {
     return Math.min(...product.sizePrices.map((sp) => Number.parseFloat(sp.price)))
   }
 
+  // Function to sort Arabic sizes properly (صغير → وسط → كبير)
+  const sortArabicSizes = (sizePrices: SizePrice[]) => {
+    const sizeOrder = {
+      'صغير': 1,
+      'وسط': 2,
+      'كبير': 3
+    }
+    
+    return [...sizePrices].sort((a, b) => {
+      const sizeA = a.size.size_name.trim()
+      const sizeB = b.size.size_name.trim()
+      
+      // Get order values, default to 999 for unknown sizes (puts them at the end)
+      const orderA = sizeOrder[sizeA as keyof typeof sizeOrder] || 999
+      const orderB = sizeOrder[sizeB as keyof typeof sizeOrder] || 999
+      
+      // If both have the same order value, sort alphabetically
+      if (orderA === orderB) {
+        return sizeA.localeCompare(sizeB, 'ar')
+      }
+      
+      return orderA - orderB
+    })
+  }
+
   const getShiftDisplayName = (shiftId: string) => {
     if (shiftId && shiftId.length > 20) {
       const user = JSON.parse(localStorage.getItem("currentUser") || "{}")
@@ -1135,7 +1160,7 @@ export default function CafeOrdersPage() {
                                 <div className="mt-2">
                                   <div className="text-xs text-gray-500 mb-1">الأحجام المتاحة:</div>
                                   <div className="flex flex-wrap gap-1">
-                                    {item.sizePrices.slice(0, 3).map((sizePrice) => (
+                                    {sortArabicSizes(item.sizePrices).slice(0, 3).map((sizePrice) => (
                                       <span
                                         key={sizePrice.product_size_id}
                                         className="text-[10px] bg-gray-100 text-gray-600 px-1 py-0.5 rounded"
@@ -1176,7 +1201,7 @@ export default function CafeOrdersPage() {
                                   <div className="mt-2">
                                     <div className="text-xs text-gray-500 mb-1">الأحجام المتاحة:</div>
                                     <div className="flex flex-wrap gap-1">
-                                      {item.sizePrices.slice(0, 3).map((sizePrice) => (
+                                      {sortArabicSizes(item.sizePrices).slice(0, 3).map((sizePrice) => (
                                         <span
                                           key={sizePrice.product_size_id}
                                           className="text-[10px] bg-gray-100 text-gray-600 px-1 py-0.5 rounded"
@@ -1602,7 +1627,7 @@ export default function CafeOrdersPage() {
                   <div>
                     <label className="block text-sm font-medium mb-2">اختر الحجم:</label>
                     <div className="grid grid-cols-2 gap-2">
-                      {currentItem.sizePrices.map((sizePrice) => (
+                      {sortArabicSizes(currentItem.sizePrices).map((sizePrice) => (
                         <Button
                           key={sizePrice.product_size_id}
                           variant={itemSizeId === sizePrice.product_size_id ? "default" : "outline"}

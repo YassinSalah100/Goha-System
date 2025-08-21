@@ -18,7 +18,8 @@ import {
   Package,
   AlertCircle,
   ShoppingCart,
-  FileText
+  FileText,
+  ShoppingBag
 } from "lucide-react"
 import { AuthApiService } from "@/lib/services/auth-api"
 import { OrderStatus, CancelRequestStatus } from "@/lib/types/enums"
@@ -189,8 +190,7 @@ export default function CancelRequestsPage() {
         {
           method: "POST",
           body: JSON.stringify({
-            approved_by: approvedBy,
-            status: "approved"
+            approved_by: approvedBy
           })
         }
       )
@@ -233,21 +233,53 @@ export default function CancelRequestsPage() {
       
       console.log(`❌ Rejecting cancel request: ${request.cancelled_order_id}`)
       
-      // For now, we'll just update the status locally since there's no reject endpoint shown
-      // You may need to add a reject endpoint to your backend
+      // Call the reject endpoint
+      const result = await AuthApiService.apiRequest<any>(
+        `/cancelled-orders/${request.cancelled_order_id}/reject`,
+        {
+          method: "POST",
+          body: JSON.stringify({
+            approved_by: rejectedBy,
+            rejection_reason: "Order cancellation rejected by owner"
+          })
+        }
+      )
       
-      // Update local state
-      setCancelRequests(prev => prev.map(req => 
-        req.cancelled_order_id === request.cancelled_order_id 
-          ? { ...req, status: CancelRequestStatus.REJECTED }
-          : req
-      ))
-      
-      // Update counts
-      setPendingCount(prev => prev - 1)
-      setRejectedCount(prev => prev + 1)
-      
-      console.log(`✅ Cancel request rejected successfully`)
+      if (result.success) {
+        // Update local state - order should be active again
+        setCancelRequests(prev => prev.map(req => 
+          req.cancelled_order_id === request.cancelled_order_id 
+            ? { 
+                ...req, 
+                status: CancelRequestStatus.REJECTED,
+                order: {
+                  ...req.order,
+                  status: OrderStatus.ACTIVE // Order becomes active again
+                }
+              }
+            : req
+        ))
+        
+        // Update counts
+        setPendingCount(prev => prev - 1)
+        setRejectedCount(prev => prev + 1)
+        
+        console.log(`✅ Cancel request rejected successfully - Order is now active again`)
+        
+        // Dispatch event to notify cashier page about rejection
+        window.dispatchEvent(new CustomEvent("orderCancellationRejected", {
+          detail: { orderId: request.order.order_id }
+        }))
+        
+        // Show success message
+        alert(`✅ تم رفض طلب الإلغاء بنجاح. الطلب #${request.order.order_id.slice(-6)} أصبح نشطاً مرة أخرى.`)
+        
+        // Refresh data to get latest status
+        setTimeout(fetchCancelRequests, 1000)
+        
+      } else {
+        throw new Error(result.message || "فشل في رفض طلب الإلغاء")
+      }
       
     } catch (error: any) {
       console.error("❌ Error rejecting request:", error)
@@ -445,28 +477,61 @@ export default function CancelRequestsPage() {
                         </div>
                       </div>
 
-                      {/* Order Items */}
+                      {/* Order Items - Enhanced Display */}
                       {request.order_items && request.order_items.length > 0 && (
-                        <div>
-                          <h4 className="font-medium mb-2">عناصر الطلب ({request.order_items.length}):</h4>
-                          <div className="space-y-2">
+                        <div className="space-y-3">
+                          <div className="flex items-center gap-2 text-sm font-medium text-gray-700">
+                            <ShoppingBag className="h-4 w-4" />
+                            عناصر الطلب ({request.order_items.length})
+                          </div>
+                          
+                          <div className="grid gap-3">
                             {request.order_items.map((item, index) => (
-                              <div key={item.order_item_id || index} className="flex justify-between items-center p-2 bg-gray-50 rounded">
-                                <div>
-                                  <p className="font-medium">{item.product_size?.product_name}</p>
-                                  {item.product_size?.size_name && (
-                                    <p className="text-xs text-gray-500">الحجم: {item.product_size.size_name}</p>
-                                  )}
-                                  {item.extras && item.extras.length > 0 && (
-                                    <p className="text-xs text-blue-600">
-                                      إضافات: {item.extras.map(extra => extra.name).join(', ')}
-                                    </p>
-                                  )}
+                              <div key={item.order_item_id || index} className="bg-gray-50 rounded-lg p-4 border">
+                                <div className="flex justify-between items-start mb-3">
+                                  <div className="flex-1">
+                                    <h5 className="font-medium text-gray-900 mb-1">
+                                      {item.product_size?.product_name || 'منتج غير محدد'}
+                                    </h5>
+                                    <div className="flex flex-wrap gap-2 text-sm text-gray-600">
+                                      {item.product_size?.size_name && (
+                                        <span className="bg-blue-100 px-2 py-1 rounded">
+                                          {item.product_size.size_name}
+                                        </span>
+                                      )}
+                                      {item.extras && item.extras.length > 0 && (
+                                        <span className="bg-green-100 px-2 py-1 rounded">
+                                          +{item.extras.length} إضافات
+                                        </span>
+                                      )}
+                                    </div>
+                                  </div>
+                                  <div className="text-left">
+                                    <div className="text-lg font-bold text-green-600">
+                                      {formatPrice(item.quantity * item.unit_price)}
+                                    </div>
+                                    <div className="text-sm text-gray-500">
+                                      {item.quantity} × {formatPrice(item.unit_price)}
+                                    </div>
+                                  </div>
                                 </div>
-                                <div className="text-left">
-                                  <p className="font-medium">{item.quantity} × {formatPrice(item.unit_price)}</p>
-                                  <p className="text-xs text-gray-500">{formatPrice(item.quantity * item.unit_price)}</p>
-                                </div>
+                                
+                                {/* Extras Details */}
+                                {item.extras && item.extras.length > 0 && (
+                                  <div className="mt-3 pt-3 border-t border-gray-200">
+                                    <div className="text-sm font-medium text-gray-700 mb-2">الإضافات:</div>
+                                    <div className="grid gap-1">
+                                      {item.extras.map((extra, idx) => (
+                                        <div key={idx} className="flex justify-between items-center text-sm">
+                                          <span className="text-gray-600">+ {extra.name}</span>
+                                          <span className="text-gray-800 font-medium">
+                                            {extra.price ? formatPrice(extra.price) : 'مجاني'}
+                                          </span>
+                                        </div>
+                                      ))}
+                                    </div>
+                                  </div>
+                                )}
                               </div>
                             ))}
                           </div>
