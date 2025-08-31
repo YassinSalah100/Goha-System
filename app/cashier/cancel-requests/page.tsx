@@ -9,7 +9,7 @@ import { CheckCircle, XCircle, Clock, AlertTriangle, RefreshCw, Loader2 } from "
 import { AuthApiService } from "@/lib/services/auth-api"
 import { motion } from "framer-motion"
 
-const API_BASE_URL = "http://20.77.41.130:3000/api/v1"
+const API_BASE_URL = "http://20.117.240.138:3000/api/v1"
 
 interface CancelRequest {
   cancelled_order_id: string

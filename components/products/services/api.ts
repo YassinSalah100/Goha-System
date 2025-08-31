@@ -1,6 +1,6 @@
 import { Product, Category, CategorySize, Extra, ProductSubmissionData, ApiResponse } from '../types'
 
-const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:3002/api"
+const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL || "http://20.117.240.138:3000/api/v1"
 
 // Categories API
 export const fetchCategories = async (): Promise<Category[]> => {

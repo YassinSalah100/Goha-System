@@ -6,7 +6,7 @@ import { useRouter } from "next/navigation"
 import { toast } from "sonner"
 import { AuthApiService } from "@/lib/services/auth-api"
 
-const API_BASE_URL = "http://20.77.41.130:3000/api/v1"
+const API_BASE_URL = "http://20.117.240.138:3000/api/v1"
 
 interface ShiftGuardProps {
   children: React.ReactNode

@@ -30,7 +30,7 @@ import {
 import { motion, AnimatePresence } from "framer-motion"
 import { useToast } from "@/hooks/use-toast"
 
-const API_BASE_URL = "http://20.77.41.130:3000/api/v1"
+const API_BASE_URL = "http://20.117.240.138:3000/api/v1"
 
 // Stock Reports Interfaces
 interface StockReportItem {
