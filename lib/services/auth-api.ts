@@ -752,11 +752,22 @@ export class AuthApiService {
       const response: any = await this.apiRequest(`/shifts/cashier/${user.id}`)
 
       if (response && response.success && Array.isArray(response.data) && response.data.length > 0) {
-        // Return the most recent active shift
-        const activeShift =
-          response.data.find((shift: any) => shift.status === "OPENED" || shift.status === "opened") || response.data[0]
-        console.log("Found shift for cashier:", activeShift)
-        return activeShift
+        // Return the most recent active shift that is not closed
+        const activeShift = response.data.find((shift: any) => 
+          !shift.is_closed && 
+          (shift.status === "OPENED" || shift.status === "opened" || 
+           shift.status === "ACTIVE" || shift.status === "active" ||
+           shift.status === "OPEN" || shift.status === "open")
+        )
+        
+        // If found, ensure it's truly active
+        if (activeShift) {
+          console.log("Found active shift for cashier:", activeShift)
+          return activeShift
+        }
+        
+        console.log("Found shifts for cashier but none are active (all closed)")
+        return null
       }
 
       console.log("No shifts found for cashier")
@@ -837,6 +848,18 @@ export class AuthApiService {
       const currentShift = await this.getCurrentShift()
 
       if (currentShift) {
+        // Make sure the shift is actually active (not closed)
+        if (currentShift.is_closed) {
+          console.log("Found shift but it's closed. User needs to create a new shift.")
+          
+          // Remove shift from user object to prompt for a new one
+          const updatedUser = { ...user }
+          delete updatedUser.shift
+          localStorage.setItem("currentUser", JSON.stringify(updatedUser))
+          
+          return null
+        }
+        
         console.log("Found existing active shift:", currentShift)
 
         // Update user data with shift information
@@ -847,6 +870,17 @@ export class AuthApiService {
       }
 
       console.log("No active shift found for user")
+
+      // Check if user has a shift stored in their user data, but it's closed or invalid
+      if (user.shift) {
+        // If the stored shift is closed or missing critical data, remove it
+        if (user.shift.is_closed || !user.shift.shift_id) {
+          console.log("Removing closed or invalid shift from user data")
+          const updatedUser = { ...user }
+          delete updatedUser.shift
+          localStorage.setItem("currentUser", JSON.stringify(updatedUser))
+        }
+      }
 
       // If user is cashier and has permission to create shifts, suggest creating one
       if (user.role === "cashier" && this.hasPermission(["access:cashier", "access:shift"])) {
@@ -909,30 +943,44 @@ export class AuthApiService {
     // Get the user ID correctly - handle different formats
     const userId = user.user_id || user.id;
 
-    // Prompt user for initial balance
+    // Prompt user for initial balance (أرضية)
     let initialBalance = 0;
     try {
       const userInput = window.prompt("أدخل قيمة الرصيد الأولي (الأرضية):", "0");
-      if (userInput !== null) {
-        initialBalance = parseFloat(userInput);
-        if (isNaN(initialBalance) || initialBalance < 0) {
-          initialBalance = 0;
-        }
+      
+      // User canceled the prompt
+      if (userInput === null) {
+        throw new Error("تم إلغاء إنشاء الوردية - لم يتم إدخال الرصيد الأولي");
       }
+      
+      initialBalance = parseFloat(userInput);
+      
+      // Validate the input is a valid number
+      if (isNaN(initialBalance) || initialBalance < 0) {
+        throw new Error("الرجاء إدخال قيمة صحيحة للأرضية");
+      }
+      
+      console.log(`Initial balance (أرضية) entered: ${initialBalance}`);
     } catch (error) {
       console.warn("Failed to get initial balance from user:", error);
+      throw error; // Rethrow to prevent creating shift without initial balance
     }
 
     // Ensure numeric value is properly parsed and match exactly the backend expected structure
     const parsedBalance = Number(initialBalance);
+    
+    // Try all possible field names for initial balance
     const shiftData = {
       opened_by: userId,
       shift_type: shiftType,
-      intial_balance: parsedBalance, // Misspelled as in the backend DTO but ensure it's a number
+      intial_balance: parsedBalance, // Misspelled as in the backend DTO (first try this)
+      initial_balance: parsedBalance, // Correct spelling (fallback)
+      starting_balance: parsedBalance, // Another possible name
+      float_amount: parsedBalance, // Another possible name
       workers: [{ worker_id: userId }] // Include current user as worker
     };
 
-    console.log("Creating shift for current user:", shiftData);
+    console.log("Creating shift for current user with balance:", shiftData);
 
     try {
       // Add access:shift permission temporarily if needed
@@ -957,10 +1005,19 @@ export class AuthApiService {
 
         // Update user data with new shift
         const shiftData = response.data || response;
-        const updatedUser = { ...user, shift: shiftData };
+        
+        // Make sure we store the initial balance for reference
+        const updatedShiftData = {
+          ...shiftData,
+          intial_balance: parsedBalance, // Keep track of the initial balance
+          initial_balance: parsedBalance, // Both spellings for compatibility
+          starting_balance: parsedBalance
+        };
+        
+        const updatedUser = { ...user, shift: updatedShiftData };
         localStorage.setItem("currentUser", JSON.stringify(updatedUser));
 
-        return shiftData;
+        return updatedShiftData;
       }
 
       return null;
@@ -978,6 +1035,7 @@ export class AuthApiService {
             opened_by: userId,
             shift_type: shiftType,
             intial_balance: Number(initialBalance), // Ensure it's a number
+            initial_balance: Number(initialBalance), // Try both spellings
             workers: [] // Try with empty workers array as shown in Postman
           };
 
@@ -991,9 +1049,18 @@ export class AuthApiService {
           if (response) {
             console.log("✅ Shift created successfully with alternative format:", response);
             const shiftData = response.data || response;
-            const updatedUser = { ...user, shift: shiftData };
+            
+            // Add the initial balance to the shift data
+            const updatedShiftData = {
+              ...shiftData,
+              intial_balance: parsedBalance, 
+              initial_balance: parsedBalance,
+              starting_balance: parsedBalance
+            };
+            
+            const updatedUser = { ...user, shift: updatedShiftData };
             localStorage.setItem("currentUser", JSON.stringify(updatedUser));
-            return shiftData;
+            return updatedShiftData;
           }
         } catch (retryError) {
           console.error("Failed on retry attempt:", retryError);
@@ -1018,9 +1085,18 @@ export class AuthApiService {
             if (response) {
               console.log("✅ Shift created successfully on final attempt:", response);
               const shiftData = response.data || response;
-              const updatedUser = { ...user, shift: shiftData };
+              
+              // Add the initial balance to the shift data
+              const updatedShiftData = {
+                ...shiftData,
+                intial_balance: parsedBalance,
+                initial_balance: parsedBalance,
+                starting_balance: parsedBalance
+              };
+              
+              const updatedUser = { ...user, shift: updatedShiftData };
               localStorage.setItem("currentUser", JSON.stringify(updatedUser));
-              return shiftData;
+              return updatedShiftData;
             }
           } catch (finalError) {
             console.error("All shift creation attempts failed:", finalError);

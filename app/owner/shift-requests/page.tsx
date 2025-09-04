@@ -62,6 +62,15 @@ export default function ShiftRequestsPage() {
       const result = await AuthApiService.apiRequest<any>(`/users/${cashierId}`)
       console.log(`📊 Cashier API response:`, result)
 
+      // Safeguard against null or undefined result
+      if (!result) {
+        console.warn(`⚠️ No result data returned for cashier ${cashierId}`)
+        return {
+          id: cashierId,
+          name: "غير محدد (بيانات غير متوفرة)",
+        }
+      }
+
       if (result && (result.id || result.user_id)) {
         const cashierInfo = {
           id: result.id || result.user_id,
@@ -72,10 +81,19 @@ export default function ShiftRequestsPage() {
         console.log(`✅ Cashier info processed:`, cashierInfo)
         return cashierInfo
       }
-      return null
+      
+      // Fallback if data structure is unexpected
+      return {
+        id: cashierId,
+        name: "غير محدد (تنسيق غير متوقع)",
+      }
     } catch (err) {
       console.warn(`❌ Failed to fetch cashier info for ${cashierId}:`, err)
-      return null
+      // Return a safe fallback instead of null
+      return {
+        id: cashierId,
+        name: "غير محدد (خطأ في جلب البيانات)",
+      }
     }
   }
 
@@ -199,7 +217,8 @@ export default function ShiftRequestsPage() {
       const result = await AuthApiService.apiRequest<any>(`/shifts/${shiftId}/approve-close`, {
         method: "PATCH",
         body: JSON.stringify({
-          approved_by_admin_id: adminId, // Send actual admin UUID instead of string
+          shift_id: shiftId,
+          approved_by_admin_id: adminId,
         }),
       })
 

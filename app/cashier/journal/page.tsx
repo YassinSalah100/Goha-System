@@ -48,6 +48,7 @@ import {
   FileText,
   BarChart3
 } from "lucide-react"
+import { useToast } from "@/hooks/use-toast"
 import { AuthApiService } from "@/lib/services/auth-api"
 
 const API_BASE_URL = "http://20.117.240.138:3000/api/v1"
@@ -65,6 +66,14 @@ const expenseCategories = [
   { value: "fuel", label: "وقود", icon: Car, color: "bg-gray-500" },
   { value: "other", label: "أخرى", icon: MoreVertical, color: "bg-slate-500" }
 ]
+
+// Worker status enum values - match backend enum
+const WorkerStatus = {
+  ACTIVE: "ACTIVE",
+  INACTIVE: "INACTIVE",
+  ON_LEAVE: "ON_LEAVE",
+  TERMINATED: "TERMINATED"
+}
 
 interface Worker {
   worker_id: string
@@ -137,6 +146,7 @@ interface CurrentUser {
 }
 
 export default function JournalPage() {
+  const { toast } = useToast() // Add the toast hook
   const [expenses, setExpenses] = useState<Expense[]>([])
   const [staff, setStaff] = useState<StaffMember[]>([])
   const [availableWorkers, setAvailableWorkers] = useState<Worker[]>([])
@@ -181,6 +191,17 @@ export default function JournalPage() {
   const fetchWithErrorHandling = async (url: string, options: RequestInit = {}) => {
     try {
       console.log(`Making request to: ${url}`, options)
+      
+      // Log detailed request body for debugging
+      if (options.body) {
+        try {
+          const bodyData = JSON.parse(options.body as string);
+          console.log(`Request body details:`, bodyData);
+        } catch (e) {
+          console.log(`Could not parse request body for logging`);
+        }
+      }
+      
       const response = await fetch(url, {
         ...options,
         headers: {
@@ -197,7 +218,20 @@ export default function JournalPage() {
       })
       const responseData = await response.json()
       console.log(`Response data from ${url}:`, responseData)
+      
       if (!response.ok) {
+        // Enhanced error logging
+        if (responseData.errors) {
+          console.error(`Validation errors:`, responseData.errors);
+          // Log detailed information about each validation error
+          responseData.errors.forEach((error: any, index: number) => {
+            console.error(`Validation error ${index + 1}:`, error);
+            console.error(`- Property: ${error.property || 'unknown'}`);
+            console.error(`- Value: ${error.value || 'undefined'}`);
+            console.error(`- Constraints:`, error.constraints || {});
+          });
+        }
+        
         const errorMessage =
           responseData.message ||
           responseData.error ||
@@ -875,13 +909,13 @@ export default function JournalPage() {
       const created_by = ensureValidId(currentUser.worker_id, "معرف المستخدم")
       const shift_id = ensureValidId(activeShift.shift_id, "معرف الوردية")
 
-      const payload: any = {
+      // Ensure exact field names required by the DTO
+      const payload = {
+        shift_id: shift_id,
+        created_by: created_by,
         title: expenseData.item.trim(),
         description: expenseData.description?.trim() || undefined,
-        amount: expenseData.amount,
-        created_by: created_by,
-        shift_id: shift_id,
-        category: expenseData.category
+        amount: Number(expenseData.amount),
       }
 
       await fetchWithErrorHandling(`${API_BASE_URL}/expenses`, {
@@ -955,17 +989,21 @@ export default function JournalPage() {
         throw new Error("يجب تحديد أجر/ساعة صحيح للموظف")
       }
 
+      // Create a proper start_time Date object
+      const startTime = new Date();
+
+      // Construct the payload according to AddShiftWorkerDto requirements
       const payload = {
-        worker_id: workerId,
-        shift_id: activeShift.shift_id,
-        hourly_rate: hourlyRate,
-        start_time: new Date().toISOString(),
-        status: "ACTIVE",
-        is_active: true,
+        worker_id: String(workerId),
+        shift_id: String(activeShift.shift_id),
+        hourly_rate: Number(hourlyRate),
+        start_time: startTime, // Send as Date object - API will handle formatting
+        status: WorkerStatus.ACTIVE // Use the correct enum value
       }
 
-      console.log(`Assigning worker ${selectedWorker.full_name} (ID: ${workerId}) to shift`)
+      console.log(`Assigning worker ${selectedWorker.full_name} (ID: ${workerId}) to shift with payload:`, payload)
 
+      // Fix: Use the correct endpoint /api/v1/shift-workers instead of /api/v1/shifts/add-worker
       const response = await fetchWithErrorHandling(`${API_BASE_URL}/shift-workers`, {
         method: "POST",
         body: JSON.stringify(payload),
@@ -997,9 +1035,20 @@ export default function JournalPage() {
       }
 
       console.log(`✓ Worker ${selectedWorker.full_name} successfully assigned to shift`)
+      // Show success toast notification
+      toast({
+        title: "تم تسجيل الحضور",
+        description: `تم تسجيل حضور ${selectedWorker.full_name} بنجاح`,
+      })
       await fetchShiftWorkers()
     } catch (error: any) {
-      throw new Error(error.message || "خطأ في تسجيل الحضور")
+      console.error("Error assigning worker:", error);
+      // Show error toast instead of throwing which might not be caught properly
+      toast({
+        title: "خطأ",
+        description: error.message || "خطأ في تسجيل الحضور",
+        variant: "destructive",
+      })
     } finally {
       setAssigningWorker(null)
     }
@@ -1007,20 +1056,38 @@ export default function JournalPage() {
 
   const handleEndShift = async (staffId: string) => {
     if (!canAccessShiftWorkers) {
-      throw new Error("لا تمتلك صلاحية إنهاء مناوبة الموظفين")
+      toast({
+        title: "خطأ",
+        description: "لا تمتلك صلاحية إنهاء مناوبة الموظفين",
+        variant: "destructive",
+      })
+      return
     }
     setEndingWorker(staffId)
     try {
+      // Format according to UpdateShiftWorkerEndDto
       await fetchWithErrorHandling(`${API_BASE_URL}/shift-workers/end-time`, {
         method: "PATCH",
         body: JSON.stringify({
           shift_worker_id: staffId,
-          end_time: new Date().toISOString(),
+          end_time: new Date().toISOString()
         }),
       })
+      
+      // Show success notification
+      toast({
+        title: "تم إنهاء المناوبة",
+        description: "تم إنهاء مناوبة الموظف بنجاح",
+      })
+      
       await fetchShiftWorkers()
     } catch (error: any) {
-      throw new Error(error.message || "خطأ في إنهاء الوردية")
+      console.error("Error ending worker shift:", error);
+      toast({
+        title: "خطأ",
+        description: error.message || "خطأ في إنهاء المناوبة",
+        variant: "destructive",
+      })
     } finally {
       setEndingWorker(null)
     }

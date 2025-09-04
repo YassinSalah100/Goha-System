@@ -304,10 +304,18 @@ export default function LoginPage() {
           activeShift = await AuthApiService.ensureActiveShift()
           
           if (activeShift) {
-            toast.success("وردية نشطة", { 
-              description: `تم العثور على وردية ${activeShift.shift_type || 'نشطة'}` 
-            })
-          } else {
+            // Make sure shift is actually active
+            if (activeShift.is_closed) {
+              console.log("Found shift but it's closed, need to create a new one")
+              activeShift = null
+            } else {
+              toast.success("وردية نشطة", { 
+                description: `تم العثور على وردية ${activeShift.shift_type || 'نشطة'}` 
+              })
+            }
+          }
+          
+          if (!activeShift) {
             // No active shift found - create one automatically for cashier
             console.log("No active shift found - creating new shift for cashier")
             activeShift = await AuthApiService.createShiftForCurrentUser()

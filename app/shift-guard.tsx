@@ -100,12 +100,16 @@ export default function ShiftGuard({
 
                 if (!activeShift) {
                   console.log("ShiftGuard: No active shift found in API")
+                  
+                  // Clear shift data from user object but keep the user logged in
+                  // This allows them to log in again and get a new shift with initial revenue
+                  const updatedUser = {...currentUser}
+                  delete updatedUser.shift
+                  localStorage.setItem("currentUser", JSON.stringify(updatedUser))
+                  
                   toast.error("انتهت جلسة الوردية الخاصة بك", {
-                    description: "يرجى تسجيل الدخول مرة أخرى",
+                    description: "يرجى تسجيل الدخول مرة أخرى لبدء وردية جديدة",
                   })
-
-                  // Clear session
-                  AuthApiService.clearAuthData()
 
                   router.push("/")
                   return
