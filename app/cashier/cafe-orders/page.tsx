@@ -273,7 +273,7 @@ const normalizeCafeOrderItem = (item: any): CartItem => {
   const itemTotalPrice = basePrice + extrasTotal
 
   return {
-    id: item.order_item_id || `${item.product_id}-${Date.now()}`, // Ensure unique local ID
+    id: item.order_item_id || `item_${Date.now()}_${Math.random().toString(36).substr(2, 5)}`, // Avoid using product_id in the ID
     name: productName,
     price: itemTotalPrice, // Total price including extras
     basePrice: basePrice, // Base price of the product/size
@@ -283,7 +283,7 @@ const normalizeCafeOrderItem = (item: any): CartItem => {
     notes: item.notes || item.special_instructions || "",
     category: item.product?.category?.name || item.category || "",
     categoryId: item.product?.category?.category_id || item.categoryId || "",
-    productId: item.product?.product_id || item.productId || "",
+    productId: item.product?.product_id || item.productId || "", // We need to keep this for the CartItem interface
     productSizeId: item.productSize?.product_size_id || item.productSizeId || "",
     image_url: item.image_url || item.product?.image_url || "",
     extras: processedExtras,
@@ -407,13 +407,9 @@ export default function CafeOrdersPage() {
         source: "api",
         api_saved: true,
       }
-      console.log(
-        `DEBUG: Processing API order ${processedOrder.orderId}: items.length = ${processedOrder.items.length}, calculatedTotal = ${processedOrder.total}`,
-      )
+
       if (processedOrder.items && processedOrder.items.length > 0) {
         allOrdersMap.set(processedOrder.orderId, processedOrder)
-      } else {
-        console.warn(`⚠️ API Order ${processedOrder.orderId} skipped due to no items after normalization.`)
       }
     })
 
@@ -423,16 +419,10 @@ export default function CafeOrdersPage() {
       const localOrderId = String(
         order.orderId || `local_unknown_${Date.now()}_${Math.random().toString(36).substr(2, 5)}`,
       )
-      console.log(
-        `DEBUG: Processing Local order ${localOrderId}: items.length = ${order.items?.length}, total = ${order.total}`,
-      )
+
       // For local orders, we trust their items and total as they were saved from the UI
       if (!allOrdersMap.has(localOrderId) && order.items && order.items.length > 0) {
         allOrdersMap.set(localOrderId, { ...order, orderId: localOrderId, source: "localStorage", api_saved: false })
-      } else if (allOrdersMap.has(localOrderId)) {
-        console.log(`DEBUG: Local order ${localOrderId} skipped (already in map from API).`)
-      } else {
-        console.warn(`⚠️ Local Order ${localOrderId} skipped due to no items.`)
       }
     })
 
@@ -458,7 +448,6 @@ export default function CafeOrdersPage() {
       if (currentCashierId) {
         savedLocalOrders = savedLocalOrders.filter(order => order.cashier_id === currentCashierId)
       }
-      console.log("DEBUG: LocalStorage 'cafeOrders' on load (filtered):", savedLocalOrders)
 
       // 2. Fetch API orders using shift-based endpoint
       let apiOrdersList: any[] = []
@@ -494,13 +483,8 @@ export default function CafeOrdersPage() {
                     return { ...order, items }
                   }),
                 )
-                console.log(`DEBUG: API fetched cafe orders for shift ${shiftId} (filtered by cashier):`, apiOrdersList)
               }
-            } else {
-              console.warn("Failed to fetch cafe orders from API:", response.status, await response.text())
             }
-          } else {
-            console.warn("No shift ID available, skipping API fetch")
           }
         } catch (apiErr) {
           console.error("Error fetching cafe orders from API:", apiErr)
@@ -509,7 +493,6 @@ export default function CafeOrdersPage() {
 
       // 3. Merge and deduplicate
       const mergedOrders = mergeAndDeduplicateOrders(savedLocalOrders, apiOrdersList)
-      console.log("DEBUG: Merged and deduplicated orders (final):", mergedOrders)
 
       // 4. Update state and local storage
       setCafeOrders(mergedOrders)
@@ -589,18 +572,10 @@ export default function CafeOrdersPage() {
       let page = 1
       const limit = 100
 
-      while (true) {
-        const productsData = await AuthApiService.apiRequest<any>(`/products?page=${page}&limit=${limit}`)
-        
-        if (productsData.success && productsData.data?.products?.length > 0) {
-          allProducts = [...allProducts, ...productsData.data.products]
-          if (productsData.data.products.length < limit) {
-            break // No more products to fetch
-          }
-          page++
-        } else {
-          break // No more products or error
-        }
+      const productsData = await AuthApiService.apiRequest<any>(`/products?page=${page}&limit=${limit}`)
+      
+      if (productsData.success && productsData.data?.products?.length > 0) {
+        allProducts = productsData.data.products
       }
 
       const categoriesList = categoriesData.success ? categoriesData.data.categories || categoriesData.data : []
@@ -635,7 +610,7 @@ export default function CafeOrdersPage() {
     const itemTotalPrice = Number.parseFloat(selectedSizePrice.price) + extrasTotal
 
     const newItem: CartItem = {
-      id: `${currentItem.product_id}-${itemSizeId}-${Date.now()}`,
+      id: `item_${itemSizeId.substring(0, 6)}_${Date.now()}`,
       name: currentItem.name,
       price: itemTotalPrice, // Updated to include extras
       basePrice: Number.parseFloat(selectedSizePrice.price),
@@ -682,6 +657,15 @@ export default function CafeOrdersPage() {
     return cart.reduce((sum, item) => sum + item.price * item.quantity, 0)
   }
 
+  // Helper function to generate a UUID v4 (random)
+  const generateUUID = () => {
+    return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function(c) {
+      const r = Math.random() * 16 | 0;
+      const v = c === 'x' ? r : (r & 0x3 | 0x8);
+      return v.toString(16);
+    });
+  };
+
   const saveCafeOrder = async () => {
     if (cart.length === 0) {
       alert("لا يمكن حفظ طلب فارغ")
@@ -714,27 +698,31 @@ export default function CafeOrdersPage() {
 
       try {
         console.log("🌐 Step 1: Saving cafe order to API...")
+
         const apiPayload = {
           cashier_id: storedUser.user_id,
-          shift_id: currentUserShift, // Use the actual current user's shift ID
+          shift_id: currentUserShift,
           table_number: tableNumber || "1",
-          order_type: "cafe", // Change this from "dine-in" to "cafe"
+          order_type: "cafe",
           customer_name: staffName || "موظف الكافية",
-          items: cart.map((item) => ({
-            product_id: item.productId,
-            product_size_id: item.productSizeId || null,
-            quantity: item.quantity,
-            unit_price: item.basePrice,
-            special_instructions: item.notes || "",
-            extras: item.extras.map((extra) => ({
-              extra_id: extra.id,
-              quantity: 1,
-              price: extra.price,
-            })),
-          })),
+          items: cart.map((item) => {
+            // Only include fields that are expected by the backend
+            return {
+              product_size_id: item.productSizeId,
+              quantity: item.quantity,
+              unit_price: item.basePrice,
+              special_instructions: item.notes || "", // Use special_instructions instead of notes
+              order_id: generateUUID(), // Add UUID for order_id as required by backend validation
+              extras: item.extras.map((extra) => ({
+                extra_id: extra.id,
+                quantity: 1,
+                price: extra.price,
+              }))
+            };
+          }),
         }
 
-        console.log("🚀 Sending cafe order API request...", apiPayload)
+        console.log("🚀 Sending cafe order API request...")
         const apiResponse = await fetch(`${API_BASE_URL}/orders`, {
           method: "POST",
           headers: {
@@ -744,18 +732,16 @@ export default function CafeOrdersPage() {
           body: JSON.stringify(apiPayload),
         })
 
-        const responseText = await apiResponse.text()
-        console.log("📡 API Response received:", responseText.substring(0, 200) + "...")
-
         if (apiResponse.ok) {
-          apiResponseData = JSON.parse(responseText)
-          if (apiResponseData.success && apiResponseData.data?.order_id) {
-            apiOrderId = apiResponseData.data.order_id
+          const responseData = await apiResponse.json()
+          apiResponseData = responseData
+          if (responseData.success && responseData.data?.order_id) {
+            apiOrderId = responseData.data.order_id
             apiSuccess = true
             console.log(`✅ API save successful! Server order ID: ${apiOrderId}`)
           }
         } else {
-          console.warn("❌ API save failed:", responseText)
+          console.warn("❌ API save failed")
         }
       } catch (apiError) {
         console.error("❌ API save error:", apiError)

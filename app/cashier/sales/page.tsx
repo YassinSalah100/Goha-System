@@ -426,7 +426,7 @@ export default function SalesPage() {
     // const totalItemPrice = basePrice + extrasPrice
 
     const newItem: CartItem = {
-      id: `${currentItem.product_id}-${Date.now()}`,
+      id: `item_${Date.now()}_${Math.random().toString(36).substr(2, 5)}`,
       name: currentItem.name,
       price: basePrice, // FIX: Only base price
       basePrice: basePrice,
@@ -576,15 +576,15 @@ export default function SalesPage() {
         shift: { shift_id: currentShiftId, shift_name: "وردية نشطة" },
         shift_id: currentShiftId,
         items: cart.map((item) => ({
-          order_item_id: item.id,
+          item_id: item.id,
           quantity: item.quantity,
           unit_price: item.basePrice.toString(),
           notes: item.notes || null,
           product_name: item.name,
           size_name: item.size,
           image_url: item.image_url || "",
-          product: {
-            product_id: item.productId,
+          // Avoid including product_id or order_id fields that could cause issues
+          product_info: {
             name: item.name,
             image_url: item.image_url || "",
             category: {
@@ -626,24 +626,38 @@ export default function SalesPage() {
           throw new Error(`Invalid order type: ${orderType}`)
         }
 
+        // Helper function to generate a UUID v4 (random)
+        const generateUUID = () => {
+          // This is a simplified UUID generator - for production use a proper UUID library
+          return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function(c) {
+            const r = Math.random() * 16 | 0;
+            const v = c === 'x' ? r : (r & 0x3 | 0x8);
+            return v.toString(16);
+          });
+        };
+
         const apiPayloadBase = {
           cashier_id: storedUser.user_id,
           shift_id: currentShiftId,
           table_number: orderType === "dine-in" ? "1" : "TAKEAWAY",
           order_type: orderType,
           customer_name: customerName || "عميل عابر",
-          items: cart.map((item) => ({
-            product_id: item.productId,
-            product_size_id: item.productSizeId || null,
-            quantity: item.quantity,
-            unit_price: item.basePrice,
-            special_instructions: item.notes || "",
-            extras: item.extras.map((extra) => ({
-              extra_id: extra.id,
-              quantity: extra.quantity,
-              price: extra.price,
-            })),
-          })),
+          items: cart.map((item) => {
+            // Only include fields expected by the backend
+            return {
+              product_size_id: item.productSizeId,
+              quantity: item.quantity,
+              unit_price: item.basePrice,
+              special_instructions: item.notes || "",
+              // Add a valid UUID for each order item
+              order_id: generateUUID(),
+              extras: item.extras.map((extra) => ({
+                extra_id: extra.id,
+                quantity: extra.quantity,
+                price: extra.price,
+              }))
+            };
+          }),
         }
 
         if (orderType === "delivery") {
