@@ -38,15 +38,45 @@ export class MonitoringApiService {
   // Fetch live orders - using correct endpoint structure
   static async fetchOrders(page: number = 1, limit: number = 100): Promise<Order[]> {
     try {
-      // Try without pagination first, then with if that fails
+      // Fetch both regular orders and cafe orders to include everything
+      let regularOrders: any[] = [];
+      let cafeOrders: any[] = [];
+      
       try {
-        const data = await AuthApiService.apiRequest<any>(`/orders/except-cafe`)
-        return data.data?.orders || data.data || []
+        // Fetch regular orders
+        const regularData = await AuthApiService.apiRequest<any>(`/orders/except-cafe`)
+        regularOrders = regularData.data?.orders || regularData.data || []
+        
+        // Fetch cafe orders
+        const cafeData = await AuthApiService.apiRequest<any>(`/orders/shift-cafe`)
+        cafeOrders = cafeData.data?.orders || cafeData.data || []
       } catch (noPaginationError) {
         // If that fails, try with minimal pagination parameters
-        const data = await AuthApiService.apiRequest<any>(`/orders/except-cafe?page=1&limit=10`)
-        return data.data?.orders || data.data || []
+        try {
+          const regularData = await AuthApiService.apiRequest<any>(`/orders/except-cafe?page=1&limit=100`)
+          regularOrders = regularData.data?.orders || regularData.data || []
+          
+          const cafeData = await AuthApiService.apiRequest<any>(`/orders/shift-cafe/`)
+          cafeOrders = cafeData.data?.orders || cafeData.data || []
+        } catch (error) {
+          console.error('Error fetching orders with pagination:', error)
+        }
       }
+      
+      // Combine regular and cafe orders
+      const combinedOrders = [...regularOrders, ...cafeOrders];
+      
+      // For cafe orders, ensure they have the correct order_type
+      const processedOrders = combinedOrders.map(order => {
+        // If this is from cafe endpoint and doesn't have order_type set to 'cafe', fix it
+        if (cafeOrders.some(cafeOrder => cafeOrder.order_id === order.order_id) && 
+            order.order_type !== 'cafe') {
+          return { ...order, order_type: 'cafe' };
+        }
+        return order;
+      });
+      
+      return processedOrders;
     } catch (error) {
       console.error('Error fetching orders:', error)
       return []
@@ -224,8 +254,6 @@ export class MonitoringApiService {
 
   // Transform the API response format to DetailedShiftSummary
   static transformShiftToDetailedSummary(shift: any, fetchedStatus: string): DetailedShiftSummary {
-    console.log('Transforming shift:', shift)
-    
     // Handle user data from the shift response
     let openedBy = null
     let closedBy = null
@@ -319,8 +347,9 @@ export class MonitoringApiService {
       }
     }
     
-    console.log(`Shift ${shift.shift_id} status determined as: ${actualStatus}`)
-    console.log(`Opened by:`, openedBy)
+    // Make sure we have values for cafe orders and revenue
+    const cafeOrders = shift.total_cafe_orders || shift.orders_by_type?.cafe || 0;
+    const cafeRevenue = shift.cafe_revenue || 0;
     
     return {
       shift_id: shift.shift_id || shift.id,
@@ -342,7 +371,7 @@ export class MonitoringApiService {
         "dine-in": shift.orders_by_type?.["dine-in"] || 0,
         takeaway: shift.orders_by_type?.takeaway || 0,
         delivery: shift.orders_by_type?.delivery || 0,
-        cafe: shift.orders_by_type?.cafe || shift.total_cafe_orders || 0
+        cafe: cafeOrders
       },
       orders_by_status: {
         completed: shift.orders_by_status?.completed || shift.total_orders || 0,
@@ -457,11 +486,27 @@ export class MonitoringApiService {
 
   // Helper method to merge basic shift data with detailed data
   private static mergeShiftWithDetails(basicShift: DetailedShiftSummary, detailedData: any): DetailedShiftSummary {
+    // Make sure we have values for cafe orders and revenue
+    const cafeOrders = detailedData.total_cafe_orders || detailedData.orders_by_type?.cafe || 0;
+    const cafeRevenue = detailedData.cafe_revenue || 0;
+    
+    // Ensure we're adding cafe orders to the total if needed
+    const totalOrders = Math.max(
+      basicShift.total_orders,
+      detailedData.total_orders || 0
+    );
+    
+    // Ensure we're adding cafe revenue to the total
+    const totalSales = Math.max(
+      basicShift.total_sales,
+      detailedData.total_revenue || 0
+    );
+    
     return {
       ...basicShift,
       // Update with detailed financial data if available
-      total_orders: detailedData.total_orders || basicShift.total_orders,
-      total_sales: detailedData.total_revenue || basicShift.total_sales,
+      total_orders: totalOrders,
+      total_sales: totalSales,
       total_expenses: detailedData.total_expenses || basicShift.total_expenses,
       total_staff_cost: detailedData.total_salaries || basicShift.total_staff_cost,
       workers: detailedData.workers || basicShift.workers,
@@ -469,6 +514,11 @@ export class MonitoringApiService {
       // Keep the user info from basic shift (which should have correct names)
       opened_by: basicShift.opened_by,
       closed_by: basicShift.closed_by,
+      // Make sure cafe orders are included
+      orders_by_type: {
+        ...basicShift.orders_by_type,
+        cafe: Math.max(basicShift.orders_by_type.cafe, cafeOrders)
+      }
     }
   }
 
@@ -658,8 +708,45 @@ export class MonitoringApiService {
   static async getShiftSummaryWithDetails(shiftId: string): Promise<any> {
     try {
       // Use the correct endpoint that you confirmed works
-      const data = await AuthApiService.apiRequest<any>(`/shifts/summary/${shiftId}/details`)
-      return data
+      const shiftData = await AuthApiService.apiRequest<any>(`/shifts/summary/${shiftId}/details`)
+      
+      // Also fetch cafe orders specifically for this shift to include in the counts
+      try {
+        const cafeOrdersData = await AuthApiService.apiRequest<any>(`/orders/shift-cafe/${shiftId}`)
+        const cafeOrders = cafeOrdersData.data || [];
+        
+        // If we got cafe orders, update the shift data to include them
+        if (Array.isArray(cafeOrders) && cafeOrders.length > 0) {
+          // Calculate cafe total revenue
+          const cafeRevenue = cafeOrders.reduce((sum: number, order: any) => {
+            const orderTotal = typeof order.total_price === 'string' 
+              ? parseFloat(order.total_price) 
+              : (order.total_price || 0);
+            return sum + orderTotal;
+          }, 0);
+          
+          // Update the shift data
+          return {
+            ...shiftData,
+            total_cafe_orders: cafeOrders.length,
+            cafe_revenue: cafeRevenue,
+            // Add cafe orders to order types
+            orders_by_type: {
+              ...(shiftData.orders_by_type || {}),
+              cafe: cafeOrders.length
+            },
+            // Ensure the total orders includes cafe orders
+            total_orders: (shiftData.total_orders || 0) + cafeOrders.length,
+            // Update total revenue to include cafe revenue
+            total_revenue: (shiftData.total_revenue || 0) + cafeRevenue
+          };
+        }
+      } catch (error) {
+        console.error('Error fetching cafe orders for shift:', error);
+        // Continue with the original shift data if cafe orders fetch fails
+      }
+      
+      return shiftData;
     } catch (error) {
       console.error('Error fetching shift summary with details:', error)
       throw error

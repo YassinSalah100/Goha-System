@@ -1081,17 +1081,8 @@ export default function EndShiftPageFixed() {
             "Content-Type": "application/json",
           },
           body: JSON.stringify({
+            shift_id: shiftId,
             closed_by: userId,
-            notes: notes || null,
-            cash_drawer_amount: summaryData?.cash_drawer_amount || shiftStats.cashSales,
-            local_stats: {
-              totalOrders: shiftStats.totalOrders,
-              totalSales: shiftStats.totalSales,
-              cashSales: shiftStats.cashSales,
-              cardSales: shiftStats.cardSales,
-              avgOrderValue: shiftStats.avgOrderValue,
-              ordersPerHour: shiftStats.ordersPerHour,
-            },
           }),
         })
 
