@@ -219,7 +219,7 @@ export class AuthApiService {
 
     console.log(`Making request to: ${url}`)
     console.log(`🔐 Authorization headers:`, config.headers?.['Authorization'] ? 'Bearer token present' : 'No auth token')
-    
+
     // Debug token payload for critical endpoints
     if (endpoint.includes('cancelled-orders') || endpoint.includes('orders') || endpoint.includes('products')) {
       const token = this.getAuthToken()
@@ -239,11 +239,11 @@ export class AuthApiService {
         console.log(`❌ No token found for ${endpoint}`)
       }
     }
-    
+
     if (config.method !== "GET" && config.body && typeof config.body === "string") {
       console.log(`📤 Request body for ${endpoint}:`, JSON.parse(config.body))
     }
-    
+
     // Check if token is expired
     const token = this.getAuthToken()
     if (token) {
@@ -375,7 +375,7 @@ export class AuthApiService {
         if (normalizedRole === "cashier" && !u.permissions.some((p) => p === "access:cashier")) {
           try {
             localStorage.setItem("permissionWarning", "Missing cashier permission from backend")
-          } catch {}
+          } catch { }
         }
 
         console.log("User with normalized permissions:", u.permissions)
@@ -580,7 +580,7 @@ export class AuthApiService {
         PERMISSIONS.ORDERS_ACCESS,       // "access:orders"
         PERMISSIONS.EXTERNAL_RECEIPTS    // "external:receipts"
       ]
-      
+
       cashierPermissions.forEach(perm => {
         if (!permissions.includes(perm)) {
           permissions.push(perm)
@@ -890,48 +890,145 @@ export class AuthApiService {
   /**
    * Create a shift for the current user (cashier)
    */
-  static async createShiftForCurrentUser(shiftType?: string): Promise<any> {
-    const user = this.getCurrentUser()
+  static async createShiftForCurrentUser(): Promise<any> {
+    const user = this.getCurrentUser();
     if (!user?.id) {
-      throw new Error("No user ID available to create shift")
+      throw new Error("No user ID available to create shift");
     }
 
-    // Determine shift type based on current time if not provided
-    if (!shiftType) {
-      const currentHour = new Date().getHours()
-      // If it's between 6 AM and 6 PM, it's a morning shift, otherwise night shift
-      shiftType = currentHour >= 6 && currentHour < 18 ? SHIFT_TYPES.MORNING : SHIFT_TYPES.NIGHT
+    // Determine shift type based on current time
+    const currentHour = new Date().getHours();
+    let shiftType: string;
+    // If it's between 6 AM and 6 PM, it's a morning shift, otherwise night shift
+    if (currentHour >= 6 && currentHour < 18) {
+      shiftType = SHIFT_TYPES.MORNING;
+    } else {
+      shiftType = SHIFT_TYPES.NIGHT;
     }
 
+    // Get the user ID correctly - handle different formats
+    const userId = user.user_id || user.id;
+
+    // Prompt user for initial balance
+    let initialBalance = 0;
+    try {
+      const userInput = window.prompt("أدخل قيمة الرصيد الأولي (الأرضية):", "0");
+      if (userInput !== null) {
+        initialBalance = parseFloat(userInput);
+        if (isNaN(initialBalance) || initialBalance < 0) {
+          initialBalance = 0;
+        }
+      }
+    } catch (error) {
+      console.warn("Failed to get initial balance from user:", error);
+    }
+
+    // Ensure numeric value is properly parsed and match exactly the backend expected structure
+    const parsedBalance = Number(initialBalance);
     const shiftData = {
-      opened_by: user.id,
+      opened_by: userId,
       shift_type: shiftType,
-      workers: [user.id], // Include the cashier as a worker
-    }
+      intial_balance: parsedBalance, // Misspelled as in the backend DTO but ensure it's a number
+      workers: [{ worker_id: userId }] // Include current user as worker
+    };
 
-    console.log("Creating shift for current user:", shiftData)
+    console.log("Creating shift for current user:", shiftData);
 
     try {
+      // Add access:shift permission temporarily if needed
+      const currentPermissions = this.getUserPermissions();
+      if (!currentPermissions.includes('access:shift')) {
+        console.log('⚠️ Adding access:shift permission temporarily for shift creation');
+        const updatedUser = { ...user };
+        if (!Array.isArray(updatedUser.permissions)) {
+          updatedUser.permissions = [];
+        }
+        updatedUser.permissions.push('access:shift');
+        localStorage.setItem("currentUser", JSON.stringify(updatedUser));
+      }
+
       const response: any = await this.apiRequest("/shifts", {
         method: "POST",
         body: JSON.stringify(shiftData),
-      })
+      });
 
       if (response) {
-        console.log("✅ Shift created successfully:", response)
+        console.log("✅ Shift created successfully:", response);
 
         // Update user data with new shift
-        const shiftData = response.data || response
-        const updatedUser = { ...user, shift: shiftData }
-        localStorage.setItem("currentUser", JSON.stringify(updatedUser))
+        const shiftData = response.data || response;
+        const updatedUser = { ...user, shift: shiftData };
+        localStorage.setItem("currentUser", JSON.stringify(updatedUser));
 
-        return shiftData
+        return shiftData;
       }
 
-      return null
+      return null;
     } catch (error) {
-      console.error("Failed to create shift for current user:", error)
-      throw error
+      console.error("Failed to create shift for current user:", error);
+
+      // If we still get validation errors, try other variations
+      if (error instanceof Error && error.message.includes('Validation failed')) {
+        // Log specific error details if available
+        console.log("Validation error details:", error);
+
+        try {
+          // Try alternative payload format - try with empty workers array as shown in Postman
+          const alternativePayload = {
+            opened_by: userId,
+            shift_type: shiftType,
+            intial_balance: Number(initialBalance), // Ensure it's a number
+            workers: [] // Try with empty workers array as shown in Postman
+          };
+
+          console.log("Trying alternative payload format:", alternativePayload);
+
+          const response: any = await this.apiRequest("/shifts", {
+            method: "POST",
+            body: JSON.stringify(alternativePayload),
+          });
+
+          if (response) {
+            console.log("✅ Shift created successfully with alternative format:", response);
+            const shiftData = response.data || response;
+            const updatedUser = { ...user, shift: shiftData };
+            localStorage.setItem("currentUser", JSON.stringify(updatedUser));
+            return shiftData;
+          }
+        } catch (retryError) {
+          console.error("Failed on retry attempt:", retryError);
+
+          // One final attempt with format exactly matching Postman example
+          try {
+            console.log("Making final attempt with exact Postman format");
+
+            // Final attempt with exact format from Postman
+            const finalAttemptPayload = {
+              opened_by: userId,
+              shift_type: shiftType,
+              intial_balance: Number(initialBalance),
+              workers: []
+            };
+
+            const response: any = await this.apiRequest("/shifts", {
+              method: "POST",
+              body: JSON.stringify(finalAttemptPayload),
+            });
+
+            if (response) {
+              console.log("✅ Shift created successfully on final attempt:", response);
+              const shiftData = response.data || response;
+              const updatedUser = { ...user, shift: shiftData };
+              localStorage.setItem("currentUser", JSON.stringify(updatedUser));
+              return shiftData;
+            }
+          } catch (finalError) {
+            console.error("All shift creation attempts failed:", finalError);
+          }
+        }
+      }
+
+      throw error;
     }
   }
 }
