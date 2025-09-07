@@ -26,6 +26,7 @@ import { motion, AnimatePresence } from "framer-motion"
 import { useRouter } from "next/navigation"
 import { Textarea } from "@/components/ui/textarea"
 import { SavedOrdersTab } from "@/components/cafe-orders/SavedOrdersTab"
+import { API_CONFIG } from "@/lib/config"
 
 // Enums for Cafe Orders
 enum CafeOrderStatus {
@@ -47,8 +48,6 @@ enum CafeOrderPaymentMethod {
   CARD = 'card',
   WALLET = 'wallet',
 }
-
-const API_BASE_URL = "http://20.117.240.138:3000/api/v1"
 
 interface Category {
   category_id: string
@@ -293,7 +292,7 @@ const normalizeCafeOrderItem = (item: any): CartItem => {
 // Add this helper function to fetch and normalize items for an order
 async function fetchCafeOrderItems(orderId: string) {
   try {
-    const response = await fetch(`${API_BASE_URL}/order-items/order/${orderId}`, {
+    const response = await fetch(`${API_CONFIG.BASE_URL}/order-items/order/${orderId}`, {
       headers: {
         Authorization: `Bearer ${localStorage.getItem("authToken") || ""}`,
       },
@@ -459,7 +458,7 @@ export default function CafeOrdersPage() {
           
           if (shiftId) {
             console.log(`🔍 Fetching cafe orders for shift: ${shiftId}`)
-            const response = await fetch(`${API_BASE_URL}/orders/shift-cafe/${shiftId}`, {
+            const response = await fetch(`${API_CONFIG.BASE_URL}/orders/shift-cafe/${shiftId}`, {
               headers: {
                 Authorization: `Bearer ${localStorage.getItem("authToken") || ""}`,
               },
@@ -723,7 +722,7 @@ export default function CafeOrdersPage() {
         }
 
         console.log("🚀 Sending cafe order API request...")
-        const apiResponse = await fetch(`${API_BASE_URL}/orders`, {
+        const apiResponse = await fetch(`${API_CONFIG.BASE_URL}/orders`, {
           method: "POST",
           headers: {
             "Content-Type": "application/json",
@@ -814,7 +813,7 @@ export default function CafeOrdersPage() {
     console.log(`💰 Attempting to mark order ${orderId} as paid...`)
 
     try {
-      const response = await fetch(`${API_BASE_URL}/orders/${orderId}/completed`, {
+      const response = await fetch(`${API_CONFIG.BASE_URL}/orders/${orderId}/completed`, {
         method: "PATCH",
         headers: {
           "Content-Type": "application/json",
@@ -880,7 +879,7 @@ export default function CafeOrdersPage() {
       if (orderId && !orderId.startsWith("cafe_")) {
         try {
           console.log("🌐 Attempting API delete...")
-          const deleteResponse = await fetch(`${API_BASE_URL}/orders/${orderId}`, {
+          const deleteResponse = await fetch(`${API_CONFIG.BASE_URL}/orders/${orderId}`, {
             method: "DELETE",
             headers: {
               Authorization: `Bearer ${localStorage.getItem("authToken") || ""}`,

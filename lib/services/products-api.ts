@@ -1,13 +1,12 @@
 import { Product, Category, CategorySize, Extra, ProductSubmissionData, ApiResponse } from '@/lib/types/products'
 import { AuthApiService } from './auth-api'
-
-const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:3002/api"
+import { API_CONFIG } from '../config'
 
 // Helper function for API calls with authentication
 async function apiCall<T>(endpoint: string, options?: RequestInit): Promise<T> {
   const authHeaders = AuthApiService.createAuthHeaders()
   
-  const response = await fetch(`${API_BASE_URL}${endpoint}`, {
+  const response = await fetch(`${API_CONFIG.BASE_URL}${endpoint}`, {
     headers: {
       ...authHeaders,
       ...options?.headers,
@@ -32,7 +31,7 @@ async function apiCall<T>(endpoint: string, options?: RequestInit): Promise<T> {
 // Categories API
 export const fetchCategories = async (): Promise<Category[]> => {
   try {
-    const response = await fetch(`${API_BASE_URL}/categories`)
+    const response = await fetch(`${API_CONFIG.BASE_URL}/categories`)
     if (response.ok) {
       const data = await response.json()
       return data.success && Array.isArray(data.data) ? 
@@ -66,7 +65,7 @@ export const fetchProducts = async (): Promise<Product[]> => {
 
     while (hasMoreProducts) {
       console.log(`Fetching products page ${page} with limit ${limit}...`)
-      const response = await fetch(`${API_BASE_URL}/products?page=${page}&limit=${limit}`)
+      const response = await fetch(`${API_CONFIG.BASE_URL}/products?page=${page}&limit=${limit}`)
       
       if (!response.ok) {
         throw new Error(`HTTP ${response.status}`)
@@ -147,7 +146,7 @@ export const fetchProducts = async (): Promise<Product[]> => {
 // Sizes API
 export const fetchSizes = async (): Promise<CategorySize[]> => {
   try {
-    const response = await fetch(`${API_BASE_URL}/category-sizes`)
+    const response = await fetch(`${API_CONFIG.BASE_URL}/category-sizes`)
     if (response.ok) {
       const data = await response.json()
       return data.success && Array.isArray(data.data) ? 
@@ -175,7 +174,7 @@ export const fetchCategorySizes = async (categoryId: string): Promise<CategorySi
 // Category Extras API
 export const fetchCategoryExtras = async (): Promise<Extra[]> => {
   try {
-    const response = await fetch(`${API_BASE_URL}/category-extras`)
+    const response = await fetch(`${API_CONFIG.BASE_URL}/category-extras`)
     if (response.ok) {
       const data = await response.json()
       return data.success && Array.isArray(data.data) ? 
@@ -204,10 +203,11 @@ export const fetchExtras = async (): Promise<Extra[]> => {
 // Create Product API
 export const createProduct = async (productData: ProductSubmissionData): Promise<Product> => {
   try {
-    const response = await fetch(`${API_BASE_URL}/products`, {
+    const response = await fetch(`${API_CONFIG.BASE_URL}/products`, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
+        ...AuthApiService.createAuthHeaders()
       },
       body: JSON.stringify(productData),
     })
@@ -231,10 +231,11 @@ export const createProduct = async (productData: ProductSubmissionData): Promise
 // Update Product API
 export const updateProduct = async (id: string, productData: ProductSubmissionData): Promise<Product> => {
   try {
-    const response = await fetch(`${API_BASE_URL}/products/${id}`, {
+    const response = await fetch(`${API_CONFIG.BASE_URL}/products/${id}`, {
       method: "PUT",
       headers: {
         "Content-Type": "application/json",
+        ...AuthApiService.createAuthHeaders()
       },
       body: JSON.stringify(productData),
     })
@@ -258,8 +259,11 @@ export const updateProduct = async (id: string, productData: ProductSubmissionDa
 // Delete Product API
 export const deleteProduct = async (id: string): Promise<void> => {
   try {
-    const response = await fetch(`${API_BASE_URL}/products/${id}`, {
+    const response = await fetch(`${API_CONFIG.BASE_URL}/products/${id}`, {
       method: "DELETE",
+      headers: {
+        ...AuthApiService.createAuthHeaders()
+      }
     })
 
     if (!response.ok) {
@@ -281,7 +285,7 @@ export async function uploadProductImage(file: File): Promise<string> {
   const formData = new FormData()
   formData.append('image', file)
 
-  const response = await fetch(`${API_BASE_URL}/products/upload-image`, {
+  const response = await fetch(`${API_CONFIG.BASE_URL}/products/upload-image`, {
     method: 'POST',
     body: formData,
   })

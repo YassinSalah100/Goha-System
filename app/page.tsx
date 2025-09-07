@@ -15,8 +15,7 @@ import { Checkbox } from "@/components/ui/checkbox"
 import { toast } from "sonner"
 import { AuthApiService } from "@/lib/services/auth-api"
 import { LoginDto, CurrentUser, AuthResponseDto } from "@/lib/types/auth"
-
-const API_BASE_URL = "http://20.117.240.138:3000/api/v1"
+import { API_CONFIG } from "@/lib/config"
 
 export default function LoginPage() {
   const router = useRouter()
@@ -504,7 +503,7 @@ export default function LoginPage() {
 
     setIsLoading(true)
     try {
-      const response = await fetch(`${API_BASE_URL}/auth/forgot-password`, {
+      const response = await fetch(`${API_CONFIG.BASE_URL}/auth/forgot-password`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",

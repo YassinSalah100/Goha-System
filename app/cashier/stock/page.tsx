@@ -26,8 +26,7 @@ import {
   Download,
 } from "lucide-react"
 import { useToast } from "@/hooks/use-toast"
-
-const API_BASE_URL = "http://20.117.240.138:3000/api/v1"
+import { API_CONFIG } from "@/lib/config"
 
 // Stock Reports Interfaces
 interface StockReportItem {
@@ -152,9 +151,9 @@ function StockReportsTab() {
 
       // Fetch all data in parallel
       const [shiftResponse, transactionsResponse, stockResponse] = await Promise.all([
-        fetch(`${API_BASE_URL}/stock-reports/shift/${shiftId}?date=${reportDate}`),
-        fetch(`${API_BASE_URL}/stock-transactions?limit=100`),
-        fetch(`${API_BASE_URL}/stock-items`)
+        fetch(`${API_CONFIG.BASE_URL}/stock-reports/shift/${shiftId}?date=${reportDate}`),
+        fetch(`${API_CONFIG.BASE_URL}/stock-transactions?limit=100`),
+        fetch(`${API_CONFIG.BASE_URL}/stock-items`)
       ])
       
       if (!shiftResponse.ok || !transactionsResponse.ok || !stockResponse.ok) {
@@ -238,7 +237,7 @@ function StockReportsTab() {
         return
       }
 
-      const response = await fetch(`${API_BASE_URL}/stock-reports/shift/${shiftId}?date=${reportDate}`)
+      const response = await fetch(`${API_CONFIG.BASE_URL}/stock-reports/shift/${shiftId}?date=${reportDate}`)
       
       if (!response.ok) {
         throw new Error('Failed to fetch shift report')
@@ -265,7 +264,7 @@ function StockReportsTab() {
   const fetchAllTransactions = async () => {
     try {
       setLoading(true)
-      const response = await fetch(`${API_BASE_URL}/stock-transactions?limit=50`)
+      const response = await fetch(`${API_CONFIG.BASE_URL}/stock-transactions?limit=50`)
       
       if (!response.ok) {
         throw new Error('Failed to fetch transactions')
@@ -303,7 +302,7 @@ function StockReportsTab() {
       setLoading(true)
       
       // Fetch transactions for the item
-      const transactionsResponse = await fetch(`${API_BASE_URL}/stock-transactions/stock-item/${selectedStockItemId}`)
+      const transactionsResponse = await fetch(`${API_CONFIG.BASE_URL}/stock-transactions/stock-item/${selectedStockItemId}`)
       if (!transactionsResponse.ok) {
         throw new Error('Failed to fetch item transactions')
       }
@@ -311,7 +310,7 @@ function StockReportsTab() {
       setItemTransactions(transactionsResult.data || [])
 
       // Fetch stats for the item
-      const statsResponse = await fetch(`${API_BASE_URL}/stock-transactions/stats/${selectedStockItemId}`)
+      const statsResponse = await fetch(`${API_CONFIG.BASE_URL}/stock-transactions/stats/${selectedStockItemId}`)
       if (statsResponse.ok) {
         const statsResult = await statsResponse.json()
         setItemStats(statsResult.data || null)

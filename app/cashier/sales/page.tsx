@@ -13,8 +13,7 @@ import { useRouter } from "next/navigation"
 import { Textarea } from "@/components/ui/textarea"
 import { Alert, AlertDescription } from "@/components/ui/alert"
 import { AuthApiService } from "@/lib/services/auth-api"
-
-const API_BASE_URL = "http://20.117.240.138:3000/api/v1"
+import { API_CONFIG } from "@/lib/config"
 
 interface Category {
   category_id: string
@@ -498,7 +497,7 @@ export default function SalesPage() {
         
         try {
           // Use existing route: GET /shifts/cashier/:cashierId
-          const response = await fetch(`${API_BASE_URL}/shifts/cashier/${userId}`)
+          const response = await fetch(`${API_CONFIG.BASE_URL}/shifts/cashier/${userId}`)
           if (response.ok) {
             const result = await response.json()
             const shifts = Array.isArray(result) ? result : result.data || []
@@ -666,7 +665,7 @@ export default function SalesPage() {
         }
 
         console.log("🚀 Sending API request...")
-        const apiResponse = await fetch(`${API_BASE_URL}/orders`, {
+        const apiResponse = await fetch(`${API_CONFIG.BASE_URL}/orders`, {
           method: "POST",
           headers: {
             "Content-Type": "application/json",

@@ -50,8 +50,7 @@ import {
 } from "lucide-react"
 import { useToast } from "@/hooks/use-toast"
 import { AuthApiService } from "@/lib/services/auth-api"
-
-const API_BASE_URL = "http://20.117.240.138:3000/api/v1"
+import { API_CONFIG } from "@/lib/config"
 
 // Simple expense categories
 const expenseCategories = [
@@ -292,7 +291,7 @@ export default function JournalPage() {
 
   const fetchWorkerDetails = async (workerId: string): Promise<Worker | null> => {
     try {
-      const responseData = await fetchWithErrorHandling(`${API_BASE_URL}/workers/${workerId}`)
+      const responseData = await fetchWithErrorHandling(`${API_CONFIG.BASE_URL}/workers/${workerId}`)
       if (responseData.success && responseData.data) {
         return responseData.data
       } else if (responseData.worker_id) {
@@ -308,7 +307,7 @@ export default function JournalPage() {
   const fetchAvailableWorkers = async () => {
     setLoadingWorkers(true)
     try {
-      const responseData = await fetchWithErrorHandling(`${API_BASE_URL}/workers`)
+      const responseData = await fetchWithErrorHandling(`${API_CONFIG.BASE_URL}/workers`)
       let workers = []
       if (responseData.success && Array.isArray(responseData.data)) {
         workers = responseData.data
@@ -329,13 +328,13 @@ export default function JournalPage() {
   const fetchShiftWorkers = async () => {
     if (!activeShift) return
     try {
-      const responseData = await fetchWithErrorHandling(`${API_BASE_URL}/shift-workers/shift/${activeShift.shift_id}`)
+      const responseData = await fetchWithErrorHandling(`${API_CONFIG.BASE_URL}/shift-workers/shift/${activeShift.shift_id}`)
       const workers = Array.isArray(responseData.success ? responseData.data : responseData)
         ? responseData.success ? responseData.data : responseData
         : []
 
       // Fetch fresh worker data directly from API to ensure we have the latest
-      const workersResponse = await fetchWithErrorHandling(`${API_BASE_URL}/workers`)
+      const workersResponse = await fetchWithErrorHandling(`${API_CONFIG.BASE_URL}/workers`)
       const freshWorkers = workersResponse.success && Array.isArray(workersResponse.data) 
         ? workersResponse.data 
         : []
@@ -480,7 +479,7 @@ export default function JournalPage() {
                 console.log(`Trying to lookup worker by shift_worker_id ${sw.shift_worker_id}`)
                 try {
                   // Look for workers who might have this shift worker assigned to them
-                  const shiftWorkerLookupResponse = await fetchWithErrorHandling(`${API_BASE_URL}/shift-workers/lookup/${sw.shift_worker_id}`)
+                  const shiftWorkerLookupResponse = await fetchWithErrorHandling(`${API_CONFIG.BASE_URL}/shift-workers/lookup/${sw.shift_worker_id}`)
                   if (shiftWorkerLookupResponse.success && shiftWorkerLookupResponse.data && shiftWorkerLookupResponse.data.worker_id) {
                     console.log(`✓ Found worker_id ${shiftWorkerLookupResponse.data.worker_id} for shift_worker_id ${sw.shift_worker_id}`)
                     // Update the worker_id in our data
@@ -866,7 +865,7 @@ export default function JournalPage() {
     
     setLoadingExpenses(true)
     try {
-      const responseData = await fetchWithErrorHandling(`${API_BASE_URL}/expenses`)
+      const responseData = await fetchWithErrorHandling(`${API_CONFIG.BASE_URL}/expenses`)
       let expensesData = []
       
       if (Array.isArray(responseData)) {
@@ -918,7 +917,7 @@ export default function JournalPage() {
         amount: Number(expenseData.amount),
       }
 
-      await fetchWithErrorHandling(`${API_BASE_URL}/expenses`, {
+      await fetchWithErrorHandling(`${API_CONFIG.BASE_URL}/expenses`, {
         method: "POST",
         body: JSON.stringify(payload),
       })
@@ -938,7 +937,7 @@ export default function JournalPage() {
     }
     setDeletingExpense(expenseId)
     try {
-      await fetchWithErrorHandling(`${API_BASE_URL}/expenses/${expenseId}`, {
+      await fetchWithErrorHandling(`${API_CONFIG.BASE_URL}/expenses/${expenseId}`, {
         method: "DELETE",
       })
       setExpenses(expenses.filter((e) => e.expense_id !== expenseId))
@@ -1004,7 +1003,7 @@ export default function JournalPage() {
       console.log(`Assigning worker ${selectedWorker.full_name} (ID: ${workerId}) to shift with payload:`, payload)
 
       // Fix: Use the correct endpoint /api/v1/shift-workers instead of /api/v1/shifts/add-worker
-      const response = await fetchWithErrorHandling(`${API_BASE_URL}/shift-workers`, {
+      const response = await fetchWithErrorHandling(`${API_CONFIG.BASE_URL}/shift-workers`, {
         method: "POST",
         body: JSON.stringify(payload),
       })
@@ -1066,7 +1065,7 @@ export default function JournalPage() {
     setEndingWorker(staffId)
     try {
       // Format according to UpdateShiftWorkerEndDto
-      await fetchWithErrorHandling(`${API_BASE_URL}/shift-workers/end-time`, {
+      await fetchWithErrorHandling(`${API_CONFIG.BASE_URL}/shift-workers/end-time`, {
         method: "PATCH",
         body: JSON.stringify({
           shift_worker_id: staffId,

@@ -21,7 +21,7 @@ import { AuthApiService, PERMISSIONS } from "@/lib/services/auth-api"
 import { RegisterDto } from "@/lib/types/auth"
 ChartJS.register(ArcElement, ChartTooltip, Legend)
 
-const API_BASE_URL = "http://20.117.240.138:3000/api/v1"
+import { API_CONFIG } from "@/lib/config"
 
 interface Account {
   id: string
@@ -183,7 +183,7 @@ export default function Page() {
       const token = localStorage.getItem('authToken')
       
       // Direct API call to fetch permissions
-      const response = await fetch(`${API_BASE_URL}/permissions/user/${userId}/all-permissions`, {
+      const response = await fetch(`${API_CONFIG.BASE_URL}/permissions/user/${userId}/all-permissions`, {
         headers: {
           'Authorization': `Bearer ${token}`
         }
@@ -204,7 +204,7 @@ export default function Page() {
       } else {
         // Try alternative endpoint
         try {
-          const altResponse = await fetch(`${API_BASE_URL}/permissions/user/${userId}/permissions`, {
+          const altResponse = await fetch(`${API_CONFIG.BASE_URL}/permissions/user/${userId}/permissions`, {
             headers: {
               'Authorization': `Bearer ${token}`
             }
@@ -241,7 +241,7 @@ export default function Page() {
       const token = localStorage.getItem('authToken')
       
       // Direct API call to fetch permissions
-      const response = await fetch(`${API_BASE_URL}/permissions/user/${userId}/all-permissions`, {
+      const response = await fetch(`${API_CONFIG.BASE_URL}/permissions/user/${userId}/all-permissions`, {
         headers: {
           'Authorization': `Bearer ${token}`
         }
@@ -269,7 +269,7 @@ export default function Page() {
       
       // Try alternative endpoint
       try {
-        const altResponse = await fetch(`${API_BASE_URL}/permissions/user/${userId}/permissions`, {
+        const altResponse = await fetch(`${API_CONFIG.BASE_URL}/permissions/user/${userId}/permissions`, {
           headers: {
             'Authorization': `Bearer ${token}`
           }
@@ -527,7 +527,7 @@ export default function Page() {
         })
         
         // Use direct fetch for API call
-        const revokeResponse = await fetch(`${API_BASE_URL}/permissions/revoke`, {
+        const revokeResponse = await fetch(`${API_CONFIG.BASE_URL}/permissions/revoke`, {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
@@ -557,7 +557,7 @@ export default function Page() {
           console.log(`🔍 VERIFYING revoke for user ${selectedAccount.username}...`)
           
           // Direct API call to verify permissions
-          const verifyResponse = await fetch(`${API_BASE_URL}/permissions/user/${selectedAccount.id}/all-permissions`, {
+          const verifyResponse = await fetch(`${API_CONFIG.BASE_URL}/permissions/user/${selectedAccount.id}/all-permissions`, {
             headers: {
               'Authorization': `Bearer ${token}`
             }
@@ -592,7 +592,7 @@ export default function Page() {
         console.log(`🔄 ASSIGNING ${selectedPermissions.length} permissions for user ${selectedAccount.username}`)
         
         // Use direct fetch for API call
-        const assignResponse = await fetch(`${API_BASE_URL}/permissions/assign`, {
+        const assignResponse = await fetch(`${API_CONFIG.BASE_URL}/permissions/assign`, {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
@@ -615,7 +615,7 @@ export default function Page() {
           
           // Verify assign worked
           console.log(`🔍 VERIFYING assign for user ${selectedAccount.username}...`)
-          const verifyResponse = await fetch(`${API_BASE_URL}/permissions/user/${selectedAccount.id}/all-permissions`, {
+          const verifyResponse = await fetch(`${API_CONFIG.BASE_URL}/permissions/user/${selectedAccount.id}/all-permissions`, {
             headers: {
               'Authorization': `Bearer ${token}`
             }

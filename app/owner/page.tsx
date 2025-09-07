@@ -9,7 +9,7 @@ import { motion } from "framer-motion"
 import { AuthApiService } from "@/lib/services/auth-api"
 
 // Constants
-const API_BASE_URL = "http://20.117.240.138:3000/api/v1"
+import { API_CONFIG } from "@/lib/config"
 
 // Types
 interface OrderStats {

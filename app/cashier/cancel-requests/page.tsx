@@ -8,8 +8,7 @@ import { Separator } from "@/components/ui/separator"
 import { CheckCircle, XCircle, Clock, AlertTriangle, RefreshCw, Loader2 } from "lucide-react"
 import { AuthApiService } from "@/lib/services/auth-api"
 import { motion } from "framer-motion"
-
-const API_BASE_URL = "http://20.117.240.138:3000/api/v1"
+import { API_CONFIG } from "@/lib/config"
 
 interface CancelRequest {
   cancelled_order_id: string

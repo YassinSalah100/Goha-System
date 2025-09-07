@@ -855,12 +855,13 @@ const removeImage = () => {
       finalImageUrl = await handleImageUpload()
     }
 
-    // Create or update product
+    // Create or update product - matching the CreateProductDto/UpdateProductDto on the server
     const productData = {
       name: productForm.name,
+      description: productForm.description || "",
       category_id: productForm.category_id,
       image_url: finalImageUrl,
-      price: productForm.pricing.length > 0 ? productForm.pricing[0].price : 0, // Base price
+      is_active: true
     }
 
     const productUrl = editingProduct ? `/products/${productForm.id}` : `/products`

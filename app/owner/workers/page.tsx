@@ -22,8 +22,7 @@ import {
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog"
 import { Loader2, CheckCircle, XCircle, User,DollarSign, Phone, Briefcase, Users, Plus, RefreshCw, Trash2,} from "lucide-react"
-
-const API_BASE_URL = "http://20.117.240.138:3000/api/v1"
+import { API_CONFIG } from "@/lib/config"
 
 const arabicLabels = {
   create_worker: "إضافة عامل جديد",

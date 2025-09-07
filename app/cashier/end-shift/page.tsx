@@ -24,7 +24,7 @@ import {
 import { motion } from "framer-motion"
 import { useReactToPrint } from "react-to-print"
 
-const API_BASE_URL = "http://20.117.240.138:3000/api/v1"
+import { API_CONFIG } from "@/lib/config"
 
 interface CartItem {
   id: string
@@ -421,7 +421,7 @@ export default function EndShiftPageFixed() {
         return false
       }
       
-      const response = await fetch(`${API_BASE_URL}/shifts/${shiftId}`, {
+      const response = await fetch(`${API_CONFIG.BASE_URL}/shifts/${shiftId}`, {
         method: "GET",
         headers: {
           Authorization: `Bearer ${token}`,
@@ -637,7 +637,7 @@ export default function EndShiftPageFixed() {
     try {
       setIsLoadingShiftDetails(true)
       console.log(`🔍 Fetching shift details for ${shiftId}`)
-      const response = await fetch(`${API_BASE_URL}/shifts/${shiftId}`, {
+      const response = await fetch(`${API_CONFIG.BASE_URL}/shifts/${shiftId}`, {
         method: "GET",
         headers: {
           Authorization: `Bearer ${localStorage.getItem("authToken") || ""}`,
@@ -674,8 +674,8 @@ export default function EndShiftPageFixed() {
       
       try {
         // First try the detailed summary endpoint which includes expenses, workers, etc.
-        console.log(`Trying URL: ${API_BASE_URL}/shifts/summary/${shiftId}/details`)
-        response = await fetch(`${API_BASE_URL}/shifts/summary/${shiftId}/details`, {
+        console.log(`Trying URL: ${API_CONFIG.BASE_URL}/shifts/summary/${shiftId}/details`)
+        response = await fetch(`${API_CONFIG.BASE_URL}/shifts/summary/${shiftId}/details`, {
           method: "GET",
           headers: {
             Authorization: `Bearer ${localStorage.getItem("authToken") || ""}`,
@@ -687,8 +687,8 @@ export default function EndShiftPageFixed() {
           console.log(`Detailed summary failed with status ${response.status}, trying basic summary...`);
           
           // Fall back to basic summary endpoint
-          console.log(`Trying URL: ${API_BASE_URL}/shifts/summary/${shiftId}`)
-          response = await fetch(`${API_BASE_URL}/shifts/summary/${shiftId}`, {
+          console.log(`Trying URL: ${API_CONFIG.BASE_URL}/shifts/summary/${shiftId}`)
+          response = await fetch(`${API_CONFIG.BASE_URL}/shifts/summary/${shiftId}`, {
             method: "GET",
             headers: {
               Authorization: `Bearer ${localStorage.getItem("authToken") || ""}`,
@@ -700,8 +700,8 @@ export default function EndShiftPageFixed() {
         console.error("Error trying detailed summary:", error);
         
         // Fallback to the basic URL format
-        console.log(`Trying URL: ${API_BASE_URL}/shifts/summary/${shiftId}`)
-        response = await fetch(`${API_BASE_URL}/shifts/summary/${shiftId}`, {
+        console.log(`Trying URL: ${API_CONFIG.BASE_URL}/shifts/summary/${shiftId}`)
+        response = await fetch(`${API_CONFIG.BASE_URL}/shifts/summary/${shiftId}`, {
           method: "GET",
           headers: {
             Authorization: `Bearer ${localStorage.getItem("authToken") || ""}`,
@@ -1074,7 +1074,7 @@ export default function EndShiftPageFixed() {
       // Step 2: Request shift close using the correct endpoint
       try {
         console.log(`🔒 Requesting shift close for shift ${shiftId}`)
-        const response = await fetch(`${API_BASE_URL}/shifts/${shiftId}/request-close`, {
+        const response = await fetch(`${API_CONFIG.BASE_URL}/shifts/${shiftId}/request-close`, {
           method: "PATCH",
           headers: {
             Authorization: `Bearer ${localStorage.getItem("authToken") || ""}`,

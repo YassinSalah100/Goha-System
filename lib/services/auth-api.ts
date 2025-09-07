@@ -1,6 +1,5 @@
 import type { LoginDto, RegisterDto, ChangePasswordDto, AuthResponseDto } from "@/lib/types/auth"
-
-const API_BASE_URL = "http://20.117.240.138:3000/api/v1"
+import { API_CONFIG } from "@/lib/config"
 
 /**
  * Shift type constants matching backend enums
@@ -206,7 +205,7 @@ export class AuthApiService {
    */
   static async apiRequest<T>(endpoint: string, options: RequestInit & { isRetry?: boolean } = {}): Promise<T> {
     const { isRetry = false, ...requestOptions } = options
-    const url = `${API_BASE_URL}${endpoint}`
+    const url = `${API_CONFIG.BASE_URL}${endpoint}`
 
     // Always include auth headers if available
     const config: RequestInit = {
@@ -330,7 +329,7 @@ export class AuthApiService {
    */
   static async login(credentials: LoginDto): Promise<AuthResponseDto> {
     try {
-      const response = await fetch(`${API_BASE_URL}/auth/login`, {
+      const response = await fetch(`${API_CONFIG.BASE_URL}/auth/login`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -399,7 +398,7 @@ export class AuthApiService {
    */
   static async register(userData: RegisterDto): Promise<AuthResponseDto> {
     try {
-      const response = await fetch(`${API_BASE_URL}/auth/register`, {
+      const response = await fetch(`${API_CONFIG.BASE_URL}/auth/register`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -437,7 +436,7 @@ export class AuthApiService {
    */
   static async refreshToken(): Promise<{ token: string; expiresIn: number }> {
     try {
-      const response = await fetch(`${API_BASE_URL}/auth/refresh-token`, {
+      const response = await fetch(`${API_CONFIG.BASE_URL}/auth/refresh-token`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",

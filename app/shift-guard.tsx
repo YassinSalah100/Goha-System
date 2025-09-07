@@ -5,8 +5,7 @@ import { useEffect, useState } from "react"
 import { useRouter } from "next/navigation"
 import { toast } from "sonner"
 import { AuthApiService } from "@/lib/services/auth-api"
-
-const API_BASE_URL = "http://20.117.240.138:3000/api/v1"
+import { API_CONFIG } from "@/lib/config"
 
 interface ShiftGuardProps {
   children: React.ReactNode
@@ -75,7 +74,7 @@ export default function ShiftGuard({
 
           // Verify shift is still active from backend
           try {
-            const response = await fetch(`${API_BASE_URL}/shifts/cashier/${currentUser.user_id}`, {
+            const response = await fetch(`${API_CONFIG.BASE_URL}/shifts/cashier/${currentUser.user_id}`, {
               method: "GET",
               headers: {
                 "Content-Type": "application/json",
