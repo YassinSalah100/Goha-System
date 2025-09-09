@@ -15,6 +15,10 @@ import { ShiftStatus, ShiftType } from "@/lib/types/monitoring"
 // GLOBAL SINGLETON TO PREVENT MULTIPLE FETCHES
 let globalFetchInProgress = false
 let globalFetchPromise: Promise<any> | null = null
+// Minimum time between auto-refreshes (in milliseconds) - set to 60 seconds
+const AUTO_REFRESH_INTERVAL = 60000
+// Debug flag to control all verbose logging
+const DEBUG_MODE = false
 
 // Types
 interface OrderItem {
@@ -244,30 +248,26 @@ const normalizeOrder = (order: any): Order => {
   let orderStatus = order.status || OrderStatus.COMPLETED
   let isApprovedCancellation = false
 
-  // Handle backend status mapping correctly
-  console.log(`📋 Order ${order.order_id} raw status from backend: "${order.status}"`)
-  
+  // Handle backend status mapping without excessive logging
   if (order.status === "cancelled_approved" || order.status === "canceled_approved") {
     // Order was fully cancelled and approved
     orderStatus = OrderStatus.CANCELLED_APPROVED
     isApprovedCancellation = true
-    console.log(`❌ Order ${order.order_id} is CANCELLED_APPROVED`)
   } else if (order.status === "cancelled" || order.status === "canceled") {
     // Order was cancelled but not yet approved - should show as pending
     orderStatus = OrderStatus.PENDING_CANCELLATION
-    console.log(`🟡 Order ${order.order_id} is CANCELLED but pending approval`)
   } else if (order.status === "pending_cancellation" || order.status === "pending-cancellation") {
     // Order has a pending cancellation request but is still active
     orderStatus = OrderStatus.PENDING_CANCELLATION  
-    console.log(`🟠 Order ${order.order_id} is PENDING_CANCELLATION (still active, awaiting approval)`)
   } else if (order.status === "active" || order.status === "completed") {
     // Order is active/completed (normal state)
     orderStatus = OrderStatus.COMPLETED
-    console.log(`✅ Order ${order.order_id} is COMPLETED/ACTIVE`)
+  } else if (order.status === "pending") {
+    // IMPORTANT: Map "pending" status to COMPLETED - these are not pending cancellations, just regular orders
+    orderStatus = OrderStatus.COMPLETED
   } else {
     // Default to completed for any other status
     orderStatus = OrderStatus.COMPLETED
-    console.log(`⚠️ Order ${order.order_id} has unknown status "${order.status}", defaulting to COMPLETED`)
   }
 
   return {
@@ -290,9 +290,9 @@ const normalizeOrder = (order: any): Order => {
 // Fetch current user's active shift
 const fetchCurrentShift = async (cashierId: string): Promise<Shift | null> => {
   try {
-    console.log(`🔍 Fetching shifts for cashier ${cashierId}`)
+    debugLog(`🔍 Fetching shifts for cashier ${cashierId}`)
     const result = await AuthApiService.apiRequest<any>(`/shifts/cashier/${cashierId}`)
-    console.log(`📊 Shifts response:`, result)
+    debugLog(`📊 Shifts response:`, result)
     if (result.success && result.data) {
       const shifts = Array.isArray(result.data.shifts)
         ? result.data.shifts
@@ -303,7 +303,7 @@ const fetchCurrentShift = async (cashierId: string): Promise<Shift | null> => {
       // Find active shift first
       const activeShift = shifts.find((shift: Shift) => shift.status === "active")
       if (activeShift) {
-        console.log(`✅ Found active shift: ${activeShift.shift_id}`)
+        debugLog(`✅ Found active shift: ${activeShift.shift_id}`)
         return activeShift
       }
 
@@ -312,7 +312,7 @@ const fetchCurrentShift = async (cashierId: string): Promise<Shift | null> => {
         const mostRecentShift = shifts.sort(
           (a: Shift, b: Shift) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime(),
         )[0]
-        console.log(`✅ Using most recent shift: ${mostRecentShift.shift_id}`)
+        debugLog(`✅ Using most recent shift: ${mostRecentShift.shift_id}`)
         return mostRecentShift
       }
     }
@@ -322,38 +322,10 @@ const fetchCurrentShift = async (cashierId: string): Promise<Shift | null> => {
   return null
 }
 
-// Fetch cancelled orders for current shift
+// Fetch cancelled orders for current shift with reduced logging
 const fetchCancelledOrdersFromAPI = async (shiftId: string): Promise<Order[]> => {
   try {
-    console.log(`🗑️ Fetching cancelled orders for shift ${shiftId}`)
-    
-    // Debug current user permissions before making the request
-    const currentUser = AuthApiService.getCurrentUser()
-    const userPermissions = AuthApiService.getUserPermissions()
-    console.log(`🔐 Current user:`, currentUser)
-    console.log(`🔐 User permissions:`, userPermissions)
-    console.log(`🔐 Has OWNER_ACCESS:`, AuthApiService.hasOwnerAccess())
-    console.log(`🔐 Has access:cashier:`, AuthApiService.hasPermission('access:cashier'))
-    console.log(`🔐 Has access:orders:`, AuthApiService.hasPermission('access:orders'))
-    
-    // Backend endpoint allows: ['OWNER_ACCESS', 'access:orders', 'access:cashier']
-    // So cashiers should have access to this endpoint
-    console.log(`🚀 Attempting to fetch cancelled orders (cashiers should have access)`)
-    
-    // Debug: Check the actual auth token being sent
-    const authToken = AuthApiService.getAuthToken()
-    if (authToken) {
-      try {
-        // Decode JWT payload (basic decode, not verification)
-        const payload = JSON.parse(atob(authToken.split('.')[1]))
-        console.log(`🔍 Token payload permissions:`, payload.permissions || payload.scopes || payload.roles)
-        console.log(`🔍 Token payload user:`, { id: payload.id || payload.user_id || payload.sub, role: payload.role })
-      } catch (e) {
-        console.log(`⚠️ Could not decode token payload:`, e)
-      }
-    } else {
-      console.log(`❌ No auth token found!`)
-    }
+    // Skip excessive permission logging to reduce console noise
     
     const result = await AuthApiService.apiRequest<any>(`/cancelled-orders/shift/${shiftId}`)
     
@@ -364,7 +336,9 @@ const fetchCancelledOrdersFromAPI = async (shiftId: string): Promise<Order[]> =>
           ? result.data 
           : []
       
-      console.log(`✅ Found ${cancelledOrdersData.length} cancelled orders for shift`)
+      if (cancelledOrdersData.length > 0) {
+        debugLog(`✅ Found ${cancelledOrdersData.length} cancelled orders for shift`)
+      }
       
       // Convert cancelled order data to Order format
       const cancelledOrders = await Promise.all(
@@ -380,23 +354,19 @@ const fetchCancelledOrdersFromAPI = async (shiftId: string): Promise<Order[]> =>
           
           // Check the actual status of the cancellation request
           const cancelStatus = cancelledData.status || 'pending'
-          console.log(`🔍 Cancelled order ${originalOrder.order_id} has cancel status: "${cancelStatus}"`)
           
           if (cancelStatus === 'approved' || cancelStatus === 'cancelled') {
             // Cancellation was approved - order is truly cancelled
             orderStatus = OrderStatus.CANCELLED_APPROVED
             isApprovedCancellation = true
-            console.log(`❌ Order ${originalOrder.order_id} cancellation is APPROVED`)
           } else if (cancelStatus === 'pending') {
             // Cancellation is still pending - order should show as pending cancellation
             orderStatus = OrderStatus.PENDING_CANCELLATION
             isApprovedCancellation = false
-            console.log(`🟠 Order ${originalOrder.order_id} cancellation is PENDING`)
           } else {
             // Unknown status, default to pending
             orderStatus = OrderStatus.PENDING_CANCELLATION
             isApprovedCancellation = false
-            console.log(`⚠️ Order ${originalOrder.order_id} has unknown cancel status "${cancelStatus}", defaulting to PENDING`)
           }
           
           return {
@@ -419,12 +389,10 @@ const fetchCancelledOrdersFromAPI = async (shiftId: string): Promise<Order[]> =>
   return []
 }
 
-// Enhanced fetchOrderItems with better error handling and extensive logging
+// Enhanced fetchOrderItems with reduced logging
 const fetchOrderItems = async (orderId: string): Promise<OrderItem[]> => {
   try {
-    console.log(`🔍 Fetching items for order ${orderId}`)
     const result = await AuthApiService.apiRequest<any>(`/order-items/order/${orderId}`)
-    console.log(`📦 Raw Items response for order ${orderId}:`, JSON.stringify(result, null, 2))
     
     if (result.success && result.data) {
       let items = []
@@ -434,29 +402,10 @@ const fetchOrderItems = async (orderId: string): Promise<OrderItem[]> => {
         items = result.data
       }
       
-      console.log(`✅ Found ${items.length} items for order ${orderId}`)
-      
-      // Log each item's structure to help debug extras
-      items.forEach((item, index) => {
-        console.log(`📋 Item ${index + 1} for order ${orderId}:`, {
-          order_item_id: item.order_item_id,
-          product_name: item.product_name || item.product?.name || item.product_size?.product_name,
-          quantity: item.quantity,
-          unit_price: item.unit_price,
-          extras: item.extras,
-          extras_count: Array.isArray(item.extras) ? item.extras.length : 0
-        })
-        
-        if (Array.isArray(item.extras) && item.extras.length > 0) {
-          console.log(`🎯 Extras for item ${index + 1}:`, item.extras.map(extra => ({
-            name: extra.name || extra.extra_name || extra.extraName,
-            price: extra.price,
-            quantity: extra.quantity
-          })))
-        } else {
-          console.log(`⚠️ No extras found for item ${index + 1}`)
-        }
-      })
+      // Minimized logging
+      if (items.length > 0) {
+        debugLog(`✅ Found ${items.length} items for order ${orderId}`)
+      }
       
       return items.map(normalizeOrderItem)
     }
@@ -466,25 +415,29 @@ const fetchOrderItems = async (orderId: string): Promise<OrderItem[]> => {
   return []
 }
 
-// SHIFT-AWARE FETCH FUNCTION (tries shift-specific endpoint with fallback)
+// Helper function for conditional logging
+const debugLog = (message: string, ...args: any[]) => {
+  if (DEBUG_MODE) {
+    console.log(message, ...args)
+  }
+}
+
+// Fetch from API with reduced logging
 const fetchFromAPI = async (shiftId: string): Promise<Order[]> => {
   if (globalFetchInProgress && globalFetchPromise) {
-    console.log("🔄 Reusing existing fetch promise...")
+    debugLog("🔄 Reusing existing fetch promise...")
     return await globalFetchPromise
   }
   globalFetchInProgress = true
   globalFetchPromise = (async () => {
     try {
       // First try the shift-specific endpoint (similar to cafe orders pattern)
-      console.log(`🌐 Attempting to fetch orders for shift ${shiftId} using shift-specific endpoint`)
-      
       let orders = []
       let useShiftEndpoint = false
       
       try {
         // Try /orders/shift/{shiftId} endpoint first
         const shiftResult = await AuthApiService.apiRequest<any>(`/orders/shift/${shiftId}`)
-        console.log(`📊 shift orders response for shift ${shiftId}:`, shiftResult)
         
         if (shiftResult.success && shiftResult.data) {
           orders = Array.isArray(shiftResult.data.orders)
@@ -493,14 +446,13 @@ const fetchFromAPI = async (shiftId: string): Promise<Order[]> => {
               ? shiftResult.data
               : []
           useShiftEndpoint = true
-          console.log(`✅ Found ${orders.length} orders for shift ${shiftId} using shift endpoint`)
+          debugLog(`✅ Found ${orders.length} orders for shift ${shiftId}`)
         }
       } catch (shiftError) {
-        console.log(`⚠️ Shift-specific endpoint not available, falling back to except-cafe with filtering`)
+        debugLog(`⚠️ Shift-specific endpoint not available, using fallback`)
         
         // Fallback to except-cafe endpoint with frontend filtering
         const result = await AuthApiService.apiRequest<any>('/orders/except-cafe')
-        console.log(`📊 except-cafe orders response (fallback):`, result)
         
         if (result.success && result.data) {
           const allOrders = Array.isArray(result.data.orders)
@@ -508,13 +460,12 @@ const fetchFromAPI = async (shiftId: string): Promise<Order[]> => {
             : Array.isArray(result.data)
               ? result.data
               : []
-          console.log(`✅ Found ${allOrders.length} total non-cafe orders`)
           
           // Filter by shiftId on the frontend
           orders = allOrders.filter((order: any) => 
             order.shift?.shift_id === shiftId || order.shift_id === shiftId
           )
-          console.log(`✅ Filtered to ${orders.length} orders for shift ${shiftId}`)
+          debugLog(`✅ Filtered to ${orders.length} orders for shift ${shiftId}`)
         }
       }
       
@@ -535,22 +486,16 @@ const fetchFromAPI = async (shiftId: string): Promise<Order[]> => {
           // Check order status and handle different cancellation states
           if (order.status === OrderStatus.PENDING_CANCELLATION || order.status === "pending_cancellation") {
             orderStatus = OrderStatus.PENDING_CANCELLATION
-            console.log(`🟡 Order ${orderId} is marked as pending_cancellation in main API response`)
           } else if (order.status === OrderStatus.CANCELLED_APPROVED || order.status === "cancelled_approved") {
             orderStatus = OrderStatus.CANCELLED_APPROVED
             isApprovedCancellation = true
-            console.log(`✅ Order ${orderId} is marked as cancelled_approved in main API response`)
           } else if (order.status === OrderStatus.CANCELLED || order.status === "cancelled") {
             // CANCELLED without APPROVED means it's still pending approval
             orderStatus = OrderStatus.PENDING_CANCELLATION
-            console.log(`❌ Order ${orderId} is marked as cancelled but pending approval`)
           } else if (order.status === OrderStatus.PENDING || order.status === "pending") {
-            orderStatus = OrderStatus.PENDING_CANCELLATION
-            console.log(`� Order ${orderId} has pending cancellation status from API`)
+            orderStatus = OrderStatus.COMPLETED // Map pending to COMPLETED
           } else {
             // For cashiers, we'll rely on the order status and local tracking
-            // since they don't have permission to access /cancelled-orders endpoint
-            console.log(`📋 Order ${orderId} status from API: ${order.status}`)
             
             // Check if this order was marked as pending cancellation locally
             const localOrders = JSON.parse(localStorage.getItem("pendingCancellations") || "[]")
@@ -558,7 +503,6 @@ const fetchFromAPI = async (shiftId: string): Promise<Order[]> => {
             
             if (isPendingLocally && !order.status.includes("cancel")) {
               orderStatus = OrderStatus.PENDING_CANCELLATION
-              console.log(`🟠 Order ${orderId} has pending cancellation request (local tracking)`)
             }
             
             // Also check if this order was approved as cancelled locally
@@ -566,7 +510,6 @@ const fetchFromAPI = async (shiftId: string): Promise<Order[]> => {
             if (approvedCancellations.includes(orderId)) {
               orderStatus = OrderStatus.CANCELLED_APPROVED
               isApprovedCancellation = true
-              console.log(`✅ Order ${orderId} is marked as cancelled (local tracking)`)
             }
           }            return {
               ...order,
@@ -586,19 +529,14 @@ const fetchFromAPI = async (shiftId: string): Promise<Order[]> => {
       const finalOrders = ordersWithItemsAndStatus.filter((order) => order && order.order_id).map(normalizeOrder)
       
       // Also fetch cancelled orders for this shift and include them in the total
-      console.log(`🗑️ Fetching cancelled orders for shift ${shiftId}`)
+      debugLog(`🗑️ Fetching cancelled orders for shift ${shiftId}`)
       let cancelledOrders: Order[] = []
       
       try {
         // Try to fetch cancelled orders (may fail for cashiers due to permissions)
         cancelledOrders = await fetchCancelledOrdersFromAPI(shiftId)
       } catch (cancelError) {
-        console.log(`❌ Could not fetch cancelled orders - Backend authorization issue:`, cancelError)
-        console.log(`� Expected: Backend should allow 'access:cashier' permission for /cancelled-orders/shift/${shiftId}`)
-        console.log(`🔍 Backend endpoint config: requireAnyPermission(['OWNER_ACCESS', 'access:orders', 'access:cashier'])`)
-        console.log(`🔍 Current user has 'access:cashier':`, AuthApiService.hasPermission('access:cashier'))
-        console.log(`🔍 This suggests a backend authorization middleware issue`)
-        console.log(`🔄 Falling back to order status from main API (orders with status 'cancelled' should still be visible)`)
+        console.error(`❌ Could not fetch cancelled orders:`, cancelError)
         // For now, we'll rely on the order status from the main API
         // Cancelled orders should already be included with status "cancelled" in the main orders response
       }
@@ -630,12 +568,12 @@ const fetchFromAPI = async (shiftId: string): Promise<Order[]> => {
               cancelled_at: cancelledOrder.cancelled_at,
               cancelled_by: cancelledOrder.cancelled_by
             }
-            console.log(`🔄 Updated order ${cancelledOrder.order_id} to status: ${cancelledOrder.status}`)
+            debugLog(`🔄 Updated order ${cancelledOrder.order_id} to status: ${cancelledOrder.status}`)
           }
         }
       })
       
-      console.log(`📊 Total orders (including cancelled): ${allOrders.length}`)
+      debugLog(`📊 Total orders (including cancelled): ${allOrders.length}`)
       
       return allOrders
     } catch (error) {
@@ -666,7 +604,7 @@ const fetchFromLocalStorage = (shiftId?: string): Order[] => {
 
 const deleteOrderFromAPI = async (orderId: string, reason: string, cashier: string): Promise<boolean> => {
   try {
-    console.log(`🗑️ Requesting cancellation for order ${orderId}`)
+    debugLog(`🗑️ Requesting cancellation for order ${orderId}`)
     
     // Get current user and shift for the cancel request
     const currentUser = JSON.parse(localStorage.getItem("currentUser") || "{}")
@@ -685,12 +623,14 @@ const deleteOrderFromAPI = async (orderId: string, reason: string, cashier: stri
     }
     
     const cancelRequestData = {
+      order_id: orderId,
       cancelled_by: userId,
       shift_id: shiftId,
       reason: reason || "طلب إلغاء من الكاشير"
+      // Remove the status field as it's not in the CreateCancelledOrderDto
     }
 
-    console.log(`📤 Cancel request data:`, cancelRequestData)
+    debugLog(`📤 Cancel request data:`, cancelRequestData)
 
     // Try the request-cancel endpoint first
     try {
@@ -700,7 +640,7 @@ const deleteOrderFromAPI = async (orderId: string, reason: string, cashier: stri
       })
       
       if (result.success) {
-        console.log(`✅ Cancel request submitted successfully for order ${orderId}`)
+        debugLog(`✅ Cancel request submitted successfully for order ${orderId}`)
         return true
       } else {
         console.log(`❌ Request-cancel failed:`, result.message)
@@ -893,26 +833,26 @@ export default function ShiftAwareOrdersPage() {
   const fetchOrders = useCallback(
     async (forceRefresh = false) => {
       if (!currentShift) {
-        console.log("⚠️ No current shift available, skipping order fetch")
+        debugLog("⚠️ No current shift available, skipping order fetch")
         return
       }
 
       const now = Date.now()
-      // Debounce: Don't fetch if last fetch was less than 2 seconds ago (unless forced)
-      if (!forceRefresh && now - lastFetchTime.current < 2000) {
-        console.log("⏰ Debounced: Too soon since last fetch, skipping...")
+      // Increased debounce time from 5s to 10s to reduce frequent fetches
+      if (!forceRefresh && now - lastFetchTime.current < 10000) {
+        debugLog("⏰ Debounced: Too soon since last fetch, skipping...")
         return
       }
 
       // Component-level protection
       if (componentFetchInProgress.current) {
-        console.log("⚠️ Component fetch already in progress, skipping...")
+        debugLog("⚠️ Component fetch already in progress, skipping...")
         return
       }
 
       // Global protection (handled in fetchFromAPI)
       if (globalFetchInProgress && !forceRefresh) {
-        console.log("🌍 Global fetch in progress, skipping...")
+        debugLog("🌍 Global fetch in progress, skipping...")
         return
       }
 
@@ -922,7 +862,10 @@ export default function ShiftAwareOrdersPage() {
         setLoading(true)
         setError(null)
 
-        console.log(`🚀 Starting SHIFT-AWARE fetchOrders for shift: ${currentShift.shift_id} with smart endpoint detection`)
+        // Reduced logging
+        if (forceRefresh) {
+          debugLog(`🚀 Refreshing orders for shift: ${currentShift.shift_id}`)
+        }
 
         // Fetch from both API and localStorage for the specific shift
         const [apiOrders, localOrders] = await Promise.all([
@@ -957,26 +900,20 @@ export default function ShiftAwareOrdersPage() {
           return dateB - dateA
         })
 
-        console.log(`🎯 FINAL UNIQUE orders for shift ${currentShift.shift_id}: ${finalOrders.length}`)
-        console.log(`📋 Order IDs: ${finalOrders.map((o) => o.order_id.slice(-6)).join(", ")}`)
+        debugLog(`🎯 Fetched ${finalOrders.length} orders for shift ${currentShift.shift_id}`)
         
-        // Log cancellation statuses for debugging
+        // Removed excessive order ID logging to reduce console noise
+        
+        // Log only counts of cancel statuses instead of full details
         const cancelledOrders = finalOrders.filter(order => order.isApprovedCancellation || order.status === OrderStatus.CANCELLED_APPROVED)
         const pendingCancelOrders = finalOrders.filter(order => order.status === OrderStatus.PENDING_CANCELLATION)
         
         if (cancelledOrders.length > 0) {
-          console.log(`❌ Found ${cancelledOrders.length} cancelled orders:`, cancelledOrders.map(o => ({
-            id: o.order_id.slice(-6),
-            status: o.status,
-            isApprovedCancellation: o.isApprovedCancellation
-          })))
+          debugLog(`❌ Found ${cancelledOrders.length} cancelled orders`)
         }
         
         if (pendingCancelOrders.length > 0) {
-          console.log(`🟠 Found ${pendingCancelOrders.length} pending cancellation orders:`, pendingCancelOrders.map(o => ({
-            id: o.order_id.slice(-6),
-            status: o.status
-          })))
+          debugLog(`🟠 Found ${pendingCancelOrders.length} pending cancellation orders`)
         }
 
         setOrders(finalOrders)
@@ -1072,7 +1009,7 @@ export default function ShiftAwareOrdersPage() {
   const handleDeleteOrder = async (orderId: string, reason: string) => {
     try {
       setIsDeleting(true)
-      console.log(`🗑️ Starting cancel request process for order ${orderId}`)
+      debugLog(`🗑️ Starting cancel request process for order ${orderId}`)
 
       // Create cancel request through API
       const success = await deleteOrderFromAPI(orderId, reason, currentCashier)
@@ -1191,18 +1128,19 @@ export default function ShiftAwareOrdersPage() {
   // Event listener for order updates and cancellation status changes
   useEffect(() => {
     let timeoutId: NodeJS.Timeout
+    let autoRefreshInterval: NodeJS.Timeout
     
     const handleOrderAdded = () => {
-      console.log("📢 Order added event received - will refetch in 3 seconds...")
+      debugLog("📢 Order added event received - will refetch in 3 seconds...")
       clearTimeout(timeoutId)
       timeoutId = setTimeout(() => {
-        console.log("🔄 Executing delayed refetch...")
+        debugLog("🔄 Executing delayed refetch...")
         fetchOrders(true) // Force refresh
       }, 3000) // 3 second delay to ensure order is fully saved
     }
 
     const handleCancellationApproved = (event: CustomEvent) => {
-      console.log("✅ Order cancellation approved event received for:", event.detail.orderId)
+      debugLog("✅ Order cancellation approved event received")
       
       // Remove from local pending cancellations tracking
       const localPendingCancellations = JSON.parse(localStorage.getItem("pendingCancellations") || "[]")
@@ -1218,13 +1156,13 @@ export default function ShiftAwareOrdersPage() {
       
       // Add a small delay to allow backend to process the cancellation
       setTimeout(() => {
-        console.log("🔄 Refreshing orders after cancellation approval...")
+        debugLog("🔄 Refreshing orders after cancellation approval...")
         fetchOrders(true) // Immediately refresh to show updated status
       }, 2000) // 2 second delay
     }
 
     const handleCancellationRejected = (event: CustomEvent) => {
-      console.log("❌ Order cancellation rejected event received for:", event.detail.orderId)
+      debugLog("❌ Order cancellation rejected event received")
       
       // Remove from local pending cancellations tracking
       const localPendingCancellations = JSON.parse(localStorage.getItem("pendingCancellations") || "[]")
@@ -1233,7 +1171,7 @@ export default function ShiftAwareOrdersPage() {
       
       // Add a small delay to allow backend to process the rejection
       setTimeout(() => {
-        console.log("🔄 Refreshing orders after cancellation rejection...")
+        debugLog("🔄 Refreshing orders after cancellation rejection...")
         fetchOrders(true) // Immediately refresh to show updated status
       }, 1000) // 1 second delay
     }
@@ -1242,11 +1180,18 @@ export default function ShiftAwareOrdersPage() {
     window.addEventListener("orderCancellationApproved", handleCancellationApproved as EventListener)
     window.addEventListener("orderCancellationRejected", handleCancellationRejected as EventListener)
     
+    // Set up an auto-refresh interval that's not too frequent (30 seconds)
+    autoRefreshInterval = setInterval(() => {
+      debugLog("⏱️ Auto-refresh interval triggered")
+      fetchOrders() // Regular refresh (respects debounce)
+    }, AUTO_REFRESH_INTERVAL)
+    
     return () => {
       window.removeEventListener("orderAdded", handleOrderAdded)
       window.removeEventListener("orderCancellationApproved", handleCancellationApproved as EventListener)
       window.removeEventListener("orderCancellationRejected", handleCancellationRejected as EventListener)
       clearTimeout(timeoutId)
+      clearInterval(autoRefreshInterval)
     }
   }, [fetchOrders])
 
