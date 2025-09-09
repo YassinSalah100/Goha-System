@@ -26,6 +26,7 @@ import { OrderStatus, CancelRequestStatus } from "@/lib/types/enums"
 
 interface CancelRequest {
   cancelled_order_id: string
+  request_id?: string // Some backend versions may use different field names
   order: {
     order_id: string
     customer_name?: string
@@ -41,6 +42,19 @@ interface CancelRequest {
     username?: string
     full_name?: string
   }
+  // Add approval and rejection details
+  approved_by?: {
+    user_id: string
+    full_name?: string
+  }
+  approved_at?: string
+  rejected_at?: string
+  rejected_by?: {
+    user_id: string
+    full_name?: string
+  }
+  rejection_reason?: string
+  
   reason: string
   cancelled_at: string
   status: CancelRequestStatus
@@ -58,6 +72,10 @@ interface CancelRequest {
       price: number
     }>
   }>
+  // Track if we've already processed this request to avoid duplicates
+  processed?: boolean
+  // Flag to identify duplicate order IDs
+  isDuplicate?: boolean
 }
 
 export default function CancelRequestsPage() {
@@ -85,11 +103,14 @@ export default function CancelRequestsPage() {
       const result = await AuthApiService.apiRequest<any>(`/cancelled-orders?page=1&limit=100`)
       
       if (result.success && result.data) {
-        const requests = result.data.cancelled_orders || result.data || []
+        const allRequests = result.data.cancelled_orders || result.data || []
+        
+        // Group requests by order_id to identify duplicates
+        const orderMap = new Map<string, CancelRequest[]>()
         
         // Fetch order details for each request
         const requestsWithDetails = await Promise.all(
-          requests.map(async (req: any) => {
+          allRequests.map(async (req: any) => {
             try {
               // Fetch basic order details
               const orderResult = await AuthApiService.apiRequest<any>(`/orders/${req.order.order_id}`)
@@ -111,7 +132,24 @@ export default function CancelRequestsPage() {
                 }
               }
               
-              return {
+              // Try to get the cashier info more reliably
+              let cashierId = req.cancelled_by?.id || req.cancelled_by?.user_id || req.cancelled_by
+              let cashierName = ''
+              let cashierUsername = ''
+              
+              // If cancelled_by is an object with full_name or fullName
+              if (typeof req.cancelled_by === 'object') {
+                cashierName = req.cancelled_by.fullName || req.cancelled_by.full_name || req.cancelled_by.name || ''
+                cashierUsername = req.cancelled_by.username || ''
+              }
+              
+              // If no cashier name was found, try to get from order data
+              if (!cashierName && orderData.cashier) {
+                cashierName = orderData.cashier.full_name || orderData.cashier.name || ''
+                cashierUsername = orderData.cashier.username || ''
+              }
+              
+              const cancelRequest: CancelRequest = {
                 cancelled_order_id: req.cancelled_order_id,
                 order: {
                   order_id: orderData.order_id,
@@ -124,13 +162,14 @@ export default function CancelRequestsPage() {
                   status: orderData.status as OrderStatus
                 },
                 cancelled_by: {
-                  user_id: req.cancelled_by.id || req.cancelled_by.user_id,
-                  username: req.cancelled_by.username,
-                  full_name: req.cancelled_by.fullName || req.cancelled_by.full_name
+                  user_id: cashierId,
+                  username: cashierUsername,
+                  full_name: cashierName || 'كاشير غير محدد'
                 },
                 reason: req.reason || 'لا يوجد سبب محدد',
                 cancelled_at: req.cancelled_at,
                 status: (req.status || 'pending') as CancelRequestStatus,
+                processed: false, // Initialize as not processed
                 order_items: orderItems.map((item: any) => ({
                   order_item_id: item.order_item_id,
                   product_size: {
@@ -146,6 +185,15 @@ export default function CancelRequestsPage() {
                   })) || []
                 }))
               }
+              
+              // Add to the order map to identify duplicates later
+              const orderId = orderData.order_id
+              if (!orderMap.has(orderId)) {
+                orderMap.set(orderId, [])
+              }
+              orderMap.get(orderId)?.push(cancelRequest)
+              
+              return cancelRequest
             } catch (error) {
               console.warn(`Failed to fetch details for request ${req.cancelled_order_id}:`, error)
               return null
@@ -156,14 +204,139 @@ export default function CancelRequestsPage() {
         // Filter out failed requests
         const validRequests = requestsWithDetails.filter(req => req !== null) as CancelRequest[]
         
-        setCancelRequests(validRequests)
+        // Mark duplicate orders (same order_id)
+        validRequests.forEach(request => {
+          const orderId = request.order.order_id
+          const requestsForOrder = orderMap.get(orderId) || []
+          
+          // If there's more than one request for this order_id, mark as duplicate
+          if (requestsForOrder.length > 1) {
+            // Mark non-pending requests first
+            const nonPendingRequests = requestsForOrder.filter(r => r.status !== CancelRequestStatus.PENDING)
+            
+            if (nonPendingRequests.length > 0) {
+              // If there are non-pending requests, only keep the most recent one
+              // Sort by cancelled_at date (newest first)
+              const sortedNonPending = [...nonPendingRequests].sort((a, b) => 
+                new Date(b.cancelled_at).getTime() - new Date(a.cancelled_at).getTime()
+              )
+              
+              // The first one is not a duplicate, all others are
+              sortedNonPending.forEach((req, index) => {
+                if (req.cancelled_order_id === request.cancelled_order_id) {
+                  request.isDuplicate = index > 0
+                }
+              })
+            } else {
+              // If all are pending, mark all but the newest as duplicates
+              const sortedPending = [...requestsForOrder].sort((a, b) => 
+                new Date(b.cancelled_at).getTime() - new Date(a.cancelled_at).getTime()
+              )
+              
+              sortedPending.forEach((req, index) => {
+                if (req.cancelled_order_id === request.cancelled_order_id) {
+                  request.isDuplicate = index > 0
+                }
+              })
+            }
+          }
+        })
         
-        // Calculate counts
-        setPendingCount(validRequests.filter(req => req.status === CancelRequestStatus.PENDING).length)
-        setApprovedCount(validRequests.filter(req => req.status === CancelRequestStatus.APPROVED).length)
-        setRejectedCount(validRequests.filter(req => req.status === CancelRequestStatus.REJECTED).length)
+        // Filter out duplicates for the displayed list and
+        // explicitly filter out any requests for orders that already have approved requests
+        const approvedOrderIds = new Set(
+          validRequests
+            .filter(req => {
+              const status = String(req.status).toLowerCase();
+              return status === 'approved' || status === 'cancelled' || status === 'cancelled_approved';
+            })
+            .map(req => req.order.order_id)
+        );
         
-        console.log(`✅ Loaded ${validRequests.length} cancel requests`)
+        // For each approved order, mark all other requests for that order as duplicates
+        validRequests.forEach(req => {
+          if (approvedOrderIds.has(req.order.order_id) && 
+              String(req.status).toLowerCase() !== 'approved' && 
+              String(req.status).toLowerCase() !== 'cancelled' && 
+              String(req.status).toLowerCase() !== 'cancelled_approved') {
+            req.isDuplicate = true;
+            req.processed = true;
+          }
+        });
+        
+        const filteredRequests = validRequests.filter(req => !req.isDuplicate)
+        
+        // Remove duplicates more aggressively - group by order_id and keep only one instance
+        // If there's both an approved and a pending, keep only the approved
+        const orderGroups = new Map<string, CancelRequest[]>();
+        
+        filteredRequests.forEach(req => {
+          const orderId = req.order.order_id;
+          if (!orderGroups.has(orderId)) {
+            orderGroups.set(orderId, []);
+          }
+          orderGroups.get(orderId)?.push(req);
+        });
+        
+        // For each order group, prioritize approved/rejected over pending
+        const finalRequests: CancelRequest[] = [];
+        
+        orderGroups.forEach((requests, orderId) => {
+          // Sort by status - approved first, then rejected, then pending
+          requests.sort((a, b) => {
+            const getStatusValue = (status: CancelRequestStatus | string) => {
+              const statusStr = String(status).toLowerCase();
+              if (statusStr === 'approved' || statusStr === 'cancelled' || statusStr === 'cancelled_approved') return 0;
+              if (statusStr === 'rejected') return 1;
+              return 2; // pending
+            };
+            
+            return getStatusValue(a.status) - getStatusValue(b.status);
+          });
+          
+          // Take the first one only (which is the approved/rejected if any)
+          if (requests.length > 0) {
+            finalRequests.push(requests[0]);
+          }
+        });
+        
+        // Sort by status for display - pending first, then approved, then rejected
+        const sortedRequests = [...finalRequests].sort((a, b) => {
+          const getStatusPriority = (status: CancelRequestStatus) => {
+            if (status === CancelRequestStatus.PENDING) return 0
+            if (status === CancelRequestStatus.APPROVED) return 1
+            return 2 // REJECTED
+          }
+          return getStatusPriority(a.status) - getStatusPriority(b.status)
+        })
+        
+        setCancelRequests(sortedRequests)
+        
+        // Calculate counts more accurately by checking string values
+        const pendingCount = filteredRequests.filter(req => 
+          req.status === CancelRequestStatus.PENDING || 
+          String(req.status).toLowerCase() === 'pending'
+        ).length;
+        
+        const approvedCount = filteredRequests.filter(req => 
+          req.status === CancelRequestStatus.APPROVED || 
+          String(req.status).toLowerCase() === 'approved' ||
+          String(req.status).toLowerCase() === 'cancelled' ||  // Also count cancelled as approved
+          String(req.status).toLowerCase() === 'cancelled_approved'
+        ).length;
+        
+        const rejectedCount = filteredRequests.filter(req => 
+          req.status === CancelRequestStatus.REJECTED ||
+          String(req.status).toLowerCase() === 'rejected'
+        ).length;
+        
+        // Update the counts
+        setPendingCount(pendingCount)
+        setApprovedCount(approvedCount)
+        setRejectedCount(rejectedCount)
+        
+        console.log(`✅ Loaded ${filteredRequests.length} cancel requests (${pendingCount} pending, ${approvedCount} approved, ${rejectedCount} rejected)`)
+        console.log(`ℹ️ Filtered out ${validRequests.length - filteredRequests.length} duplicate requests`)
       }
       
     } catch (error: any) {
@@ -176,6 +349,12 @@ export default function CancelRequestsPage() {
 
   const handleApprove = async (request: CancelRequest) => {
     try {
+      // If this request has already been processed, avoid duplicate processing
+      if (request.processed) {
+        console.warn("⚠️ This request has already been processed, skipping...")
+        return
+      }
+      
       setProcessingId(request.cancelled_order_id)
       
       // Get current user
@@ -196,21 +375,74 @@ export default function CancelRequestsPage() {
       )
       
       if (result.success) {
+        // Mark this request as processed to prevent duplicate actions
+        const updatedRequest = {
+          ...request,
+          status: CancelRequestStatus.APPROVED,
+          processed: true,
+          approved_at: new Date().toISOString(),
+          approved_by: {
+            user_id: approvedBy,
+            full_name: currentUser?.full_name || currentUser?.name || 'مدير'
+          }
+        }
+        
         // Update local state
         setCancelRequests(prev => prev.map(req => 
           req.cancelled_order_id === request.cancelled_order_id 
-            ? { ...req, status: CancelRequestStatus.APPROVED }
+            ? updatedRequest
             : req
         ))
         
-        // Update counts
-        setPendingCount(prev => prev - 1)
+        // Update counts immediately in the UI
+        setPendingCount(prev => Math.max(0, prev - 1))
         setApprovedCount(prev => prev + 1)
+        
+        // Completely remove any duplicate requests for this order from the UI
+        // We'll only keep the approved one
+        const orderId = request.order.order_id;
+        
+        setCancelRequests(prev => {
+          // Find all requests with this order ID
+          const requestsForOrder = prev.filter(req => req.order.order_id === orderId);
+          
+          // If there's just one, update it normally
+          if (requestsForOrder.length <= 1) {
+            return prev.map(req => 
+              req.cancelled_order_id === request.cancelled_order_id
+                ? { ...req, status: CancelRequestStatus.APPROVED, processed: true }
+                : req
+            );
+          }
+          
+          // If there are multiple, keep only the one we just approved and filter out others
+          return prev
+            .filter(req => req.order.order_id !== orderId || req.cancelled_order_id === request.cancelled_order_id)
+            .map(req => 
+              req.cancelled_order_id === request.cancelled_order_id
+                ? { ...req, status: CancelRequestStatus.APPROVED, processed: true }
+                : req
+            );
+        })
         
         console.log(`✅ Cancel request approved successfully`)
         
-        // Refresh data
-        setTimeout(fetchCancelRequests, 1000)
+        // Show success message
+        alert(`✅ تمت الموافقة على طلب الإلغاء بنجاح! تم إلغاء الطلب #${request.order.order_id.slice(-6)}.`)
+        
+        // Dispatch event to notify cashier page about approval
+        const orderCancellationEvent = new CustomEvent("orderCancellationApproved", {
+          detail: { 
+            orderId: request.order.order_id,
+            cancelRequestId: request.cancelled_order_id
+          }
+        })
+        
+        window.dispatchEvent(orderCancellationEvent)
+        console.log(`🔔 Dispatched orderCancellationApproved event for order ${request.order.order_id}`)
+        
+        // Refresh data after a short delay
+        setTimeout(fetchCancelRequests, 1500)
       } else {
         throw new Error(result.message || "فشل في الموافقة على الطلب")
       }
@@ -293,17 +525,45 @@ export default function CancelRequestsPage() {
     return `${price.toFixed(2)} جنيه`
   }
 
-  const getStatusBadge = (status: CancelRequestStatus) => {
-    switch (status) {
-      case CancelRequestStatus.PENDING:
-        return <Badge variant="outline" className="bg-yellow-50 text-yellow-700 border-yellow-200"><Clock className="w-3 h-3 mr-1" />معلق</Badge>
-      case CancelRequestStatus.APPROVED:
-        return <Badge variant="default" className="bg-green-50 text-green-700 border-green-200"><CheckCircle className="w-3 h-3 mr-1" />موافق عليه</Badge>
-      case CancelRequestStatus.REJECTED:
-        return <Badge variant="destructive" className="bg-red-50 text-red-700 border-red-200"><XCircle className="w-3 h-3 mr-1" />مرفوض</Badge>
-      default:
-        return <Badge variant="outline">{status}</Badge>
+  const getStatusBadge = (request: CancelRequest) => {
+    // Convert status to lowercase string for comparison
+    const statusStr = String(request.status).toLowerCase();
+    
+    if (statusStr === 'pending') {
+      return <Badge variant="outline" className="bg-yellow-50 text-yellow-700 border-yellow-200"><Clock className="w-3 h-3 mr-1" />معلق</Badge>;
     }
+    
+    if (statusStr === 'approved' || statusStr === 'cancelled' || statusStr === 'cancelled_approved') {
+      return (
+        <div className="flex flex-col gap-1">
+          <Badge variant="default" className="bg-green-50 text-green-700 border-green-200">
+            <CheckCircle className="w-3 h-3 mr-1" />موافق عليه
+          </Badge>
+          {request.approved_at && (
+            <div className="text-xs text-green-600 text-right">
+              {new Date(request.approved_at).toLocaleDateString('ar-EG')}
+            </div>
+          )}
+        </div>
+      );
+    }
+    
+    if (statusStr === 'rejected') {
+      return (
+        <div className="flex flex-col gap-1">
+          <Badge variant="destructive" className="bg-red-50 text-red-700 border-red-200">
+            <XCircle className="w-3 h-3 mr-1" />مرفوض
+          </Badge>
+          {request.rejected_at && (
+            <div className="text-xs text-red-600 text-right">
+              {new Date(request.rejected_at).toLocaleDateString('ar-EG')}
+            </div>
+          )}
+        </div>
+      );
+    }
+    
+    return <Badge variant="outline">{request.status}</Badge>;
   }
 
   const getOrderTypeName = (type: string) => {
@@ -421,8 +681,25 @@ export default function CancelRequestsPage() {
             </div>
           ) : (
             <div className="space-y-4">
-              {cancelRequests.map((request) => (
-                <Card key={request.cancelled_order_id} className="border border-gray-200">
+              {cancelRequests.map((request) => {
+                // Determine if this is a system cancellation by checking the reason
+                const isSystemCancellation = request.reason.includes('automatically') || 
+                                           request.reason.includes('CANCELLED automatically');
+                
+                // Create a more readable reason for system cancellations
+                const displayReason = isSystemCancellation 
+                  ? "تم إلغاء الطلب بواسطة الكاشير" 
+                  : request.reason;
+                
+                return (
+                <Card 
+                  key={request.cancelled_order_id} 
+                  className={`border ${
+                    request.isDuplicate 
+                      ? "border-amber-300 bg-amber-50" 
+                      : "border-gray-200"
+                  }`}
+                >
                   <CardContent className="p-4">
                     <div className="space-y-4">
                       {/* Header */}
@@ -432,6 +709,18 @@ export default function CancelRequestsPage() {
                             طلب #{request.order.order_id.slice(-6)}
                           </h3>
                           {getStatusBadge(request.status)}
+                          {request.isDuplicate && (
+                            <Badge variant="outline" className="bg-amber-100 text-amber-800 border-amber-300">
+                              <AlertCircle className="w-3 h-3 mr-1" />
+                              طلب مكرر
+                            </Badge>
+                          )}
+                          {isSystemCancellation && (
+                            <Badge variant="outline" className="bg-indigo-100 text-indigo-800 border-indigo-300">
+                              <User className="w-3 h-3 mr-1" />
+                              إلغاء الكاشير
+                            </Badge>
+                          )}
                         </div>
                         <div className="text-sm text-gray-500">
                           {new Date(request.cancelled_at).toLocaleDateString('ar-EG')}
@@ -464,14 +753,34 @@ export default function CancelRequestsPage() {
                       </div>
 
                       {/* Cancellation Details */}
-                      <div className="bg-red-50 p-3 rounded-lg border border-red-200">
+                      <div className={`${
+                        isSystemCancellation 
+                          ? "bg-indigo-50 border-indigo-200" 
+                          : "bg-red-50 border-red-200"
+                      } p-3 rounded-lg border`}>
                         <div className="flex items-start gap-2">
-                          <AlertCircle className="w-4 h-4 text-red-600 mt-0.5" />
+                          {isSystemCancellation ? (
+                            <FileText className="w-4 h-4 text-indigo-600 mt-0.5" />
+                          ) : (
+                            <AlertCircle className="w-4 h-4 text-red-600 mt-0.5" />
+                          )}
                           <div className="flex-1">
-                            <p className="text-sm font-medium text-red-700 mb-1">سبب الإلغاء:</p>
-                            <p className="text-sm text-red-600">{request.reason}</p>
-                            <p className="text-xs text-red-500 mt-1">
-                              طلب من: {request.cancelled_by.full_name || request.cancelled_by.username}
+                            <p className={`text-sm font-medium ${
+                              isSystemCancellation 
+                                ? "text-indigo-700" 
+                                : "text-red-700"
+                            } mb-1`}>سبب الإلغاء:</p>
+                            <p className={`text-sm ${
+                              isSystemCancellation 
+                                ? "text-indigo-600" 
+                                : "text-red-600"
+                            }`}>{displayReason}</p>
+                            <p className={`text-xs ${
+                              isSystemCancellation 
+                                ? "text-indigo-500" 
+                                : "text-red-500"
+                            } mt-1`}>
+                              طلب من: {request.cancelled_by.full_name || request.cancelled_by.username || "غير معروف"}
                             </p>
                           </div>
                         </div>
@@ -543,7 +852,7 @@ export default function CancelRequestsPage() {
                         <div className="flex gap-2 pt-2">
                           <Button 
                             onClick={() => handleApprove(request)}
-                            disabled={processingId === request.cancelled_order_id}
+                            disabled={processingId === request.cancelled_order_id || request.processed}
                             className="bg-green-600 hover:bg-green-700"
                           >
                             {processingId === request.cancelled_order_id ? (
@@ -555,7 +864,7 @@ export default function CancelRequestsPage() {
                           </Button>
                           <Button 
                             onClick={() => handleReject(request)}
-                            disabled={processingId === request.cancelled_order_id}
+                            disabled={processingId === request.cancelled_order_id || request.processed}
                             variant="destructive"
                           >
                             {processingId === request.cancelled_order_id ? (
@@ -570,7 +879,7 @@ export default function CancelRequestsPage() {
                     </div>
                   </CardContent>
                 </Card>
-              ))}
+              )})}
             </div>
           )}
         </CardContent>
