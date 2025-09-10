@@ -24,6 +24,18 @@ import {
 import { Loader2, CheckCircle, XCircle, User,DollarSign, Phone, Briefcase, Users, Plus, RefreshCw, Trash2,} from "lucide-react"
 import { API_CONFIG } from "@/lib/config"
 
+// Worker status enum matching the backend exactly
+export enum WorkerStatus {
+  ADMIN = 'admin',
+  CASHIER = 'cashier',
+  CHEF = 'chef',
+  WAITER = 'waiter',
+  DELIVERY = 'delivery',
+  KITCHEN = 'kitchen',
+  STEAWER = 'steawer',
+  KITCHEN_ASSISTANT = 'kitchen_assistant'
+}
+
 const arabicLabels = {
   create_worker: "إضافة عامل جديد",
   full_name: "الاسم الكامل",
@@ -51,28 +63,29 @@ const arabicLabels = {
   deleting: "جاري الحذف...",
 }
 
+// Worker role options using the WorkerStatus enum
 const workerRoleOptions = [
-  { value: "admin", label: "مدير", color: "bg-purple-100 text-purple-800" },
-  { value: "cashier", label: "كاشير", color: "bg-green-100 text-green-800" },
-  { value: "chef", label: "طباخ رئيسي", color: "bg-red-100 text-red-800" },
-  { value: "waiter", label: "نادل", color: "bg-blue-100 text-blue-800" },
-  { value: "delivery", label: "موصل", color: "bg-yellow-100 text-yellow-800" },
-  { value: "kitchen", label: "مطبخ", color: "bg-orange-100 text-orange-800" },
-  { value: "steawer", label: "ستيوارد", color: "bg-indigo-100 text-indigo-800" },
-  { value: "kitchen_assistant", label: "مساعد مطبخ", color: "bg-gray-100 text-gray-800" },
+  { value: WorkerStatus.ADMIN, label: "مدير", color: "bg-purple-100 text-purple-800" },
+  { value: WorkerStatus.CASHIER, label: "كاشير", color: "bg-green-100 text-green-800" },
+  { value: WorkerStatus.CHEF, label: "طباخ رئيسي", color: "bg-red-100 text-red-800" },
+  { value: WorkerStatus.WAITER, label: "نادل", color: "bg-blue-100 text-blue-800" },
+  { value: WorkerStatus.DELIVERY, label: "موصل", color: "bg-yellow-100 text-yellow-800" },
+  { value: WorkerStatus.KITCHEN, label: "مطبخ", color: "bg-orange-100 text-orange-800" },
+  { value: WorkerStatus.STEAWER, label: "ستيوارد", color: "bg-indigo-100 text-indigo-800" },
+  { value: WorkerStatus.KITCHEN_ASSISTANT, label: "مساعد مطبخ", color: "bg-gray-100 text-gray-800" },
 ]
 
 interface FormData {
   full_name: string
   base_hourly_rate: string
-  status: string
+  status: WorkerStatus
   phone: string
 }
 
 interface Worker {
   worker_id: string
   full_name: string
-  status: string
+  status: WorkerStatus
   base_hourly_rate: number
   phone?: string
   is_active: boolean
@@ -90,7 +103,7 @@ export default function WorkerManagementPage() {
   const [form, setForm] = useState<FormData>({
     full_name: "",
     base_hourly_rate: "",
-    status: "",
+    status: "" as unknown as WorkerStatus, // Initialize empty but will be set to a valid value
     phone: "",
   })
 
@@ -136,7 +149,13 @@ export default function WorkerManagementPage() {
   }
 
   const handleChange = (name: string, value: string) => {
-    setForm({ ...form, [name]: value })
+    if (name === "status") {
+      // Convert the string value to the WorkerStatus enum value
+      setForm({ ...form, [name]: value as WorkerStatus })
+    } else {
+      setForm({ ...form, [name]: value })
+    }
+    
     if (errors[name as keyof FormErrors]) {
       setErrors({ ...errors, [name]: undefined })
     }
@@ -238,7 +257,12 @@ export default function WorkerManagementPage() {
       if (responseData.success) {
         setMsg(arabicLabels.success)
         setMsgType("success")
-        setForm({ full_name: "", base_hourly_rate: "", status: "", phone: "" })
+        setForm({ 
+          full_name: "", 
+          base_hourly_rate: "", 
+          status: "" as unknown as WorkerStatus, 
+          phone: "" 
+        })
         // Refresh workers list
         fetchWorkers()
       } else {
@@ -253,12 +277,12 @@ export default function WorkerManagementPage() {
     }
   }
 
-  const getRoleLabel = (status: string) => {
+  const getRoleLabel = (status: WorkerStatus) => {
     const role = workerRoleOptions.find((r) => r.value === status)
     return role ? role.label : status
   }
 
-  const getRoleColor = (status: string) => {
+  const getRoleColor = (status: WorkerStatus) => {
     const role = workerRoleOptions.find((r) => r.value === status)
     return role ? role.color : "bg-gray-100 text-gray-800"
   }

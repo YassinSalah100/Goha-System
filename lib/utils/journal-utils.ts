@@ -23,10 +23,6 @@ export const validateExpenseForm = (formData: any): { isValid: boolean; errors: 
     errors.amount = "يجب أن يكون المبلغ أكبر من صفر"
   }
   
-  if (!formData.category?.trim()) {
-    errors.category = "فئة المصروف مطلوبة"
-  }
-  
   return {
     isValid: Object.keys(errors).length === 0,
     errors

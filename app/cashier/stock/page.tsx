@@ -1670,14 +1670,34 @@ export default function CashierStockPage() {
         return
       }
 
-      // Create stock transaction - this is the correct way for cashiers
+      // Ensure we have all required fields with correct types
+      if (!selectedItem.stock_item_id || !currentUser?.id || !currentShiftId) {
+        toast({
+          title: "خطأ",
+          description: "بيانات غير كاملة. تحقق من البيانات وحاول مرة أخرى",
+          variant: "destructive",
+        })
+        return
+      }
+
+      // Ensure numeric value for quantity
+      const numericQuantity = Number(updateQuantity)
+      if (isNaN(numericQuantity) || numericQuantity <= 0) {
+        toast({
+          title: "خطأ",
+          description: "يجب إدخال كمية صحيحة وأكبر من الصفر",
+          variant: "destructive",
+        })
+        return
+      }
+
+      // Create stock transaction with proper enum values
       const transactionData = {
         stock_item_id: selectedItem.stock_item_id,
-        type: updateType === "add" ? "in" : "out",
-        quantity: updateQuantity,
+        type: updateType === "add" ? "in" : "out", // Lowercase to match enum values
+        quantity: numericQuantity,
         user_id: currentUser?.id || currentUser?.user_id,
-        shift_id: currentShiftId,
-        notes: `Stock ${updateType === "add" ? "addition" : "reduction"} for ${selectedItem.name}`,
+        shift_id: currentShiftId
       }
 
       console.log("Creating stock transaction:", transactionData)
@@ -1692,9 +1712,10 @@ export default function CashierStockPage() {
 
       // Update local state with the new quantity
       const newQuantity = updateType === "add" 
-        ? selectedItem.current_quantity + updateQuantity
-        : Math.max(0, selectedItem.current_quantity - updateQuantity)
-
+        ? selectedItem.current_quantity + numericQuantity
+        : Math.max(0, selectedItem.current_quantity - numericQuantity)
+        
+      // Update the item with new quantity
       const updatedItem = {
         ...selectedItem,
         current_quantity: newQuantity
@@ -1719,9 +1740,27 @@ export default function CashierStockPage() {
       
     } catch (error: any) {
       console.error("Error creating stock transaction:", error)
+      
+      // Display detailed error message
+      let errorMessage = "حدث خطأ أثناء إنشاء معاملة المخزون"
+      
+      if (error.response && error.response.data) {
+        const responseData = error.response.data
+        if (responseData.errors && responseData.errors.length > 0) {
+          // Extract validation errors
+          errorMessage += ": " + responseData.errors.map((err: any) => 
+            `${err.property}: ${Object.values(err.constraints || {}).join(', ')}`
+          ).join("; ")
+        } else if (responseData.message) {
+          errorMessage += ": " + responseData.message
+        }
+      } else if (error.message) {
+        errorMessage += ": " + error.message
+      }
+      
       toast({
         title: "خطأ",
-        description: error.message || "فشل في تسجيل حركة المخزون",
+        description: errorMessage,
         variant: "destructive",
       })
     }
